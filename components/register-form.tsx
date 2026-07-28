@@ -2,9 +2,9 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
-export function LoginForm() {
+export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -15,10 +15,12 @@ export function LoginForm() {
     setError("");
 
     const formData = new FormData(event.currentTarget);
-    const response = await fetch("/api/auth/login", {
+    const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        inviteCode: formData.get("inviteCode"),
+        name: formData.get("name"),
         email: formData.get("email"),
         password: formData.get("password"),
       }),
@@ -26,7 +28,7 @@ export function LoginForm() {
 
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
-      setError(result.error || "Не получилось войти.");
+      setError(result.error || "Не получилось зарегистрироваться.");
       setBusy(false);
       return;
     }
@@ -38,21 +40,23 @@ export function LoginForm() {
   return (
     <form onSubmit={submit} className="mt-8 space-y-4">
       <label className="field">
+        <span>Код приглашения</span>
+        <input name="inviteCode" defaultValue={inviteCode} required />
+      </label>
+      <label className="field">
+        <span>Имя</span>
+        <input name="name" required />
+      </label>
+      <label className="field">
         <span>Почта</span>
-        <div className="relative">
-          <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
-          <input name="email" type="email" required autoFocus className="!pl-11" />
-        </div>
+        <input name="email" type="email" required />
       </label>
       <label className="field">
         <span>Пароль</span>
-        <div className="relative">
-          <LockKeyhole size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
-          <input name="password" type="password" required className="!pl-11" />
-        </div>
+        <input name="password" type="password" minLength={8} required />
       </label>
       <button className="button-primary w-full" disabled={busy}>
-        {busy ? "Проверяю…" : "Войти"}
+        {busy ? "Создаю аккаунт…" : "Создать аккаунт"}
         {!busy && <ArrowRight size={16} />}
       </button>
       {error && <p className="text-sm text-red-700">{error}</p>}

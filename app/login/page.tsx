@@ -2,13 +2,13 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
-import { isAdmin } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
-  if (await isAdmin()) {
-    redirect("/admin");
+  if (await getCurrentUser()) {
+    redirect("/");
   }
 
   return (
@@ -25,15 +25,19 @@ export default async function LoginPage() {
           <span className="grid size-11 place-items-center rounded-full bg-ink font-serif text-2xl italic text-paper">
             b.
           </span>
-          <p className="eyebrow mb-3 mt-8">Закрытый раздел</p>
-          <h1 className="font-serif text-4xl tracking-tight">
-            Управление архивом
-          </h1>
+          <p className="eyebrow mb-3 mt-8">Вход</p>
+          <h1 className="font-serif text-4xl tracking-tight">С возвращением</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            Здесь можно добавлять новые тексты, заменять файлы и редактировать
-            описание материалов.
+            Аккаунт нужен, чтобы комментировать, оставлять пометки и
+            редактировать описания книг.
           </p>
           <LoginForm />
+          <p className="mt-6 text-center text-sm text-muted">
+            Нет аккаунта?{" "}
+            <Link href="/register" className="font-medium text-ink underline">
+              Зарегистрироваться по приглашению
+            </Link>
+          </p>
         </section>
       </div>
     </main>

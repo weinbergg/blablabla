@@ -1,32 +1,23 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import { isAdmin } from "@/lib/auth";
-import {
-  deleteUploadedFile,
-  documentFromForm,
-} from "@/lib/document-form";
-import { saveDocument } from "@/lib/library";
+import { getCurrentUser } from "@/lib/auth";
+import { createDocument } from "@/lib/document-form";
 
 export async function POST(request: Request) {
-  if (!(await isAdmin())) {
+  const user = await getCurrentUser();
+  if (!user) {
     return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
   }
 
   try {
     const formData = await request.formData();
-    const { document, replacedFileUrl } = await documentFromForm(formData);
-    await saveDocument(document);
-    await deleteUploadedFile(replacedFileUrl);
+    const documentId = await createDocument(formData, user.id);
     revalidatePath("/");
-    revalidatePath(`/catalog/${document.categoryId}`);
     revalidatePath("/admin");
-    return NextResponse.json({ document }, { status: 201 });
+    return NextResponse.json({ id: documentId }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Не удалось добавить файл.",
-      },
+      { error: error instanceof Error ? error.message : "Не удалось добавить файл." },
       { status: 400 },
     );
   }

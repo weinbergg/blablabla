@@ -1,21 +1,44 @@
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { CategoryIcon } from "@/components/category-icon";
+import { CategoryCard } from "@/components/category-card";
 import { DocumentRow } from "@/components/document-row";
 import { Header } from "@/components/header";
-import { LibrarySearch } from "@/components/library-search";
-import { getLibrary } from "@/lib/library";
+import { LibrarySearch, type SearchableDocument } from "@/components/library-search";
+import {
+  getAllDocumentsForSearch,
+  getCategoryTree,
+  getRecentDocuments,
+} from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
+function flattenCategories(nodes: Awaited<ReturnType<typeof getCategoryTree>>) {
+  const map = new Map<string, { name: string; slug: string }>();
+  const walk = (list: typeof nodes) => {
+    for (const node of list) {
+      map.set(node.id, { name: node.name, slug: node.slug });
+      walk(node.children);
+    }
+  };
+  walk(nodes);
+  return map;
+}
+
 export default async function Home() {
-  const data = await getLibrary();
-  const recentDocuments = [...data.documents]
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
-    .slice(0, 4);
+  const [tree, allDocuments, recentDocuments] = await Promise.all([
+    getCategoryTree(),
+    getAllDocumentsForSearch(),
+    getRecentDocuments(6),
+  ]);
+
+  const categoryById = flattenCategories(tree);
+  const totalDocuments = allDocuments.length;
+
+  const searchable: SearchableDocument[] = allDocuments.map((doc) => ({
+    id: doc.id,
+    title: doc.title,
+    alternateTitle: doc.alternateTitle,
+    authorNames: doc.authors.map((a) => a.name).join(", "),
+    categoryName: categoryById.get(doc.categoryId)?.name ?? "",
+  }));
 
   return (
     <>
@@ -35,11 +58,7 @@ export default async function Home() {
             </p>
 
             <div className="mt-10">
-              <LibrarySearch
-                documents={data.documents}
-                categories={data.categories}
-                subcategories={data.subcategories}
-              />
+              <LibrarySearch documents={searchable} totalCount={totalDocuments} />
             </div>
           </div>
         </section>
@@ -47,69 +66,25 @@ export default async function Home() {
         <section id="catalog" className="shell py-20 md:py-28">
           <div className="mb-10 flex items-end justify-between">
             <div>
-              <p className="eyebrow mb-3">Направления</p>
+              <p className="eyebrow mb-3">Разделы</p>
               <h2 className="font-serif text-4xl tracking-tight md:text-5xl">
                 Вся библиотека
               </h2>
             </div>
             <p className="hidden max-w-xs text-right text-sm leading-6 text-muted md:block">
-              Три области знания, множество эпох и способов увидеть мир.
+              Каждый раздел делится на подразделы — с произвольной глубиной.
             </p>
           </div>
 
-          <div className="grid border-b border-l border-ink/10 md:grid-cols-3">
-            {data.categories.map((category) => {
-              const documents = data.documents.filter(
-                (document) => document.categoryId === category.id,
-              );
-              const subcategories = data.subcategories.filter(
-                (subcategory) => subcategory.categoryId === category.id,
-              );
-
-              return (
-                <Link
-                  key={category.id}
-                  href={`/catalog/${category.slug}`}
-                  className="category-card group relative min-h-[390px] overflow-hidden border-r border-t border-ink/10 p-7 md:p-9"
-                >
-                  <div
-                    className="category-wash"
-                    style={{ backgroundColor: category.accent }}
-                  />
-                  <div className="relative flex h-full flex-col">
-                    <div className="flex items-start justify-between">
-                      <span className="font-mono text-xs text-muted">
-                        {category.index}
-                      </span>
-                      <CategoryIcon
-                        category={category.id}
-                        size={42}
-                        strokeWidth={1.2}
-                        style={{ color: category.accent }}
-                      />
-                    </div>
-                    <div className="mt-auto pt-20">
-                      <h3 className="font-serif text-4xl tracking-tight">
-                        {category.name}
-                      </h3>
-                      <p className="mt-3 max-w-xs text-sm leading-6 text-muted">
-                        {category.description}
-                      </p>
-                      <div className="mt-7 flex items-center justify-between border-t border-ink/10 pt-4">
-                        <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-                          {documents.length} текстов · {subcategories.length}{" "}
-                          раздела
-                        </span>
-                        <ArrowRight
-                          size={18}
-                          className="transition-transform group-hover:translate-x-1"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+          <div className="grid border-b border-l border-ink/10 sm:grid-cols-2 lg:grid-cols-3">
+            {tree.map((category, index) => (
+              <CategoryCard
+                key={category.id}
+                category={category}
+                href={`/catalog/${category.slug}`}
+                index={index}
+              />
+            ))}
           </div>
         </section>
 
@@ -132,12 +107,7 @@ export default async function Home() {
                 <DocumentRow
                   key={document.id}
                   document={document}
-                  category={data.categories.find(
-                    (category) => category.id === document.categoryId,
-                  )}
-                  subcategory={data.subcategories.find(
-                    (subcategory) => subcategory.id === document.subcategoryId,
-                  )}
+                  category={categoryById.get(document.categoryId)}
                   showCategory
                 />
               ))}

@@ -1,22 +1,56 @@
 import { redirect } from "next/navigation";
-import { AdminDashboard } from "@/components/admin-dashboard";
-import { isAdmin } from "@/lib/auth";
-import { getLibrary } from "@/lib/library";
+import { AdminDashboard, type AdminDocument } from "@/components/admin-dashboard";
+import { getCurrentUser } from "@/lib/auth";
+import { db } from "@/lib/db/client";
+import { invites } from "@/lib/db/schema";
+import { desc } from "drizzle-orm";
+import { flattenCategoryOptions, getAllDocumentsForSearch, getCategoryTree } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  if (!(await isAdmin())) {
-    redirect("/admin/login");
-  }
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (user.role !== "admin") redirect("/");
 
-  const data = await getLibrary();
+  const [tree, allDocuments, inviteRows] = await Promise.all([
+    getCategoryTree(),
+    getAllDocumentsForSearch(),
+    db.select().from(invites).orderBy(desc(invites.createdAt)),
+  ]);
+
+  const categoryById = new Map<string, string>();
+  const walk = (nodes: typeof tree) => {
+    for (const node of nodes) {
+      categoryById.set(node.id, node.name);
+      walk(node.children);
+    }
+  };
+  walk(tree);
+
+  const documents: AdminDocument[] = allDocuments.map((doc) => ({
+    id: doc.id,
+    title: doc.title,
+    authorNames: doc.authors.map((a) => a.name).join(", "),
+    categoryId: doc.categoryId,
+    categoryName: categoryById.get(doc.categoryId) ?? "",
+    fileType: doc.fileType,
+    confidence: doc.confidence,
+  }));
 
   return (
     <AdminDashboard
-      documents={data.documents}
-      categories={data.categories}
-      subcategories={data.subcategories}
+      documents={documents}
+      categoryOptions={flattenCategoryOptions(tree)}
+      categoryTree={tree}
+      invites={inviteRows.map((invite) => ({
+        id: invite.id,
+        code: invite.code,
+        email: invite.email,
+        note: invite.note,
+        usedBy: invite.usedBy,
+        createdAt: invite.createdAt,
+      }))}
     />
   );
 }

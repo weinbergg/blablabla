@@ -1,7 +1,11 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { Network } from "lucide-react";
+import { getCurrentUser } from "@/lib/auth";
+import { HeaderAccount } from "@/components/header-account";
 
-export function Header() {
+export async function Header() {
+  const user = await getCurrentUser();
+
   return (
     <header className="border-b border-ink/10">
       <div className="shell flex h-20 items-center justify-between">
@@ -27,15 +31,13 @@ export function Header() {
             Каталог
           </Link>
           <Link
-            href="/admin"
-            className="group flex items-center gap-1.5 border-b border-ink pb-0.5 font-medium"
+            href="/graph"
+            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink sm:flex"
           >
-            Управление
-            <ArrowUpRight
-              size={14}
-              className="transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
-            />
+            <Network size={14} />
+            Связи
           </Link>
+          <HeaderAccount user={user} />
         </nav>
       </div>
     </header>

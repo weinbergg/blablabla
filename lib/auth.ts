@@ -1,40 +1,76 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "crypto";
+import { randomBytes } from "crypto";
 import { cookies } from "next/headers";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { sessions, users } from "@/lib/db/schema";
 
-export const SESSION_COOKIE = "blabla_admin";
+export { hashPassword, verifyPassword } from "@/lib/password";
 
-function adminPassword() {
-  return process.env.ADMIN_PASSWORD || "blablablarden";
+export const SESSION_COOKIE = "blabla_session";
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+
+export async function createSession(userId: string) {
+  const id = randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  await db.insert(sessions).values({ id, userId, expiresAt });
+
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, id, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    expires: new Date(expiresAt),
+  });
+
+  return id;
 }
 
-function sessionSecret() {
-  return process.env.SESSION_SECRET || "local-development-secret";
+export async function destroySession() {
+  const cookieStore = await cookies();
+  const id = cookieStore.get(SESSION_COOKIE)?.value;
+  if (id) {
+    await db.delete(sessions).where(eq(sessions.id, id));
+  }
+  cookieStore.set(SESSION_COOKIE, "", { path: "/", maxAge: 0 });
 }
 
-export function createSessionToken() {
-  return createHmac("sha256", sessionSecret())
-    .update(`blabla:${adminPassword()}`)
-    .digest("hex");
-}
+export async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const id = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!id) return null;
 
-export function passwordIsValid(candidate: string) {
-  const expected = Buffer.from(adminPassword());
-  const actual = Buffer.from(candidate);
+  const rows = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      role: users.role,
+      expiresAt: sessions.expiresAt,
+    })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(sessions.id, id))
+    .limit(1);
 
-  return (
-    expected.length === actual.length && timingSafeEqual(expected, actual)
-  );
+  const session = rows[0];
+  if (!session) return null;
+  if (new Date(session.expiresAt).getTime() < Date.now()) {
+    await db.delete(sessions).where(eq(sessions.id, id));
+    return null;
+  }
+
+  return {
+    id: session.id,
+    email: session.email,
+    name: session.name,
+    role: session.role,
+  };
 }
 
 export async function isAdmin() {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  const expected = createSessionToken();
-
-  if (!token || token.length !== expected.length) {
-    return false;
-  }
-
-  return timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  const user = await getCurrentUser();
+  return user?.role === "admin";
 }
