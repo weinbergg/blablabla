@@ -1,0 +1,241 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f7f4ed;
+  --ink: #17202c;
+  --muted: #6e716f;
+  --rust: #c85c35;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rust: var(--rust);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-serif: Georgia, "Times New Roman", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(200, 92, 53, 0.045), transparent 30rem),
+    var(--paper);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+select {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+::selection {
+  background: rgba(200, 92, 53, 0.22);
+}
+
+.shell {
+  width: min(1180px, calc(100% - 40px));
+  margin-inline: auto;
+}
+
+.eyebrow {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hero-orbit {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: min(96vw, 950px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(23, 32, 44, 0.055);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.hero-orbit::before,
+.hero-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border: inherit;
+  border-radius: inherit;
+}
+
+.hero-orbit::after {
+  inset: 27%;
+}
+
+.category-card {
+  transition: color 250ms ease;
+}
+
+.category-wash {
+  position: absolute;
+  inset: 100% 0 0;
+  opacity: 0.09;
+  transition: inset 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.category-card:hover .category-wash {
+  inset: 0;
+}
+
+.dark-list article {
+  border-color: rgba(247, 244, 237, 0.14);
+}
+
+.dark-list article .text-muted {
+  color: rgba(247, 244, 237, 0.55);
+}
+
+.dark-list article a {
+  border-color: rgba(247, 244, 237, 0.24);
+}
+
+.dark-list article a:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.field {
+  display: block;
+}
+
+.field > span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  border: 1px solid rgba(23, 32, 44, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 11px 13px;
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: rgba(23, 32, 44, 0.5);
+  box-shadow: 0 0 0 3px rgba(23, 32, 44, 0.05);
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field small {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.field .file-input {
+  padding: 7px;
+  font-size: 11px;
+}
+
+.file-input::file-selector-button {
+  margin-right: 10px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(23, 32, 44, 0.08);
+  padding: 7px 10px;
+  font: inherit;
+  font-weight: 600;
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 160ms ease;
+}
+
+.button-primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.button-primary:hover {
+  background: var(--rust);
+}
+
+.button-secondary {
+  border: 1px solid rgba(23, 32, 44, 0.14);
+  background: transparent;
+}
+
+.button-secondary:hover,
+.icon-button:hover {
+  border-color: var(--ink);
+}
+
+.icon-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(23, 32, 44, 0.12);
+  border-radius: 50%;
+  color: var(--muted);
+  transition: all 150ms ease;
+}
+
+@media (max-width: 640px) {
+  .shell {
+    width: min(100% - 28px, 1180px);
+  }
+}
