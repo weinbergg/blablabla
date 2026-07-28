@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   title: "Библиотека blablablarden",
   description:
     "Философия, история и математика — личное собрание текстов blablablarden.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

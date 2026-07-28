@@ -1,6 +1,7 @@
-import { asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "./client";
 import {
+  annotations,
   authorRelations,
   authors,
   categories,
@@ -200,6 +201,33 @@ export async function getDocumentComments(documentId: string) {
     .orderBy(asc(comments.createdAt));
 
   return rows;
+}
+
+/** Public annotations plus the current viewer's own private ones. */
+export async function getDocumentAnnotations(documentId: string, viewerId: string | null) {
+  const visibility = viewerId
+    ? or(eq(annotations.visibility, "public"), eq(annotations.authorId, viewerId))
+    : eq(annotations.visibility, "public");
+
+  return db
+    .select({
+      id: annotations.id,
+      documentId: annotations.documentId,
+      authorId: annotations.authorId,
+      authorName: users.name,
+      page: annotations.page,
+      x: annotations.x,
+      y: annotations.y,
+      shape: annotations.shape,
+      color: annotations.color,
+      body: annotations.body,
+      visibility: annotations.visibility,
+      createdAt: annotations.createdAt,
+    })
+    .from(annotations)
+    .innerJoin(users, eq(annotations.authorId, users.id))
+    .where(and(eq(annotations.documentId, documentId), visibility))
+    .orderBy(asc(annotations.createdAt));
 }
 
 export async function getDocumentEditHistory(documentId: string) {

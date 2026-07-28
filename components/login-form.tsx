@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
 
@@ -8,6 +8,9 @@ export function LoginForm() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,7 +39,7 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={submit} className="mt-8 space-y-4">
+    <form onSubmit={submit} method="post" className="mt-8 space-y-4">
       <label className="field">
         <span>Почта</span>
         <div className="relative">
@@ -51,7 +54,7 @@ export function LoginForm() {
           <input name="password" type="password" required className="!pl-11" />
         </div>
       </label>
-      <button className="button-primary w-full" disabled={busy}>
+      <button className="button-primary w-full" disabled={busy || !mounted}>
         {busy ? "Проверяю…" : "Войти"}
         {!busy && <ArrowRight size={16} />}
       </button>

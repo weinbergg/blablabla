@@ -177,3 +177,31 @@ export const comments = sqliteTable("comments", {
 }, (table) => ({
   documentIdx: index("comments_document_idx").on(table.documentId),
 }));
+
+/** Sticky-note style annotations pinned to a spot on a page: shape + colour + text, public or personal. */
+export const annotations = sqliteTable("annotations", {
+  id: text("id").primaryKey(),
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  page: integer("page").notNull(),
+  x: integer("x").notNull(),
+  y: integer("y").notNull(),
+  shape: text("shape", {
+    enum: ["note", "star", "flag", "question", "heart", "quote"],
+  })
+    .notNull()
+    .default("note"),
+  color: text("color").notNull().default("#c85c35"),
+  body: text("body").notNull().default(""),
+  visibility: text("visibility", { enum: ["public", "private"] })
+    .notNull()
+    .default("public"),
+  updatedAt: text("updated_at"),
+  ...timestamps,
+}, (table) => ({
+  documentIdx: index("annotations_document_idx").on(table.documentId),
+}));

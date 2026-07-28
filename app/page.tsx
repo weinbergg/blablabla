@@ -44,13 +44,15 @@ export default async function Home() {
     <>
       <Header />
       <main>
-        <section className="relative overflow-hidden border-b border-ink/10">
-          <div className="hero-orbit" aria-hidden="true" />
+        <section className="relative border-b border-ink/10">
+          <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+            <div className="hero-orbit" />
+          </div>
           <div className="shell relative pb-24 pt-20 text-center md:pb-32 md:pt-28">
             <p className="eyebrow mb-7">Библиотека · с 2026 года</p>
             <h1 className="mx-auto max-w-5xl font-serif text-[clamp(3.2rem,8vw,6.6rem)] leading-[0.9] tracking-[-0.045em]">
-              Собрание текстов по философии,
-              <span className="block">истории и математике.</span>
+              Собрание текстов по <span className="italic text-rust">математике</span>,
+              <span className="block">философии и истории.</span>
             </h1>
             <p className="mx-auto mt-8 max-w-xl text-base leading-7 text-muted md:text-lg">
               Личная подборка книг и статей — от первоисточников до

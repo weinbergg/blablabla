@@ -2,12 +2,13 @@ import Link from "next/link";
 import { Network } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { HeaderAccount } from "@/components/header-account";
+import { MobileMenu } from "@/components/mobile-menu";
 
 export async function Header() {
   const user = await getCurrentUser();
 
   return (
-    <header className="border-b border-ink/10">
+    <header className="relative border-b border-ink/10">
       <div className="shell flex h-20 items-center justify-between">
         <Link href="/" className="group flex items-center gap-3">
           <span className="grid size-9 place-items-center rounded-full bg-ink font-serif text-xl italic text-paper transition-transform group-hover:-rotate-6">
@@ -38,6 +39,7 @@ export async function Header() {
             Связи
           </Link>
           <HeaderAccount user={user} />
+          <MobileMenu isAdmin={user?.role === "admin"} />
         </nav>
       </div>
     </header>

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { CategoryOption } from "@/components/document-edit-form";
 import type { CategoryNode } from "@/lib/db/queries";
+import { countLabel } from "@/lib/pluralize";
 
 export type AdminDocument = {
   id: string;
@@ -338,7 +339,9 @@ function CategoriesTab({ tree }: { tree: CategoryNode[] }) {
         >
           <div className="min-w-0">
             <p className="truncate font-medium">{node.name}</p>
-            <p className="text-xs text-muted">{node.documentCount} текстов</p>
+            <p className="text-xs text-muted">
+              {countLabel(node.documentCount, ["текст", "текста", "текстов"])}
+            </p>
           </div>
           <button
             type="button"

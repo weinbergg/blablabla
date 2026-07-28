@@ -8,7 +8,6 @@ export const dynamic = "force-dynamic";
 
 export default async function GraphPage() {
   const { nodes, edges } = await getGraphData();
-  const relationEdges = edges.filter((edge) => edge.kind === "relation");
 
   return (
     <>
@@ -27,37 +26,15 @@ export default async function GraphPage() {
           Как разделы и авторы связаны между собой
         </h1>
         <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
-          Оранжевые точки — разделы каталога, размер зависит от количества
-          текстов. Фиолетовые — авторы, которые соединяют разделы, если их
-          книги встречаются в нескольких из них. Пунктирные линии — смысловые
-          связи, отмеченные вручную (например, «Философия математики» стоит
-          между «Философией» и «Математикой»). Наведите курсор на точку, чтобы
-          увидеть её связи.
+          Точки-разделы соединены пунктиром там, где темы пересекаются по
+          смыслу — например, «Философия математики» стоит между «Философией»
+          и «Математикой». Нажмите на точку, чтобы закрепить её связи, или
+          потяните за неё, чтобы подвинуть.
         </p>
 
         <div className="mt-10">
           <GraphView nodes={nodes} edges={edges} />
         </div>
-
-        {relationEdges.length > 0 && (
-          <div className="mt-10">
-            <p className="eyebrow mb-3">Смысловые связи</p>
-            <ul className="space-y-2 text-sm text-muted">
-              {relationEdges.map((edge, index) => {
-                const source = nodes.find((n) => n.id === edge.source);
-                const target = nodes.find((n) => n.id === edge.target);
-                return (
-                  <li key={index}>
-                    <span className="text-ink">{source?.label}</span>
-                    {" ↔ "}
-                    <span className="text-ink">{target?.label}</span>
-                    {edge.label ? ` — ${edge.label}` : ""}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
       </main>
     </>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 
@@ -8,6 +8,9 @@ export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,7 +41,7 @@ export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
   }
 
   return (
-    <form onSubmit={submit} className="mt-8 space-y-4">
+    <form onSubmit={submit} method="post" className="mt-8 space-y-4">
       <label className="field">
         <span>Код приглашения</span>
         <input name="inviteCode" defaultValue={inviteCode} required />
@@ -55,7 +58,7 @@ export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
         <span>Пароль</span>
         <input name="password" type="password" minLength={8} required />
       </label>
-      <button className="button-primary w-full" disabled={busy}>
+      <button className="button-primary w-full" disabled={busy || !mounted}>
         {busy ? "Создаю аккаунт…" : "Создать аккаунт"}
         {!busy && <ArrowRight size={16} />}
       </button>

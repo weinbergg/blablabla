@@ -9,6 +9,7 @@ import {
   flattenCategoryOptions,
   getCategoryTrail,
   getCategoryTree,
+  getDocumentAnnotations,
   getDocumentById,
   getDocumentComments,
   getDocumentEditHistory,
@@ -35,12 +36,14 @@ export default async function DocumentPage({
   const document = await getDocumentById(id);
   if (!document) notFound();
 
-  const [trail, comments, history, currentUser, tree] = await Promise.all([
+  const currentUser = await getCurrentUser();
+
+  const [trail, comments, history, tree, annotations] = await Promise.all([
     getCategoryTrail(document.categoryId),
     getDocumentComments(document.id),
     getDocumentEditHistory(document.id),
-    getCurrentUser(),
     getCategoryTree(),
+    getDocumentAnnotations(document.id, currentUser?.id ?? null),
   ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -133,6 +136,7 @@ export default async function DocumentPage({
           fileUrl={document.fileUrl}
           fileType={document.fileType}
           comments={comments}
+          annotations={annotations}
           currentUser={currentUser}
         />
 

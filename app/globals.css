@@ -239,3 +239,62 @@ button:disabled {
     width: min(100% - 28px, 1180px);
   }
 }
+
+@keyframes page-flip-forward {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  45% {
+    transform: rotateY(-10deg);
+    opacity: 0.5;
+  }
+  100% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes page-flip-backward {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  45% {
+    transform: rotateY(10deg);
+    opacity: 0.5;
+  }
+  100% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+.page-flip-forward {
+  animation: page-flip-forward 420ms ease-in-out;
+  transform-style: preserve-3d;
+}
+
+.page-flip-backward {
+  animation: page-flip-backward 420ms ease-in-out;
+  transform-style: preserve-3d;
+}
+
+@keyframes sticker-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.sticker-pop {
+  animation: sticker-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}

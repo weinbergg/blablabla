@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { MessageSquare, Reply, Send } from "lucide-react";
+import type { AnnotationItem } from "@/components/readers/annotation-layer";
 
 const PdfReader = dynamic(
   () => import("@/components/readers/pdf-reader").then((m) => m.PdfReader),
@@ -30,12 +31,14 @@ export function DocumentWorkspace({
   fileUrl,
   fileType,
   comments,
+  annotations,
   currentUser,
 }: {
   documentId: string;
   fileUrl: string | null;
   fileType: string;
   comments: CommentItem[];
+  annotations: AnnotationItem[];
   currentUser: CurrentUser;
 }) {
   const [page, setPage] = useState(1);
@@ -44,7 +47,7 @@ export function DocumentWorkspace({
   const isEpub = fileType === "EPUB";
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[1.3fr_1fr]">
+    <div className="space-y-10">
       <div>
         {fileUrl && isPdf && (
           <PdfReader
@@ -54,6 +57,9 @@ export function DocumentWorkspace({
               setPage(next);
               setNumPages(total);
             }}
+            documentId={documentId}
+            currentUserId={currentUser?.id ?? null}
+            initialAnnotations={annotations}
           />
         )}
         {fileUrl && isEpub && <EpubReader url={fileUrl} />}
@@ -70,13 +76,15 @@ export function DocumentWorkspace({
         )}
       </div>
 
-      <CommentThread
-        documentId={documentId}
-        comments={comments}
-        currentUser={currentUser}
-        currentPage={isPdf ? page : null}
-        maxPage={numPages}
-      />
+      <div className="mx-auto max-w-3xl">
+        <CommentThread
+          documentId={documentId}
+          comments={comments}
+          currentUser={currentUser}
+          currentPage={isPdf ? page : null}
+          maxPage={numPages}
+        />
+      </div>
     </div>
   );
 }

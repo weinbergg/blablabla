@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { categoryAccent } from "@/lib/category-style";
 import type { CategoryNode } from "@/lib/db/queries";
+import { countLabel } from "@/lib/pluralize";
 
 export function CategoryCard({
   category,
@@ -32,22 +33,22 @@ export function CategoryCard({
             {category.name.charAt(0).toUpperCase()}
           </span>
         </div>
-        <div className="mt-auto pt-14">
+        <div className="mt-10">
           <h3 className="font-serif text-3xl tracking-tight">{category.name}</h3>
           {category.description && (
             <p className="mt-3 max-w-xs text-sm leading-6 text-muted">
               {category.description}
             </p>
           )}
-          <div className="mt-6 flex items-center justify-between border-t border-ink/10 pt-4">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-              {category.documentCount} текстов
-              {category.children.length
-                ? ` · ${category.children.length} раздела`
-                : ""}
-            </span>
-            <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
-          </div>
+        </div>
+        <div className="mt-auto flex items-center justify-between border-t border-ink/10 pt-4">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+            {countLabel(category.documentCount, ["текст", "текста", "текстов"])}
+            {category.children.length
+              ? ` · ${countLabel(category.children.length, ["раздел", "раздела", "разделов"])}`
+              : ""}
+          </span>
+          <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
         </div>
       </div>
     </Link>

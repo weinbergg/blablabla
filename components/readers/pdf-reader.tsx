@@ -1,23 +1,97 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import {
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  MapPin,
+  Sparkles,
+  SquareStack,
+} from "lucide-react";
+import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
+import { AnnotationLayer, type AnnotationDraft, type AnnotationItem } from "./annotation-layer";
+
+type SpreadMode = "single" | "double";
+type FlipDirection = "forward" | "backward";
+
+const SPREAD_KEY = "reader:spread";
+const ANIMATE_KEY = "reader:page-animation";
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+async function renderPageToCanvas(
+  canvas: HTMLCanvasElement,
+  pdfPage: PDFPageProxy,
+  targetWidth: number,
+) {
+  const baseViewport = pdfPage.getViewport({ scale: 1 });
+  const scale = clamp(targetWidth / baseViewport.width, 0.35, 3.5);
+  const viewport = pdfPage.getViewport({ scale });
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  canvas.width = Math.floor(viewport.width * dpr);
+  canvas.height = Math.floor(viewport.height * dpr);
+  canvas.style.width = `${viewport.width}px`;
+  canvas.style.height = `${viewport.height}px`;
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  await pdfPage.render({ canvasContext: context, viewport }).promise;
+}
 
 export function PdfReader({
   url,
   page,
   onPageChange,
+  documentId,
+  currentUserId,
+  initialAnnotations = [],
 }: {
   url: string;
   page: number;
   onPageChange: (page: number, total: number) => void;
+  documentId?: string;
+  currentUserId?: string | null;
+  initialAnnotations?: AnnotationItem[];
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const leftCanvasRef = useRef<HTMLCanvasElement>(null);
+  const rightCanvasRef = useRef<HTMLCanvasElement>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
+  const prevPageRef = useRef(page);
+
   const [numPages, setNumPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(900);
+  const [mode, setMode] = useState<SpreadMode>("double");
+  const [animate, setAnimate] = useState(true);
+  const [flipNonce, setFlipNonce] = useState(0);
+  const [flipDir, setFlipDir] = useState<FlipDirection>("forward");
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const [annotations, setAnnotations] = useState<AnnotationItem[]>(initialAnnotations);
+  const [placing, setPlacing] = useState(false);
+
+  useEffect(() => {
+    const storedMode = window.localStorage.getItem(SPREAD_KEY);
+    const storedAnimate = window.localStorage.getItem(ANIMATE_KEY);
+    if (storedMode === "single" || storedMode === "double") setMode(storedMode);
+    if (storedAnimate === "0") setAnimate(false);
+    setPreferencesReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
+    window.localStorage.setItem(SPREAD_KEY, mode);
+  }, [mode, preferencesReady]);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
+    window.localStorage.setItem(ANIMATE_KEY, animate ? "1" : "0");
+  }, [animate, preferencesReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,29 +120,107 @@ export function PdfReader({
   }, [url]);
 
   useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) setContainerWidth(width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (page === prevPageRef.current) return;
+    setFlipDir(page > prevPageRef.current ? "forward" : "backward");
+    setFlipNonce((n) => n + 1);
+    prevPageRef.current = page;
+  }, [page]);
+
+  const isDouble = mode === "double" && numPages > 1;
+  const spreadStart = isDouble ? (page % 2 === 0 ? page - 1 : page) : page;
+  const leftPageNumber = clamp(spreadStart, 1, Math.max(numPages, 1));
+  const rightPageNumber = isDouble && leftPageNumber + 1 <= numPages ? leftPageNumber + 1 : null;
+
+  useEffect(() => {
     if (!docRef.current || !numPages) return;
     let cancelled = false;
 
     (async () => {
-      const safePage = Math.min(Math.max(page, 1), numPages);
-      const pdfPage = await docRef.current!.getPage(safePage);
+      const gap = isDouble ? 28 : 0;
+      const perPageWidth = isDouble ? (containerWidth - gap) / 2 : containerWidth;
+
+      const leftPage = await docRef.current!.getPage(leftPageNumber);
       if (cancelled) return;
+      if (leftCanvasRef.current) {
+        await renderPageToCanvas(leftCanvasRef.current, leftPage, perPageWidth);
+      }
 
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const viewport = pdfPage.getViewport({ scale: 1.5 });
-      const context = canvas.getContext("2d");
-      if (!context) return;
-
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await pdfPage.render({ canvasContext: context, viewport }).promise;
+      if (rightPageNumber) {
+        const rightPage = await docRef.current!.getPage(rightPageNumber);
+        if (cancelled) return;
+        if (rightCanvasRef.current) {
+          await renderPageToCanvas(rightCanvasRef.current, rightPage, perPageWidth);
+        }
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [page, numPages]);
+  }, [leftPageNumber, rightPageNumber, isDouble, numPages, containerWidth]);
+
+  useEffect(() => {
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "ArrowRight") goNext();
+      if (event.key === "ArrowLeft") goPrev();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, numPages, isDouble]);
+
+  function goPrev() {
+    const step = isDouble ? 2 : 1;
+    onPageChange(Math.max(1, leftPageNumber - step), numPages);
+  }
+
+  function goNext() {
+    const step = isDouble ? 2 : 1;
+    onPageChange(Math.min(numPages, leftPageNumber + step), numPages);
+  }
+
+  async function createAnnotation(draft: AnnotationDraft) {
+    if (!documentId) return;
+    const response = await fetch("/api/annotations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId, ...draft }),
+    });
+    if (!response.ok) return;
+    const { id } = (await response.json()) as { id: string };
+    setAnnotations((current) => [
+      ...current,
+      {
+        id,
+        authorId: currentUserId ?? "",
+        authorName: "Вы",
+        page: draft.page,
+        x: draft.x,
+        y: draft.y,
+        shape: draft.shape,
+        color: draft.color,
+        body: draft.body,
+        visibility: draft.visibility,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  async function deleteAnnotation(id: string) {
+    setAnnotations((current) => current.filter((item) => item.id !== id));
+    await fetch(`/api/annotations/${id}`, { method: "DELETE" });
+  }
 
   if (error) {
     return (
@@ -79,36 +231,137 @@ export function PdfReader({
     );
   }
 
+  const pageLabel = rightPageNumber
+    ? `стр. ${leftPageNumber}–${rightPageNumber} из ${numPages}`
+    : `стр. ${leftPageNumber} из ${numPages}`;
+
   return (
-    <div className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-6">
-      <div className="flex items-center justify-between pb-4">
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.max(1, page - 1), numPages)}
-          disabled={page <= 1}
-          className="icon-button"
-          aria-label="Предыдущая страница"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <span className="font-mono text-xs text-muted">
-          {loading ? "Загрузка…" : `стр. ${page} из ${numPages}`}
-        </span>
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.min(numPages, page + 1), numPages)}
-          disabled={page >= numPages}
-          className="icon-button"
-          aria-label="Следующая страница"
-        >
-          <ChevronRight size={16} />
-        </button>
+    <div className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-7">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={leftPageNumber <= 1}
+            className="icon-button"
+            aria-label="Предыдущая страница"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="min-w-[9rem] text-center font-mono text-xs text-muted">
+            {loading ? "Загрузка…" : pageLabel}
+          </span>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={rightPageNumber ? rightPageNumber >= numPages : leftPageNumber >= numPages}
+            className="icon-button"
+            aria-label="Следующая страница"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-full border border-ink/10 p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode("single")}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors ${
+                mode === "single" ? "bg-ink text-paper" : "text-muted hover:text-ink"
+              }`}
+            >
+              <BookOpen size={13} />
+              1 страница
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("double")}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors ${
+                mode === "double" ? "bg-ink text-paper" : "text-muted hover:text-ink"
+              }`}
+            >
+              <SquareStack size={13} />
+              Разворот
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAnimate((a) => !a)}
+            className={`icon-button ${animate ? "border-rust/50 text-rust" : ""}`}
+            aria-label={animate ? "Выключить анимацию перелистывания" : "Включить анимацию перелистывания"}
+            title={animate ? "Анимация перелистывания: вкл" : "Анимация перелистывания: выкл"}
+          >
+            <Sparkles size={14} />
+          </button>
+          {documentId && currentUserId && (
+            <button
+              type="button"
+              onClick={() => setPlacing((p) => !p)}
+              className={`icon-button ${placing ? "border-rust bg-rust text-white" : ""}`}
+              aria-label={placing ? "Отменить добавление пометки" : "Добавить пометку на страницу"}
+              title={placing ? "Кликните на странице, чтобы поставить пометку" : "Добавить пометку"}
+            >
+              <MapPin size={14} />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="flex min-h-[400px] items-center justify-center overflow-auto">
+
+      {placing && (
+        <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">
+          Кликните в нужном месте страницы, чтобы поставить пометку.
+        </p>
+      )}
+
+      {numPages > 0 && (
+        <div className="mb-4 h-1 w-full overflow-hidden rounded-full bg-ink/10">
+          <div
+            className="h-full rounded-full bg-rust transition-[width] duration-300 ease-out"
+            style={{ width: `${(Math.min(rightPageNumber ?? leftPageNumber, numPages) / numPages) * 100}%` }}
+          />
+        </div>
+      )}
+
+      <div ref={containerRef} className="min-h-[65vh]" style={{ perspective: "2200px" }}>
         {loading ? (
-          <Loader2 className="animate-spin text-muted" />
+          <div className="flex min-h-[65vh] items-center justify-center">
+            <Loader2 className="animate-spin text-muted" />
+          </div>
         ) : (
-          <canvas ref={canvasRef} className="max-w-full rounded-lg shadow-sm" />
+          <div
+            key={animate ? flipNonce : "static"}
+            className={`flex justify-center gap-7 ${
+              animate ? (flipDir === "forward" ? "page-flip-forward" : "page-flip-backward") : ""
+            }`}
+          >
+            <div className="relative">
+              <canvas ref={leftCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
+              <AnnotationLayer
+                pageNumber={leftPageNumber}
+                items={annotations}
+                currentUserId={currentUserId ?? null}
+                placing={placing}
+                onCreate={createAnnotation}
+                onDelete={deleteAnnotation}
+                onPlaced={() => setPlacing(false)}
+              />
+            </div>
+            {isDouble && (
+              <div className="relative">
+                <canvas ref={rightCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
+                <AnnotationLayer
+                  pageNumber={rightPageNumber}
+                  items={annotations}
+                  currentUserId={currentUserId ?? null}
+                  placing={placing}
+                  onCreate={createAnnotation}
+                  onDelete={deleteAnnotation}
+                  onPlaced={() => setPlacing(false)}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

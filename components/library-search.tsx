@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Search, X } from "lucide-react";
 import { normalizeForSearch } from "@/lib/transliterate";
+import { countLabel } from "@/lib/pluralize";
 
 export type SearchableDocument = {
   id: string;
@@ -57,7 +58,7 @@ export function LibrarySearch({
           </button>
         )}
         <span className="hidden rounded-md border border-ink/10 px-2 py-1 font-mono text-[10px] text-muted sm:block">
-          {totalCount} текстов
+          {countLabel(totalCount, ["текст", "текста", "текстов"])}
         </span>
       </div>
 

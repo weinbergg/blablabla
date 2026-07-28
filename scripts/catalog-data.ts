@@ -218,19 +218,9 @@ export const catalog: CategorySeed[] = [
             authors: ["Stephen Abbott"],
           },
           {
-            sourcePath: "Матан/Book of proof.pdf",
-            title: "Book of Proof",
-            authors: ["Richard Hammack"],
-          },
-          {
             sourcePath: "Матан/Mathematics for DS.pdf",
             title: "Mathematics for Machine Learning",
             authors: ["Marc Peter Deisenroth", "A. Aldo Faisal", "Cheng Soon Ong"],
-          },
-          {
-            sourcePath: "Матан/text.pdf",
-            title: "Discrete Mathematics with Applications",
-            authors: ["Susanna Epp"],
           },
           {
             sourcePath: "Матан/1835_Coriolis.pdf",
@@ -243,12 +233,6 @@ export const catalog: CategorySeed[] = [
             sourcePath: "El'sgol'dz_Dif_ur_i_var_isch.pdf",
             title: "Дифференциальные уравнения и вариационное исчисление",
             authors: ["Лев Эльсгольц"],
-          },
-          {
-            sourcePath: "Haggarti-Discretnaya-matematika.pdf",
-            title: "Дискретная математика",
-            authors: ["Роб Хаггарти"],
-            confidence: "low",
           },
         ],
       },
@@ -338,15 +322,38 @@ export const catalog: CategorySeed[] = [
             authors: ["Duane DeTemple", "William Webb"],
           },
           {
+            sourcePath: "Кнут/Konkretnaya_matematika_Grekhem_Knut_Patashnik.pdf",
+            title: "Конкретная математика",
+            authors: ["Рональд Грэхем", "Дональд Кнут", "Орен Паташник"],
+          },
+        ],
+      },
+      {
+        slug: "diskretnaya-matematika",
+        name: "Дискретная математика",
+        description: "Логика, доказательства, графы и комбинаторные структуры.",
+        documents: [
+          {
+            sourcePath: "Матан/Book of proof.pdf",
+            title: "Book of Proof",
+            authors: ["Richard Hammack"],
+          },
+          {
+            sourcePath: "Матан/text.pdf",
+            title: "Discrete Mathematics with Applications",
+            authors: ["Susanna Epp"],
+          },
+          {
+            sourcePath: "Haggarti-Discretnaya-matematika.pdf",
+            title: "Дискретная математика",
+            authors: ["Роб Хаггарти"],
+            confidence: "low",
+          },
+          {
             sourcePath:
               "Матан/Комбинаторика/Дискретная математика и комбинаторика. Андерсон.djvu",
             title: "Дискретная математика и комбинаторика",
             authors: ["Джеймс Андерсон"],
-          },
-          {
-            sourcePath: "Кнут/Konkretnaya_matematika_Grekhem_Knut_Patashnik.pdf",
-            title: "Конкретная математика",
-            authors: ["Рональд Грэхем", "Дональд Кнут", "Орен Паташник"],
           },
         ],
       },
