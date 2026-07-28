@@ -45,6 +45,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
 
   const dragNode = useRef<{ id: string; moved: boolean } | null>(null);
   const dragPan = useRef<{
@@ -66,6 +67,24 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     linksRef.current = simLinks;
     setPinnedId(null);
     setHoverId(null);
+    setVisible(false);
+
+    function fitView() {
+      if (!simNodes.length) return;
+      const padding = 60;
+      const xs = simNodes.map((n) => n.x ?? WIDTH / 2);
+      const ys = simNodes.map((n) => n.y ?? HEIGHT / 2);
+      const minX = Math.min(...xs) - padding;
+      const maxX = Math.max(...xs) + padding;
+      const minY = Math.min(...ys) - padding;
+      const maxY = Math.max(...ys) + padding;
+      const k = clamp(Math.min(WIDTH / (maxX - minX), HEIGHT / (maxY - minY)), MIN_ZOOM, 1);
+      setView({
+        k,
+        x: WIDTH / 2 - ((minX + maxX) / 2) * k,
+        y: HEIGHT / 2 - ((minY + maxY) / 2) * k,
+      });
+    }
 
     const simulation = forceSimulation(simNodes)
       .force(
@@ -82,25 +101,23 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         forceCollide<SimNode>().radius((d) => (d.type === "author" ? 22 : 34)),
       )
       .alphaDecay(0.03)
-      .on("tick", () => forceRender((t) => t + 1))
-      .on("end", () => {
-        if (!simNodes.length) return;
-        const padding = 60;
-        const xs = simNodes.map((n) => n.x ?? WIDTH / 2);
-        const ys = simNodes.map((n) => n.y ?? HEIGHT / 2);
-        const minX = Math.min(...xs) - padding;
-        const maxX = Math.max(...xs) + padding;
-        const minY = Math.min(...ys) - padding;
-        const maxY = Math.max(...ys) + padding;
-        const k = clamp(Math.min(WIDTH / (maxX - minX), HEIGHT / (maxY - minY)), MIN_ZOOM, 1);
-        setView({
-          k,
-          x: WIDTH / 2 - ((minX + maxX) / 2) * k,
-          y: HEIGHT / 2 - ((minY + maxY) / 2) * k,
-        });
-      });
+      .stop();
 
+    // Settle the layout silently before it ever hits the screen — running the
+    // simulation live from a cold, clustered start makes everything visibly
+    // burst apart and then collapse back together, which looks chaotic.
+    let iterations = 0;
+    while (simulation.alpha() > simulation.alphaMin() && iterations < 400) {
+      simulation.tick();
+      iterations++;
+    }
+    fitView();
+
+    simulation.on("tick", () => forceRender((t) => t + 1)).on("end", fitView);
     simRef.current = simulation;
+    forceRender((t) => t + 1);
+    setVisible(true);
+
     return () => {
       simulation.stop();
     };
@@ -265,7 +282,11 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   style={{ color: pinnedNode.type === "author" ? AUTHOR_COLOR : CATEGORY_COLOR }}
                 >
                   <Pin size={10} className="mr-1 inline" />
-                  {pinnedNode.type === "author" ? "Автор" : "Раздел каталога"}
+                  {pinnedNode.type === "author"
+                    ? pinnedNode.notable
+                      ? "Автор"
+                      : "Текст"
+                    : "Раздел каталога"}
                 </p>
                 <p className="mt-1 font-serif text-lg leading-tight">{pinnedNode.label}</p>
               </div>
@@ -304,7 +325,11 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
           onPointerMove={handleBackgroundPointerMove}
           onPointerUp={handleBackgroundPointerUp}
         >
-        <g transform={`translate(${view.x}, ${view.y}) scale(${view.k})`}>
+        <g
+          transform={`translate(${view.x}, ${view.y}) scale(${view.k})`}
+          className="transition-opacity duration-700 ease-out"
+          style={{ opacity: visible ? 1 : 0 }}
+        >
           <g>
             {links.map((link, index) => {
               const source = nodeById.get(linkEndId(link.source));

@@ -378,6 +378,10 @@ export type GraphNode = {
   type: "category" | "author";
   documentCount?: number;
   href?: string;
+  /** Only set for category nodes — lets client layouts (e.g. circle packing) rebuild the tree. */
+  parentId?: string;
+  /** True for authors we consider well-known enough to label by name (has a curated relation, or several works here). */
+  notable?: boolean;
 };
 
 export type GraphEdge = {
@@ -392,19 +396,42 @@ export async function getGraphData() {
     await Promise.all([
       db.select().from(categories),
       db.select().from(authors),
-      db.select({ id: documents.id, categoryId: documents.categoryId }).from(documents),
+      db
+        .select({ id: documents.id, categoryId: documents.categoryId, title: documents.title })
+        .from(documents),
       db.select().from(documentAuthors),
       db.select().from(categoryRelations),
       db.select().from(authorRelations),
     ]);
 
-  const counts = await documentCountsByCategory();
+  const directCounts = await documentCountsByCategory();
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
   const categoryHasContent = new Set<string>();
   const docCategoryById = new Map(docRows.map((doc) => [doc.id, doc.categoryId]));
   const categoryById = new Map(categoryRows.map((row) => [row.id, row]));
+
+  // Sections often just group subsections and hold no documents directly —
+  // "0 текстов" would be misleading there, so counts include the whole subtree.
+  const childrenByParent = new Map<string, string[]>();
+  for (const category of categoryRows) {
+    if (!category.parentId) continue;
+    childrenByParent.set(category.parentId, [
+      ...(childrenByParent.get(category.parentId) ?? []),
+      category.id,
+    ]);
+  }
+  const cumulativeCounts = new Map<string, number>();
+  function cumulativeCount(id: string): number {
+    if (cumulativeCounts.has(id)) return cumulativeCounts.get(id)!;
+    const total =
+      (directCounts.get(id) ?? 0) +
+      (childrenByParent.get(id) ?? []).reduce((sum, childId) => sum + cumulativeCount(childId), 0);
+    cumulativeCounts.set(id, total);
+    return total;
+  }
+  for (const category of categoryRows) cumulativeCount(category.id);
 
   function categoryHref(id: string): string {
     const slugs: string[] = [];
@@ -421,8 +448,9 @@ export async function getGraphData() {
       id: `category:${category.id}`,
       label: category.name,
       type: "category",
-      documentCount: counts.get(category.id) ?? 0,
+      documentCount: cumulativeCounts.get(category.id) ?? 0,
       href: categoryHref(category.id),
+      parentId: category.parentId ? `category:${category.parentId}` : undefined,
     });
     if (category.parentId) {
       edges.push({
@@ -434,14 +462,26 @@ export async function getGraphData() {
   }
 
   const authorCategoryPairs = new Set<string>();
+  const authorDocCount = new Map<string, number>();
+  const authorFirstDocId = new Map<string, string>();
   for (const link of docAuthorRows) {
     const categoryId = docCategoryById.get(link.documentId);
     if (!categoryId) continue;
     const key = `${link.authorId}:${categoryId}`;
-    if (authorCategoryPairs.has(key)) continue;
-    authorCategoryPairs.add(key);
-    categoryHasContent.add(categoryId);
+    if (!authorCategoryPairs.has(key)) {
+      authorCategoryPairs.add(key);
+      categoryHasContent.add(categoryId);
+    }
+    authorDocCount.set(link.authorId, (authorDocCount.get(link.authorId) ?? 0) + 1);
+    if (!authorFirstDocId.has(link.authorId)) authorFirstDocId.set(link.authorId, link.documentId);
   }
+
+  const notableAuthorIds = new Set<string>();
+  for (const relation of authorRelRows) {
+    notableAuthorIds.add(relation.authorAId);
+    notableAuthorIds.add(relation.authorBId);
+  }
+  const docTitleById = new Map(docRows.map((doc) => [doc.id, doc.title]));
 
   for (const author of authorRows) {
     const relevantPairs = [...authorCategoryPairs].filter((pair) =>
@@ -449,11 +489,19 @@ export async function getGraphData() {
     );
     if (relevantPairs.length === 0) continue;
 
+    // Most people browsing the map won't recognize a niche paper author by
+    // name — for anyone without a curated relation and with just one work
+    // here, label the node with that work's title instead, it's more useful.
+    const notable = notableAuthorIds.has(author.id) || (authorDocCount.get(author.id) ?? 0) >= 2;
+    const firstDocId = authorFirstDocId.get(author.id);
+    const label = notable ? author.name : docTitleById.get(firstDocId ?? "") ?? author.name;
+
     nodes.push({
       id: `author:${author.id}`,
-      label: author.name,
+      label,
       type: "author",
       href: `/authors/${author.slug}`,
+      notable,
     });
     for (const pair of relevantPairs) {
       const categoryId = pair.split(":")[1];

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Header } from "@/components/header";
-import { GraphView } from "@/components/graph-view";
+import { GraphExplorer } from "@/components/graph-explorer";
 import { getGraphData } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
@@ -29,11 +29,13 @@ export default async function GraphPage() {
           Точки-разделы соединены пунктиром там, где темы пересекаются по
           смыслу — например, «Философия математики» стоит между «Философией»
           и «Математикой». Нажмите на точку, чтобы закрепить её связи, или
-          потяните за неё, чтобы подвинуть.
+          потяните за неё, чтобы подвинуть. В правом верхнем углу — два других
+          взгляда на ту же структуру: гиперболическая карта (диск Пуанкаре) и
+          объёмный тор.
         </p>
 
         <div className="mt-10">
-          <GraphView nodes={nodes} edges={edges} />
+          <GraphExplorer nodes={nodes} edges={edges} />
         </div>
       </main>
     </>
