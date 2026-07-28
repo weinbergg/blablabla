@@ -92,6 +92,19 @@ export default async function DocumentPage({
                 {document.description}
               </p>
             )}
+            {document.tags.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {document.tags.map((tag) => (
+                  <Link
+                    key={tag.id}
+                    href={`/tags/${tag.slug}`}
+                    className="rounded-full border border-ink/15 px-3 py-1 text-xs text-muted transition-colors hover:border-rust hover:text-rust"
+                  >
+                    {tag.name}
+                  </Link>
+                ))}
+              </div>
+            )}
             <p className="mt-4 font-mono text-[10px] uppercase tracking-widest text-muted">
               {document.fileType}
               {document.originalFormat ? ` · исходно ${document.originalFormat}` : ""}
@@ -125,6 +138,7 @@ export default async function DocumentPage({
                   description: document.description ?? "",
                   categoryId: document.categoryId,
                   pages: document.pages ? String(document.pages) : "",
+                  tags: document.tags.map((tag) => tag.name).join(", "),
                 }}
               />
             )}

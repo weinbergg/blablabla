@@ -38,6 +38,7 @@ export default async function Home() {
     alternateTitle: doc.alternateTitle,
     authorNames: doc.authors.map((a) => a.name).join(", "),
     categoryName: categoryById.get(doc.categoryId)?.name ?? "",
+    tagNames: doc.tags.map((t) => t.name).join(", "),
   }));
 
   return (
@@ -90,16 +91,16 @@ export default async function Home() {
           </div>
         </section>
 
-        <section className="bg-ink text-paper">
+        <section className="bg-[#17202c] text-[#f7f4ed]">
           <div className="shell py-20 md:py-28">
             <div className="mb-9 flex items-end justify-between">
               <div>
-                <p className="eyebrow mb-3 text-paper/50">Новые поступления</p>
+                <p className="eyebrow mb-3 text-[#f7f4ed]/50">Новые поступления</p>
                 <h2 className="font-serif text-4xl tracking-tight md:text-5xl">
                   Недавно добавлено
                 </h2>
               </div>
-              <span className="hidden font-mono text-[10px] uppercase tracking-widest text-paper/40 sm:block">
+              <span className="hidden font-mono text-[10px] uppercase tracking-widest text-[#f7f4ed]/40 sm:block">
                 Обновляется регулярно
               </span>
             </div>

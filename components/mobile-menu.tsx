@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, Network, Settings, X } from "lucide-react";
+import { Menu, Network, Settings, Tag, X } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function MobileMenu({ isAdmin }: { isAdmin: boolean }) {
   const [open, setOpen] = useState(false);
@@ -32,6 +33,14 @@ export function MobileMenu({ isAdmin }: { isAdmin: boolean }) {
               <Network size={14} />
               Связи
             </Link>
+            <Link
+              href="/tags"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-1.5 text-ink"
+            >
+              <Tag size={14} />
+              Метки
+            </Link>
             {isAdmin && (
               <Link
                 href="/admin"
@@ -42,6 +51,10 @@ export function MobileMenu({ isAdmin }: { isAdmin: boolean }) {
                 Управление
               </Link>
             )}
+            <div className="flex items-center justify-between border-t border-ink/10 pt-4">
+              <span className="text-ink">Тема оформления</span>
+              <ThemeToggle />
+            </div>
           </nav>
         </div>
       )}

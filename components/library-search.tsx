@@ -12,6 +12,7 @@ export type SearchableDocument = {
   alternateTitle: string | null;
   authorNames: string;
   categoryName: string;
+  tagNames?: string;
 };
 
 export function LibrarySearch({
@@ -29,7 +30,7 @@ export function LibrarySearch({
 
     return documents
       .filter((doc) =>
-        [doc.title, doc.alternateTitle, doc.authorNames]
+        [doc.title, doc.alternateTitle, doc.authorNames, doc.tagNames]
           .filter(Boolean)
           .some((value) => normalizeForSearch(value as string).includes(normalizedQuery)),
       )
@@ -38,7 +39,7 @@ export function LibrarySearch({
 
   return (
     <div className="relative mx-auto w-full max-w-2xl">
-      <div className="flex items-center gap-3 rounded-full border border-ink/15 bg-white/60 px-5 shadow-[0_12px_40px_rgba(25,31,40,0.06)] backdrop-blur">
+      <div className="flex items-center gap-3 rounded-full border border-ink/15 bg-white/60 px-5 shadow-[0_12px_40px_rgba(25,31,40,0.06)] backdrop-blur dark:bg-white/5 dark:shadow-none">
         <Search size={19} className="shrink-0 text-muted" />
         <input
           value={query}
@@ -63,7 +64,7 @@ export function LibrarySearch({
       </div>
 
       {normalizedQuery && (
-        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 shadow-2xl">
+        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 shadow-2xl dark:bg-[#1b1e25]">
           {results.length ? (
             results.map((doc) => (
               <Link

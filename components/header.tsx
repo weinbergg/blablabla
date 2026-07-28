@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Network } from "lucide-react";
+import { Network, Tag } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { HeaderAccount } from "@/components/header-account";
 import { MobileMenu } from "@/components/mobile-menu";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export async function Header() {
   const user = await getCurrentUser();
@@ -38,6 +39,14 @@ export async function Header() {
             <Network size={14} />
             Связи
           </Link>
+          <Link
+            href="/tags"
+            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink lg:flex"
+          >
+            <Tag size={14} />
+            Метки
+          </Link>
+          <ThemeToggle className="hidden sm:grid" />
           <HeaderAccount user={user} />
           <MobileMenu isAdmin={user?.role === "admin"} />
         </nav>

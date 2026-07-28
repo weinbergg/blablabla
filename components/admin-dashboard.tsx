@@ -21,6 +21,7 @@ export type AdminDocument = {
   id: string;
   title: string;
   authorNames: string;
+  tagNames: string;
   categoryId: string;
   categoryName: string;
   fileType: string;
@@ -56,7 +57,7 @@ export function AdminDashboard({ documents, categoryOptions, categoryTree, invit
   }
 
   return (
-    <main className="min-h-screen bg-[#efede7]">
+    <main className="min-h-screen bg-paper">
       <header className="border-b border-ink/10 bg-paper">
         <div className="shell flex h-20 items-center justify-between">
           <div>
@@ -213,6 +214,10 @@ function DocumentsTab({
             <textarea name="description" rows={3} placeholder="О чём этот текст и почему он важен" />
           </label>
           <label className="field">
+            <span>Метки, через запятую</span>
+            <input name="tags" defaultValue={editing?.tagNames} placeholder="например: логика, XX век" />
+          </label>
+          <label className="field">
             <span>Файл {editing ? "(оставьте пустым, чтобы не менять)" : ""}</span>
             <input
               name="file"
@@ -257,6 +262,7 @@ function DocumentsTab({
                 </p>
                 <p className="mt-1 truncate text-xs text-muted">
                   {document.authorNames || "автор не указан"} · {document.categoryName} · {document.fileType}
+                  {document.tagNames ? ` · ${document.tagNames}` : ""}
                 </p>
               </div>
               <div className="flex gap-1">

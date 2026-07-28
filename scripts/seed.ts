@@ -13,6 +13,7 @@ import { promisify } from "util";
 import { eq } from "drizzle-orm";
 import { db, sqlite } from "../lib/db/client";
 import {
+  annotations,
   authorRelations,
   authors,
   categories,
@@ -21,9 +22,12 @@ import {
   documentAuthors,
   documentEdits,
   documents,
+  documentTags,
+  tags,
 } from "../lib/db/schema";
 import { slugify } from "../lib/transliterate";
 import { convertDjvuToPdf } from "../lib/djvu";
+import { buildDisplayFileName } from "../lib/filenames";
 import {
   authorRelationSeeds,
   catalog,
@@ -45,10 +49,6 @@ const stats = {
   skippedMissing: [] as string[],
   lowConfidence: [] as string[],
 };
-
-function sanitizeFileName(name: string) {
-  return name.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim();
-}
 
 async function pdfPageCount(filePath: string): Promise<number | null> {
   try {
@@ -137,10 +137,7 @@ async function importDocument(doc: DocSeed, categoryId: string) {
 
   const pages = storedExt === ".pdf" ? await pdfPageCount(storedPath) : null;
   const authorNames = doc.authors ?? [];
-  const displayAuthors = authorNames.join(", ");
-  const fileName = sanitizeFileName(
-    `${displayAuthors ? `${displayAuthors} — ` : ""}${doc.title}${storedExt}`,
-  );
+  const fileName = buildDisplayFileName(doc.title, authorNames, storedExt);
 
   const documentId = randomUUID();
   await db.insert(documents).values({
@@ -201,19 +198,35 @@ async function insertRelations() {
   }
 }
 
+async function clearUploadDir() {
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  const entries = await fs.readdir(UPLOAD_DIR);
+  for (const entry of entries) {
+    if (entry === ".gitkeep") continue;
+    await fs.rm(path.join(UPLOAD_DIR, entry), { force: true });
+  }
+}
+
 async function main() {
   console.log(`Импортирую книги из ${BOOKS_ROOT}...`);
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  console.log(
+    "Внимание: полностью пересобирает каталог — удаляет ВСЕ документы (включая " +
+      "загруженные вручную или через scripts/import-github-repo.ts) и файлы в public/uploads.",
+  );
+  await clearUploadDir();
 
   console.log("Очищаю таблицы каталога (пользователи и сессии не трогаю)...");
+  await db.delete(annotations);
   await db.delete(comments);
   await db.delete(documentEdits);
   await db.delete(documentAuthors);
+  await db.delete(documentTags);
   await db.delete(documents);
   await db.delete(categoryRelations);
   await db.delete(authorRelations);
   await db.delete(categories);
   await db.delete(authors);
+  await db.delete(tags);
 
   await insertCategoryTree(catalog, null, []);
   await insertRelations();

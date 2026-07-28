@@ -3,9 +3,11 @@ import { promises as fs } from "fs";
 import path from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { documentAuthors, documentEdits, documents } from "@/lib/db/schema";
+import { documentAuthors, documentEdits, documents, documentTags } from "@/lib/db/schema";
 import { convertDjvuToPdf } from "@/lib/djvu";
 import { getOrCreateAuthorsByNames } from "@/lib/db/authors";
+import { getOrCreateTagsByNames } from "@/lib/db/tags";
+import { buildDisplayFileName } from "@/lib/filenames";
 import type { DocumentRow } from "@/lib/db/queries";
 
 const allowedExtensions = new Set([
@@ -27,6 +29,13 @@ function stringValue(formData: FormData, key: string) {
 
 function parseAuthors(formData: FormData) {
   return stringValue(formData, "authors")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function parseTags(formData: FormData) {
+  return stringValue(formData, "tags")
     .split(",")
     .map((name) => name.trim())
     .filter(Boolean);
@@ -93,6 +102,14 @@ async function setDocumentAuthors(documentId: string, authorNames: string[]) {
   }
 }
 
+async function setDocumentTags(documentId: string, tagNames: string[]) {
+  await db.delete(documentTags).where(eq(documentTags.documentId, documentId));
+  const tagIds = await getOrCreateTagsByNames(tagNames);
+  for (const tagId of tagIds) {
+    await db.insert(documentTags).values({ documentId, tagId }).onConflictDoNothing();
+  }
+}
+
 export async function createDocument(formData: FormData, userId: string) {
   const title = stringValue(formData, "title");
   const categoryId = stringValue(formData, "categoryId");
@@ -108,6 +125,8 @@ export async function createDocument(formData: FormData, userId: string) {
   const { fileUrl, fileType, originalFormat } = await storeUpload(upload);
   const pagesValue = Number.parseInt(stringValue(formData, "pages"), 10);
   const documentId = randomUUID();
+  const authorNames = parseAuthors(formData);
+  const fileName = buildDisplayFileName(title, authorNames, `.${fileType.toLowerCase()}`);
 
   await db.insert(documents).values({
     id: documentId,
@@ -117,7 +136,7 @@ export async function createDocument(formData: FormData, userId: string) {
     description: stringValue(formData, "description") || null,
     categoryId,
     fileUrl,
-    fileName: upload.name,
+    fileName,
     fileType,
     originalFormat,
     pages: Number.isFinite(pagesValue) && pagesValue > 0 ? pagesValue : null,
@@ -125,7 +144,8 @@ export async function createDocument(formData: FormData, userId: string) {
     createdBy: userId,
   });
 
-  await setDocumentAuthors(documentId, parseAuthors(formData));
+  await setDocumentAuthors(documentId, authorNames);
+  await setDocumentTags(documentId, parseTags(formData));
 
   return documentId;
 }
@@ -178,12 +198,29 @@ export async function updateDocument(
     }
   }
 
+  const authorsField = formData.get("authors");
+  const authorNames = typeof authorsField === "string" ? parseAuthors(formData) : null;
+  if (authorNames) {
+    await setDocumentAuthors(existing.id, authorNames);
+  }
+
+  const tagsField = formData.get("tags");
+  if (typeof tagsField === "string") {
+    await setDocumentTags(existing.id, parseTags(formData));
+  }
+
+  const finalTitle = (updates.title as string | undefined) ?? existing.title;
   const upload = formData.get("file");
   if (isUploadedFile(upload) && upload.size > 0) {
     const { fileUrl, fileType, originalFormat } = await storeUpload(upload);
     await removeUploadedFile(existing.fileUrl);
+    const displayName = buildDisplayFileName(
+      finalTitle,
+      authorNames ?? [],
+      `.${fileType.toLowerCase()}`,
+    );
     updates.fileUrl = fileUrl;
-    updates.fileName = upload.name;
+    updates.fileName = displayName;
     updates.fileType = fileType;
     updates.originalFormat = originalFormat;
     await db.insert(documentEdits).values({
@@ -192,13 +229,12 @@ export async function updateDocument(
       editorId: userId,
       field: "file",
       oldValue: existing.fileName,
-      newValue: upload.name,
+      newValue: displayName,
     });
-  }
-
-  const authorsField = formData.get("authors");
-  if (typeof authorsField === "string") {
-    await setDocumentAuthors(existing.id, parseAuthors(formData));
+  } else if (existing.fileUrl && (updates.title || authorNames)) {
+    // No new file, but the title/authors changed — keep the download name in sync.
+    const extension = path.extname(existing.fileName || existing.fileUrl) || `.${existing.fileType.toLowerCase()}`;
+    updates.fileName = buildDisplayFileName(finalTitle, authorNames ?? [], extension);
   }
 
   if (Object.keys(updates).length > 0) {

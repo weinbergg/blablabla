@@ -21,7 +21,7 @@ export default async function LoginPage() {
           <ArrowLeft size={15} />
           Вернуться в библиотеку
         </Link>
-        <section className="rounded-3xl border border-ink/10 bg-white/50 p-8 shadow-[0_24px_80px_rgba(25,31,40,0.08)] backdrop-blur md:p-10">
+        <section className="rounded-3xl border border-ink/10 bg-white/50 p-8 shadow-[0_24px_80px_rgba(25,31,40,0.08)] backdrop-blur dark:bg-white/5 dark:shadow-none md:p-10">
           <span className="grid size-11 place-items-center rounded-full bg-ink font-serif text-2xl italic text-paper">
             b.
           </span>

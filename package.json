@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
+    "import:repo": "tsx scripts/import-github-repo.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "postinstall": "node scripts/copy-pdf-worker.mjs"
   },

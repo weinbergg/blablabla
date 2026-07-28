@@ -58,6 +58,7 @@ export function PdfReader({
   initialAnnotations?: AnnotationItem[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const spreadRef = useRef<HTMLDivElement>(null);
   const leftCanvasRef = useRef<HTMLCanvasElement>(null);
   const rightCanvasRef = useRef<HTMLCanvasElement>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
@@ -136,6 +137,19 @@ export function PdfReader({
     setFlipNonce((n) => n + 1);
     prevPageRef.current = page;
   }, [page]);
+
+  // Restart the CSS flip animation on the *same* DOM node (never remount the
+  // canvases) so the previously rendered page stays visible instead of
+  // flashing blank while the next page is still being drawn.
+  useEffect(() => {
+    const el = spreadRef.current;
+    if (!el || !animate || flipNonce === 0) return;
+    const className = flipDir === "forward" ? "page-flip-forward" : "page-flip-backward";
+    el.classList.remove("page-flip-forward", "page-flip-backward");
+    // Force reflow so the browser registers the class removal before it's re-added.
+    void el.offsetWidth;
+    el.classList.add(className);
+  }, [flipNonce, flipDir, animate]);
 
   const isDouble = mode === "double" && numPages > 1;
   const spreadStart = isDouble ? (page % 2 === 0 ? page - 1 : page) : page;
@@ -323,35 +337,41 @@ export function PdfReader({
         </div>
       )}
 
-      <div ref={containerRef} className="min-h-[65vh]" style={{ perspective: "2200px" }}>
+      <div ref={containerRef} className="relative min-h-[65vh]" style={{ perspective: "2200px" }}>
         {loading ? (
           <div className="flex min-h-[65vh] items-center justify-center">
             <Loader2 className="animate-spin text-muted" />
           </div>
         ) : (
-          <div
-            key={animate ? flipNonce : "static"}
-            className={`flex justify-center gap-7 ${
-              animate ? (flipDir === "forward" ? "page-flip-forward" : "page-flip-backward") : ""
-            }`}
-          >
-            <div className="relative">
-              <canvas ref={leftCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
-              <AnnotationLayer
-                pageNumber={leftPageNumber}
-                items={annotations}
-                currentUserId={currentUserId ?? null}
-                placing={placing}
-                onCreate={createAnnotation}
-                onDelete={deleteAnnotation}
-                onPlaced={() => setPlacing(false)}
-              />
-            </div>
-            {isDouble && (
+          <>
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={leftPageNumber <= 1}
+              aria-label="Предыдущая страница"
+              className="group absolute inset-y-0 left-0 z-10 hidden w-16 items-center justify-start disabled:cursor-default md:flex"
+            >
+              <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
+                <ChevronLeft size={20} />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={rightPageNumber ? rightPageNumber >= numPages : leftPageNumber >= numPages}
+              aria-label="Следующая страница"
+              className="group absolute inset-y-0 right-0 z-10 hidden w-16 items-center justify-end disabled:cursor-default md:flex"
+            >
+              <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
+                <ChevronRight size={20} />
+              </span>
+            </button>
+
+            <div ref={spreadRef} className="flex justify-center gap-7">
               <div className="relative">
-                <canvas ref={rightCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
+                <canvas ref={leftCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
                 <AnnotationLayer
-                  pageNumber={rightPageNumber}
+                  pageNumber={leftPageNumber}
                   items={annotations}
                   currentUserId={currentUserId ?? null}
                   placing={placing}
@@ -360,8 +380,22 @@ export function PdfReader({
                   onPlaced={() => setPlacing(false)}
                 />
               </div>
-            )}
-          </div>
+              {isDouble && (
+                <div className="relative">
+                  <canvas ref={rightCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
+                  <AnnotationLayer
+                    pageNumber={rightPageNumber}
+                    items={annotations}
+                    currentUserId={currentUserId ?? null}
+                    placing={placing}
+                    onCreate={createAnnotation}
+                    onDelete={deleteAnnotation}
+                    onPlaced={() => setPlacing(false)}
+                  />
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

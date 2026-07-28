@@ -10,6 +10,8 @@ import {
   documentAuthors,
   documentEdits,
   documents,
+  documentTags,
+  tags,
   users,
 } from "./schema";
 import { normalizeForSearch } from "@/lib/transliterate";
@@ -17,6 +19,7 @@ import { normalizeForSearch } from "@/lib/transliterate";
 export type CategoryRow = typeof categories.$inferSelect;
 export type DocumentRow = typeof documents.$inferSelect;
 export type AuthorRow = typeof authors.$inferSelect;
+export type TagRow = typeof tags.$inferSelect;
 
 export type CategoryNode = CategoryRow & {
   children: CategoryNode[];
@@ -129,13 +132,69 @@ async function attachAuthors<T extends { id: string }>(docs: T[]) {
   return docs.map((doc) => ({ ...doc, authors: byDoc.get(doc.id) ?? [] }));
 }
 
+async function attachTags<T extends { id: string }>(docs: T[]) {
+  if (docs.length === 0) return docs.map((doc) => ({ ...doc, tags: [] as TagRow[] }));
+
+  const ids = docs.map((doc) => doc.id);
+  const links = await db
+    .select({ documentId: documentTags.documentId, tag: tags })
+    .from(documentTags)
+    .innerJoin(tags, eq(documentTags.tagId, tags.id))
+    .where(inArray(documentTags.documentId, ids));
+
+  const byDoc = new Map<string, TagRow[]>();
+  for (const link of links) {
+    const list = byDoc.get(link.documentId) ?? [];
+    list.push(link.tag);
+    byDoc.set(link.documentId, list);
+  }
+
+  return docs.map((doc) => ({ ...doc, tags: byDoc.get(doc.id) ?? [] }));
+}
+
+export async function getAllTags() {
+  return db.select().from(tags).orderBy(asc(tags.name));
+}
+
+export async function getTagBySlug(slug: string) {
+  const [tag] = await db.select().from(tags).where(eq(tags.slug, slug)).limit(1);
+  if (!tag) return null;
+
+  const links = await db
+    .select({ documentId: documentTags.documentId })
+    .from(documentTags)
+    .where(eq(documentTags.tagId, tag.id));
+  const docIds = links.map((link) => link.documentId);
+  if (!docIds.length) return { tag, documents: [] as (DocumentRow & { authors: AuthorRow[]; category: CategoryRow | null })[] };
+
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(inArray(documents.id, docIds))
+    .orderBy(asc(documents.title));
+  const withAuthors = await attachAuthors(rows);
+
+  const categoryIds = [...new Set(rows.map((row) => row.categoryId))];
+  const categoryRows = categoryIds.length
+    ? await db.select().from(categories).where(inArray(categories.id, categoryIds))
+    : [];
+  const categoryById = new Map(categoryRows.map((row) => [row.id, row]));
+
+  const documentsWithCategory = withAuthors.map((doc) => ({
+    ...doc,
+    category: categoryById.get(doc.categoryId) ?? null,
+  }));
+
+  return { tag, documents: documentsWithCategory };
+}
+
 export async function getDocumentsForCategory(categoryId: string) {
   const rows = await db
     .select()
     .from(documents)
     .where(eq(documents.categoryId, categoryId))
     .orderBy(asc(documents.title));
-  return attachAuthors(rows);
+  return attachTags(await attachAuthors(rows));
 }
 
 export async function getRecentDocuments(limit = 6) {
@@ -149,14 +208,71 @@ export async function getRecentDocuments(limit = 6) {
 
 export async function getAllDocumentsForSearch() {
   const rows = await db.select().from(documents);
-  return attachAuthors(rows);
+  return attachTags(await attachAuthors(rows));
 }
 
 export async function getDocumentById(id: string) {
   const rows = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
   if (!rows[0]) return null;
   const [withAuthors] = await attachAuthors([rows[0]]);
-  return withAuthors;
+  const [withTags] = await attachTags([withAuthors]);
+  return withTags;
+}
+
+export async function getAuthorBySlug(slug: string) {
+  const [author] = await db.select().from(authors).where(eq(authors.slug, slug)).limit(1);
+  if (!author) return null;
+
+  const links = await db
+    .select({ documentId: documentAuthors.documentId })
+    .from(documentAuthors)
+    .where(eq(documentAuthors.authorId, author.id));
+  const docIds = links.map((link) => link.documentId);
+  if (!docIds.length) return { author, documents: [] as (DocumentRow & { authors: AuthorRow[]; category: CategoryRow | null })[] };
+
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(inArray(documents.id, docIds))
+    .orderBy(asc(documents.title));
+  const withAuthors = await attachAuthors(rows);
+
+  const categoryIds = [...new Set(rows.map((row) => row.categoryId))];
+  const categoryRows = categoryIds.length
+    ? await db.select().from(categories).where(inArray(categories.id, categoryIds))
+    : [];
+  const categoryById = new Map(categoryRows.map((row) => [row.id, row]));
+
+  const documentsWithCategory = withAuthors.map((doc) => ({
+    ...doc,
+    category: categoryById.get(doc.categoryId) ?? null,
+  }));
+
+  return { author, documents: documentsWithCategory };
+}
+
+/** Other authors who share at least one category with the given author — used for "related authors" cross-links. */
+export async function getRelatedAuthors(authorId: string, excludeAuthorId: string) {
+  const relations = await db
+    .select()
+    .from(authorRelations)
+    .where(or(eq(authorRelations.authorAId, authorId), eq(authorRelations.authorBId, authorId)));
+
+  const otherIds = relations.map((rel) =>
+    rel.authorAId === authorId ? rel.authorBId : rel.authorAId,
+  );
+  if (!otherIds.length) return [];
+
+  const rows = await db.select().from(authors).where(inArray(authors.id, otherIds));
+  const labelById = new Map(
+    relations.map((rel) => [
+      rel.authorAId === authorId ? rel.authorBId : rel.authorAId,
+      rel.label,
+    ]),
+  );
+  return rows
+    .filter((row) => row.id !== excludeAuthorId)
+    .map((row) => ({ ...row, relationLabel: labelById.get(row.id) ?? null }));
 }
 
 export async function getCategoryTrail(categoryId: string) {
@@ -261,6 +377,7 @@ export type GraphNode = {
   label: string;
   type: "category" | "author";
   documentCount?: number;
+  href?: string;
 };
 
 export type GraphEdge = {
@@ -287,6 +404,17 @@ export async function getGraphData() {
 
   const categoryHasContent = new Set<string>();
   const docCategoryById = new Map(docRows.map((doc) => [doc.id, doc.categoryId]));
+  const categoryById = new Map(categoryRows.map((row) => [row.id, row]));
+
+  function categoryHref(id: string): string {
+    const slugs: string[] = [];
+    let current = categoryById.get(id);
+    while (current) {
+      slugs.unshift(current.slug);
+      current = current.parentId ? categoryById.get(current.parentId) : undefined;
+    }
+    return `/catalog/${slugs.join("/")}`;
+  }
 
   for (const category of categoryRows) {
     nodes.push({
@@ -294,6 +422,7 @@ export async function getGraphData() {
       label: category.name,
       type: "category",
       documentCount: counts.get(category.id) ?? 0,
+      href: categoryHref(category.id),
     });
     if (category.parentId) {
       edges.push({
@@ -320,7 +449,12 @@ export async function getGraphData() {
     );
     if (relevantPairs.length === 0) continue;
 
-    nodes.push({ id: `author:${author.id}`, label: author.name, type: "author" });
+    nodes.push({
+      id: `author:${author.id}`,
+      label: author.name,
+      type: "author",
+      href: `/authors/${author.slug}`,
+    });
     for (const pair of relevantPairs) {
       const categoryId = pair.split(":")[1];
       edges.push({

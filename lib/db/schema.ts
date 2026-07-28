@@ -145,6 +145,27 @@ export const documentAuthors = sqliteTable("document_authors", {
   ),
 }));
 
+/** Free-form labels that cut across the category tree, e.g. "конспект", "перевод", "первоисточник". */
+export const tags = sqliteTable("tags", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  ...timestamps,
+}, (table) => ({
+  slugIdx: uniqueIndex("tags_slug_idx").on(table.slug),
+}));
+
+export const documentTags = sqliteTable("document_tags", {
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  tagId: text("tag_id")
+    .notNull()
+    .references(() => tags.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pairIdx: uniqueIndex("document_tags_pair_idx").on(table.documentId, table.tagId),
+}));
+
 /** Change log for collaborative metadata editing (phase 1: history, not real-time). */
 export const documentEdits = sqliteTable("document_edits", {
   id: text("id").primaryKey(),

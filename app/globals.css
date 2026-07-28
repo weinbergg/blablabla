@@ -1,10 +1,24 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --paper: #f7f4ed;
+  --paper-rgb: 247, 244, 237;
   --ink: #17202c;
+  --ink-rgb: 23, 32, 44;
   --muted: #6e716f;
   --rust: #c85c35;
+  color-scheme: light;
+}
+
+.dark {
+  --paper: #14161c;
+  --paper-rgb: 20, 22, 28;
+  --ink: #e9e6de;
+  --ink-rgb: 233, 230, 222;
+  --muted: #8b8e93;
+  --rust: #e08657;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -32,6 +46,7 @@ body {
     var(--paper);
   color: var(--ink);
   font-family: var(--font-geist-sans), Arial, sans-serif;
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
 button,
@@ -77,7 +92,7 @@ button:disabled {
   left: 50%;
   width: min(96vw, 950px);
   aspect-ratio: 1;
-  border: 1px solid rgba(23, 32, 44, 0.055);
+  border: 1px solid rgba(var(--ink-rgb), 0.055);
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
@@ -124,8 +139,8 @@ button:disabled {
 }
 
 .dark-list article a:hover {
-  background: var(--paper);
-  color: var(--ink);
+  background: #f7f4ed;
+  color: #17202c;
 }
 
 .field {
@@ -145,9 +160,10 @@ button:disabled {
 .field select,
 .field textarea {
   width: 100%;
-  border: 1px solid rgba(23, 32, 44, 0.14);
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.55);
+  color: var(--ink);
   padding: 11px 13px;
   font-size: 14px;
   outline: none;
@@ -156,11 +172,17 @@ button:disabled {
     box-shadow 150ms ease;
 }
 
+.dark .field input,
+.dark .field select,
+.dark .field textarea {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
-  border-color: rgba(23, 32, 44, 0.5);
-  box-shadow: 0 0 0 3px rgba(23, 32, 44, 0.05);
+  border-color: rgba(var(--ink-rgb), 0.5);
+  box-shadow: 0 0 0 3px rgba(var(--ink-rgb), 0.05);
 }
 
 .field textarea {
@@ -184,7 +206,8 @@ button:disabled {
   margin-right: 10px;
   border: 0;
   border-radius: 7px;
-  background: rgba(23, 32, 44, 0.08);
+  background: rgba(var(--ink-rgb), 0.08);
+  color: var(--ink);
   padding: 7px 10px;
   font: inherit;
   font-weight: 600;
@@ -214,8 +237,9 @@ button:disabled {
 }
 
 .button-secondary {
-  border: 1px solid rgba(23, 32, 44, 0.14);
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
   background: transparent;
+  color: var(--ink);
 }
 
 .button-secondary:hover,
@@ -228,7 +252,7 @@ button:disabled {
   width: 36px;
   height: 36px;
   place-items: center;
-  border: 1px solid rgba(23, 32, 44, 0.12);
+  border: 1px solid rgba(var(--ink-rgb), 0.12);
   border-radius: 50%;
   color: var(--muted);
   transition: all 150ms ease;
@@ -242,42 +266,44 @@ button:disabled {
 
 @keyframes page-flip-forward {
   0% {
-    transform: rotateY(0deg);
+    transform: rotateY(0deg) scale(1);
     opacity: 1;
   }
-  45% {
-    transform: rotateY(-10deg);
-    opacity: 0.5;
+  50% {
+    transform: rotateY(-4deg) scale(0.992);
+    opacity: 0.88;
   }
   100% {
-    transform: rotateY(0deg);
+    transform: rotateY(0deg) scale(1);
     opacity: 1;
   }
 }
 
 @keyframes page-flip-backward {
   0% {
-    transform: rotateY(0deg);
+    transform: rotateY(0deg) scale(1);
     opacity: 1;
   }
-  45% {
-    transform: rotateY(10deg);
-    opacity: 0.5;
+  50% {
+    transform: rotateY(4deg) scale(0.992);
+    opacity: 0.88;
   }
   100% {
-    transform: rotateY(0deg);
+    transform: rotateY(0deg) scale(1);
     opacity: 1;
   }
 }
 
 .page-flip-forward {
-  animation: page-flip-forward 420ms ease-in-out;
+  animation: page-flip-forward 560ms cubic-bezier(0.4, 0, 0.2, 1);
   transform-style: preserve-3d;
+  will-change: transform, opacity;
 }
 
 .page-flip-backward {
-  animation: page-flip-backward 420ms ease-in-out;
+  animation: page-flip-backward 560ms cubic-bezier(0.4, 0, 0.2, 1);
   transform-style: preserve-3d;
+  will-change: transform, opacity;
 }
 
 @keyframes sticker-pop {

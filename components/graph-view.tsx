@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   forceCenter,
   forceCollide,
@@ -10,7 +11,7 @@ import {
   type Simulation,
   type SimulationNodeDatum,
 } from "d3-force";
-import { Minus, Plus, RotateCcw, Waypoints } from "lucide-react";
+import { ArrowUpRight, Minus, Pin, Plus, RotateCcw, Waypoints, X } from "lucide-react";
 import type { GraphEdge, GraphNode } from "@/lib/db/queries";
 
 type SimNode = GraphNode & SimulationNodeDatum;
@@ -43,7 +44,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
 
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
 
   const dragNode = useRef<{ id: string; moved: boolean } | null>(null);
   const dragPan = useRef<{
@@ -63,7 +64,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
 
     nodesRef.current = simNodes;
     linksRef.current = simLinks;
-    setSelectedId(null);
+    setPinnedId(null);
     setHoverId(null);
 
     const simulation = forceSimulation(simNodes)
@@ -71,16 +72,16 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         "link",
         forceLink(simLinks as never[])
           .id((d) => (d as SimNode).id)
-          .distance((d) => ((d as unknown as GraphEdge).kind === "relation" ? 155 : 95))
-          .strength(0.55),
+          .distance((d) => ((d as unknown as GraphEdge).kind === "relation" ? 100 : 62))
+          .strength(0.7),
       )
-      .force("charge", forceManyBody().strength(-230))
+      .force("charge", forceManyBody().strength(-110))
       .force("center", forceCenter(WIDTH / 2, HEIGHT / 2))
       .force(
         "collide",
-        forceCollide<SimNode>().radius((d) => (d.type === "author" ? 28 : 42)),
+        forceCollide<SimNode>().radius((d) => (d.type === "author" ? 22 : 34)),
       )
-      .alphaDecay(0.018)
+      .alphaDecay(0.03)
       .on("tick", () => forceRender((t) => t + 1))
       .on("end", () => {
         if (!simNodes.length) return;
@@ -127,7 +128,10 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   const links = linksRef.current;
   const nodeById = useMemo(() => new Map(positioned.map((n) => [n.id, n])), [positioned]);
 
-  const activeId = hoverId ?? selectedId;
+  // A pin always wins over hover — moving the mouse around must not un-highlight
+  // whatever the user deliberately clicked.
+  const activeId = pinnedId ?? hoverId;
+  const pinnedNode = pinnedId ? nodeById.get(pinnedId) ?? null : null;
   const neighborIds = useMemo(() => {
     if (!activeId) return null;
     const set = new Set<string>([activeId]);
@@ -151,7 +155,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
 
   function resetView() {
     setView({ x: 0, y: 0, k: 1 });
-    setSelectedId(null);
+    setPinnedId(null);
   }
 
   function handleNodePointerDown(event: React.PointerEvent, node: SimNode) {
@@ -182,7 +186,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     const wasClick = !dragNode.current.moved;
     dragNode.current = null;
     if (wasClick) {
-      setSelectedId((current) => (current === node.id ? null : node.id));
+      setPinnedId((current) => (current === node.id ? null : node.id));
     }
   }
 
@@ -216,7 +220,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   function handleBackgroundPointerUp() {
     const moved = dragPan.current?.moved;
     dragPan.current = null;
-    if (!moved) setSelectedId(null);
+    if (!moved) setPinnedId(null);
   }
 
   const relationEdges = links.filter((link) => link.kind === "relation");
@@ -251,15 +255,55 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         </div>
       </div>
 
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="block h-auto w-full touch-none select-none"
-        style={{ cursor: dragPan.current ? "grabbing" : "grab" }}
-        onPointerDown={handleBackgroundPointerDown}
-        onPointerMove={handleBackgroundPointerMove}
-        onPointerUp={handleBackgroundPointerUp}
-      >
+      <div className="relative">
+        {pinnedNode && (
+          <div className="absolute right-4 top-4 z-10 w-[min(280px,calc(100%-2rem))] rounded-2xl border border-ink/10 bg-white/95 p-4 shadow-lg backdrop-blur">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <div>
+                <p
+                  className="text-[10px] font-semibold uppercase tracking-widest"
+                  style={{ color: pinnedNode.type === "author" ? AUTHOR_COLOR : CATEGORY_COLOR }}
+                >
+                  <Pin size={10} className="mr-1 inline" />
+                  {pinnedNode.type === "author" ? "Автор" : "Раздел каталога"}
+                </p>
+                <p className="mt-1 font-serif text-lg leading-tight">{pinnedNode.label}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPinnedId(null)}
+                className="icon-button shrink-0"
+                aria-label="Открепить"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            {typeof pinnedNode.documentCount === "number" && (
+              <p className="mb-3 text-xs text-muted">
+                {pinnedNode.documentCount} {pinnedNode.documentCount === 1 ? "текст" : "текстов"} в разделе
+              </p>
+            )}
+            {pinnedNode.href && (
+              <Link
+                href={pinnedNode.href}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-rust transition-colors hover:text-ink"
+              >
+                Перейти на страницу
+                <ArrowUpRight size={15} />
+              </Link>
+            )}
+          </div>
+        )}
+
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          className="block h-auto w-full touch-none select-none"
+          style={{ cursor: dragPan.current ? "grabbing" : "grab" }}
+          onPointerDown={handleBackgroundPointerDown}
+          onPointerMove={handleBackgroundPointerMove}
+          onPointerUp={handleBackgroundPointerUp}
+        >
         <g transform={`translate(${view.x}, ${view.y}) scale(${view.k})`}>
           <g>
             {links.map((link, index) => {
@@ -287,7 +331,8 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
           <g>
             {positioned.map((node) => {
               const dimmed = neighborIds ? !neighborIds.has(node.id) : false;
-              const isActive = activeId === node.id;
+              const isPinned = pinnedId === node.id;
+              const isHoverOnly = !pinnedId && hoverId === node.id;
               const isAuthor = node.type === "author";
               const radius = isAuthor ? 6 : 9 + Math.min(11, (node.documentCount ?? 0) / 2);
               const showLabel = !isAuthor || Boolean(activeId && neighborIds?.has(node.id));
@@ -303,7 +348,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   onPointerUp={() => handleNodePointerUp(node)}
                   className="cursor-pointer"
                 >
-                  {isActive && (
+                  {isPinned && (
                     <circle
                       r={radius + 6}
                       fill="none"
@@ -311,15 +356,24 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                       strokeOpacity={0.35}
                       strokeWidth={2}
                     >
-                      <animate attributeName="r" values={`${radius + 4};${radius + 10};${radius + 4}`} dur="1.8s" repeatCount="indefinite" />
-                      <animate attributeName="stroke-opacity" values="0.4;0.1;0.4" dur="1.8s" repeatCount="indefinite" />
+                      <animate attributeName="r" values={`${radius + 5};${radius + 8};${radius + 5}`} dur="2.6s" repeatCount="indefinite" />
+                      <animate attributeName="stroke-opacity" values="0.35;0.15;0.35" dur="2.6s" repeatCount="indefinite" />
                     </circle>
+                  )}
+                  {isHoverOnly && (
+                    <circle
+                      r={radius + 5}
+                      fill="none"
+                      stroke={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
+                      strokeOpacity={0.3}
+                      strokeWidth={1.5}
+                    />
                   )}
                   <circle
                     r={radius}
                     fill={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
-                    opacity={dimmed ? 0.22 : 1}
-                    className="transition-opacity duration-300 ease-out"
+                    opacity={dimmed ? 0.25 : 1}
+                    className="transition-opacity duration-500 ease-out"
                   />
                   {showLabel && (
                     <text
@@ -329,12 +383,12 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                       fontWeight={isAuthor ? 500 : 600}
                       fontFamily={isAuthor ? "inherit" : "var(--font-serif, serif)"}
                       fill="#191f28"
-                      opacity={dimmed ? 0.18 : 1}
+                      opacity={dimmed ? 0.2 : 1}
                       stroke={HALO}
                       strokeWidth={4}
                       paintOrder="stroke"
                       strokeLinejoin="round"
-                      className="transition-opacity duration-300 ease-out"
+                      className="transition-opacity duration-500 ease-out"
                     >
                       {node.label}
                     </text>
@@ -344,10 +398,11 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
             })}
           </g>
         </g>
-      </svg>
+        </svg>
+      </div>
 
       <p className="border-t border-ink/10 px-5 py-3 text-center text-xs text-muted">
-        Колесо мыши — масштаб, перетаскивание фона — сдвиг, точка — клик закрепляет связи, перетаскивание точки — вручную подвинуть.
+        Колесо мыши — масштаб, перетаскивание фона — сдвиг, клик по точке — закрепить/открепить связи, перетаскивание точки — подвинуть вручную.
       </p>
 
       {relationEdges.length > 0 && (
@@ -368,7 +423,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   key={index}
                   onMouseEnter={() => setHoverId(source.id)}
                   onMouseLeave={() => setHoverId(null)}
-                  onClick={() => setSelectedId(source.id)}
+                  onClick={() => setPinnedId(source.id)}
                   className="rounded-xl border border-ink/10 bg-white/70 px-4 py-3 text-left text-sm transition-colors hover:border-rust/40"
                   style={isActive ? { borderColor: "rgba(200,92,53,0.5)", background: "#fff" } : undefined}
                 >

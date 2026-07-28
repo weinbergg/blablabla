@@ -32,6 +32,7 @@ export default async function AdminPage() {
     id: doc.id,
     title: doc.title,
     authorNames: doc.authors.map((a) => a.name).join(", "),
+    tagNames: doc.tags.map((t) => t.name).join(", "),
     categoryId: doc.categoryId,
     categoryName: categoryById.get(doc.categoryId) ?? "",
     fileType: doc.fileType,

@@ -213,6 +213,16 @@ export const catalog: CategorySeed[] = [
             confidence: "low",
           },
           {
+            sourcePath: "Матан/Пока без папки/Асимптоматика. Интегралы и ряды.pdf",
+            title: "Асимптотика. Интегралы и ряды",
+            confidence: "low",
+          },
+          {
+            sourcePath: "Матан/Пока без папки/Метод перевала.pdf",
+            title: "Метод перевала",
+            confidence: "low",
+          },
+          {
             sourcePath: "Матан/UnderstandingAnalysis.pdf",
             title: "Understanding Analysis",
             authors: ["Stephen Abbott"],
@@ -244,6 +254,13 @@ export const catalog: CategorySeed[] = [
             sourcePath: "Матан/Алгебра/Алегбра. Винберг.pdf",
             title: "Алгебра",
             authors: ["Эрнест Винберг"],
+          },
+          {
+            sourcePath: "Матан/Пока без папки/Конечные поля. Лидл.djvu",
+            title: "Конечные поля",
+            alternateTitle: "Finite Fields",
+            authors: ["Рудольф Лидл", "Харальд Нидеррайтер"],
+            confidence: "low",
           },
         ],
       },
@@ -320,6 +337,11 @@ export const catalog: CategorySeed[] = [
               "Матан/Комбинаторика/Combinatorial Reasoning An Introduction to the Art of Counting by Duane DeTemple, William Webb.pdf",
             title: "Combinatorial Reasoning: An Introduction to the Art of Counting",
             authors: ["Duane DeTemple", "William Webb"],
+          },
+          {
+            sourcePath: "Матан/Пока без папки/Лекции о производящих функциях.pdf",
+            title: "Лекции о производящих функциях",
+            confidence: "low",
           },
           {
             sourcePath: "Кнут/Konkretnaya_matematika_Grekhem_Knut_Patashnik.pdf",
@@ -651,10 +673,9 @@ export const catalog: CategorySeed[] = [
           },
           {
             sourcePath: "Код/Квант/77735-33616.pdf",
-            title: "Материал без точного названия (квантовые вычисления)",
-            confidence: "low",
-            sourceNote:
-              "Имя файла не содержит информации об авторе и названии — стоит проверить вручную.",
+            title: "Отличная квантовая механика",
+            authors: ["Александр Львовский"],
+            sourceNote: "Учебное пособие, издательство «Альпина нон-фикшн».",
           },
         ],
       },
@@ -690,6 +711,18 @@ export const catalog: CategorySeed[] = [
             sourcePath: "Код/Питоню/НеПитон/Hacking For Dummies ... by Kevin Beaver.pdf",
             title: "Hacking For Dummies",
             authors: ["Kevin Beaver"],
+          },
+        ],
+      },
+      {
+        slug: "bazy-dannykh",
+        name: "Базы данных",
+        documents: [
+          {
+            sourcePath: "Код/Питоню/SQL Server Simplifie... by Garg  Vishal.pdf",
+            title: "SQL Server Simplified",
+            authors: ["Vishal Garg"],
+            confidence: "low",
           },
         ],
       },
@@ -771,32 +804,6 @@ export const catalog: CategorySeed[] = [
               {
                 sourcePath: "China/учебники/Elementary_Listening_Course_I.pdf",
                 title: "Elementary Listening Course I",
-                confidence: "low",
-              },
-            ],
-          },
-          {
-            slug: "razgovornik",
-            name: "Разговорник",
-            documents: [
-              {
-                sourcePath: "China/слова/Слова.docx",
-                title: "Китайский: слова (конспект)",
-                confidence: "low",
-              },
-              {
-                sourcePath: "China/слова/Документ.docx",
-                title: "Китайский: конспект 1",
-                confidence: "low",
-              },
-              {
-                sourcePath: "China/слова/Документ (2).docx",
-                title: "Китайский: конспект 2",
-                confidence: "low",
-              },
-              {
-                sourcePath: "China/слова/Фразы.rtf",
-                title: "Китайский: фразы (конспект)",
                 confidence: "low",
               },
             ],

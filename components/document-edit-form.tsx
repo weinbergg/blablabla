@@ -20,6 +20,7 @@ export function DocumentEditForm({
     description: string;
     categoryId: string;
     pages: string;
+    tags: string;
   };
   categoryOptions: CategoryOption[];
 }) {
@@ -108,6 +109,10 @@ export function DocumentEditForm({
         <label className="field">
           <span>Описание</span>
           <textarea name="description" rows={3} defaultValue={initial.description} />
+        </label>
+        <label className="field">
+          <span>Метки, через запятую</span>
+          <input name="tags" defaultValue={initial.tags} placeholder="например: логика, XX век" />
         </label>
         <label className="field">
           <span>Заменить файл (необязательно)</span>

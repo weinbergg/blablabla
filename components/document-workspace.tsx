@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { MessageSquare, Reply, Send } from "lucide-react";
+import { Maximize2, MessageSquare, Minimize2, Reply, Send } from "lucide-react";
 import type { AnnotationItem } from "@/components/readers/annotation-layer";
 
 const PdfReader = dynamic(
@@ -43,12 +43,52 @@ export function DocumentWorkspace({
 }) {
   const [page, setPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
+  const [fullscreen, setFullscreen] = useState(false);
   const isPdf = fileType === "PDF";
   const isEpub = fileType === "EPUB";
+  const canFullscreen = Boolean(fileUrl) && (isPdf || isEpub);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    document.body.style.overflow = "hidden";
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setFullscreen(false);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [fullscreen]);
 
   return (
     <div className="space-y-10">
-      <div>
+      <div className={fullscreen ? "fixed inset-0 z-50 flex flex-col bg-paper" : ""}>
+        {canFullscreen && (
+          <div
+            className={
+              fullscreen
+                ? "flex items-center justify-between border-b border-ink/10 px-4 py-3 md:px-8"
+                : "mb-3 flex justify-end"
+            }
+          >
+            {fullscreen && (
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+                Полноэкранное чтение · Esc — выйти
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setFullscreen((f) => !f)}
+              className="icon-button"
+              aria-label={fullscreen ? "Свернуть на весь экран" : "Развернуть на весь экран"}
+              title={fullscreen ? "Свернуть" : "Читать на весь экран"}
+            >
+              {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            </button>
+          </div>
+        )}
+        <div className={fullscreen ? "flex-1 overflow-y-auto px-4 pb-8 md:px-8" : ""}>
         {fileUrl && isPdf && (
           <PdfReader
             url={fileUrl}
@@ -74,6 +114,7 @@ export function DocumentWorkspace({
             Файл недоступен.
           </p>
         )}
+        </div>
       </div>
 
       <div className="mx-auto max-w-3xl">
@@ -163,7 +204,7 @@ function CommentThread({
             onChange={(event) => setBody(event.target.value)}
             placeholder="Поделитесь мыслью об этом тексте…"
             rows={3}
-            className="w-full rounded-xl border border-ink/15 bg-white/60 p-3 text-sm outline-none focus:border-ink/40"
+            className="w-full rounded-xl border border-ink/15 bg-white/60 p-3 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
           />
           <div className="flex items-center justify-between">
             {currentPage ? (
@@ -223,7 +264,7 @@ function CommentThread({
                       value={replyBody}
                       onChange={(event) => setReplyBody(event.target.value)}
                       placeholder="Ответить…"
-                      className="flex-1 rounded-full border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40"
+                      className="flex-1 rounded-full border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
                       autoFocus
                     />
                     <button type="submit" className="icon-button" disabled={busy} aria-label="Отправить ответ">
