@@ -24,14 +24,14 @@ export default async function Home() {
         <section className="relative overflow-hidden border-b border-ink/10">
           <div className="hero-orbit" aria-hidden="true" />
           <div className="shell relative pb-24 pt-20 text-center md:pb-32 md:pt-28">
-            <p className="eyebrow mb-7">Архив знаний · основан в 2026</p>
-            <h1 className="mx-auto max-w-5xl font-serif text-[clamp(3.5rem,9vw,7.8rem)] leading-[0.84] tracking-[-0.055em]">
-              Собрание текстов
-              <span className="block italic text-rust">для тех, кто думает.</span>
+            <p className="eyebrow mb-7">Библиотека · с 2026 года</p>
+            <h1 className="mx-auto max-w-5xl font-serif text-[clamp(3.2rem,8vw,6.6rem)] leading-[0.9] tracking-[-0.045em]">
+              Собрание текстов по философии,
+              <span className="block">истории и математике.</span>
             </h1>
             <p className="mx-auto mt-8 max-w-xl text-base leading-7 text-muted md:text-lg">
-              Философия, история и математика — от первоисточников до
-              современных исследований. Без шума и лишнего.
+              Личная подборка книг и статей — от первоисточников до
+              современных исследований.
             </p>
 
             <div className="mt-10">
@@ -150,7 +150,7 @@ export default async function Home() {
         <div className="shell flex flex-col gap-4 py-8 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
           <p>© 2026 blablablarden. Личная электронная библиотека.</p>
           <p className="font-mono uppercase tracking-widest">
-            Читать · Думать · Обсуждать
+            Философия · История · Математика
           </p>
         </div>
       </footer>
