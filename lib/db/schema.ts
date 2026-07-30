@@ -18,9 +18,17 @@ export const users = sqliteTable("users", {
   email: text("email").notNull(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
-  role: text("role", { enum: ["admin", "member"] })
+  /** admin: full control · booster: trusted member, can also mark up files with stickers · member: read + general discussion only. */
+  role: text("role", { enum: ["admin", "booster", "member"] })
     .notNull()
     .default("member"),
+  /** Who invited this person (another user's id), resolved from the invite they registered with — the root of the referral tree. No FK constraint, same as comments.parentId, to avoid a self-reference cycle in the table definition. */
+  referredBy: text("referred_by"),
+  /** Cumulative moderation strikes; admins decide when enough is enough. */
+  strikes: integer("strikes").notNull().default(0),
+  status: text("status", { enum: ["active", "banned"] })
+    .notNull()
+    .default("active"),
   ...timestamps,
 }, (table) => ({
   emailIdx: uniqueIndex("users_email_idx").on(table.email),
@@ -188,6 +196,10 @@ export const comments = sqliteTable("comments", {
     .notNull()
     .references(() => documents.id, { onDelete: "cascade" }),
   parentId: text("parent_id"),
+  /** Set when this comment is a reply inside a specific sticker's discussion thread, rather than the page-level thread. */
+  annotationId: text("annotation_id").references(() => annotations.id, {
+    onDelete: "cascade",
+  }),
   authorId: text("author_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -197,6 +209,7 @@ export const comments = sqliteTable("comments", {
   ...timestamps,
 }, (table) => ({
   documentIdx: index("comments_document_idx").on(table.documentId),
+  annotationIdx: index("comments_annotation_idx").on(table.annotationId),
 }));
 
 /** Sticky-note style annotations pinned to a spot on a page: shape + colour + text, public or personal. */
@@ -212,7 +225,7 @@ export const annotations = sqliteTable("annotations", {
   x: integer("x").notNull(),
   y: integer("y").notNull(),
   shape: text("shape", {
-    enum: ["note", "star", "flag", "question", "heart", "quote"],
+    enum: ["note", "star", "flag", "question", "heart", "quote", "formula", "drawing"],
   })
     .notNull()
     .default("note"),
@@ -221,8 +234,51 @@ export const annotations = sqliteTable("annotations", {
   visibility: text("visibility", { enum: ["public", "private"] })
     .notNull()
     .default("public"),
+  /** Public annotations can additionally open a discussion thread — off by default so a plain sticker stays quiet. */
+  allowDiscussion: integer("allow_discussion").notNull().default(0),
+  /** Selected paragraph text captured when the annotation was placed, so the source passage can be looked up even if rects go stale. */
+  anchorText: text("anchor_text"),
+  /** JSON array of normalized (0..1000) rects for the selected text, used to briefly highlight the passage when the sticker is opened. */
+  anchorRects: text("anchor_rects"),
   updatedAt: text("updated_at"),
   ...timestamps,
 }, (table) => ({
   documentIdx: index("annotations_document_idx").on(table.documentId),
+}));
+
+export const reports = sqliteTable("reports", {
+  id: text("id").primaryKey(),
+  targetType: text("target_type", { enum: ["annotation", "comment"] }).notNull(),
+  targetId: text("target_id").notNull(),
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  reporterId: text("reporter_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull().default(""),
+  status: text("status", { enum: ["open", "resolved", "dismissed"] })
+    .notNull()
+    .default("open"),
+  resolvedBy: text("resolved_by").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: text("resolved_at"),
+  ...timestamps,
+}, (table) => ({
+  statusIdx: index("reports_status_idx").on(table.status),
+  targetIdx: index("reports_target_idx").on(table.targetType, table.targetId),
+}));
+
+/** Free-standing questions/suggestions from readers — deliberately not tied to a document. */
+export const feedback = sqliteTable("feedback", {
+  id: text("id").primaryKey(),
+  authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+  name: text("name"),
+  contact: text("contact"),
+  body: text("body").notNull(),
+  status: text("status", { enum: ["new", "read", "resolved"] })
+    .notNull()
+    .default("new"),
+  ...timestamps,
+}, (table) => ({
+  statusIdx: index("feedback_status_idx").on(table.status),
 }));

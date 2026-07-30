@@ -1,9 +1,9 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
-import { comments } from "@/lib/db/schema";
+import { comments, reports } from "@/lib/db/schema";
 
 export async function DELETE(
   _request: Request,
@@ -24,6 +24,11 @@ export async function DELETE(
   }
 
   await db.delete(comments).where(eq(comments.id, id));
+  await db
+    .update(reports)
+    .set({ status: "resolved", resolvedBy: user.id, resolvedAt: new Date().toISOString() })
+    .where(and(eq(reports.targetType, "comment"), eq(reports.targetId, id), eq(reports.status, "open")));
   revalidatePath(`/documents/${comment.documentId}`);
+  revalidatePath("/admin");
   return NextResponse.json({ ok: true });
 }

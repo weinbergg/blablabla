@@ -11,6 +11,9 @@ import {
   documentEdits,
   documents,
   documentTags,
+  feedback,
+  invites,
+  reports,
   tags,
   users,
 } from "./schema";
@@ -304,6 +307,7 @@ export async function getDocumentComments(documentId: string) {
       id: comments.id,
       documentId: comments.documentId,
       parentId: comments.parentId,
+      annotationId: comments.annotationId,
       page: comments.page,
       body: comments.body,
       createdAt: comments.createdAt,
@@ -319,13 +323,15 @@ export async function getDocumentComments(documentId: string) {
   return rows;
 }
 
+export type AnchorRect = { x: number; y: number; w: number; h: number };
+
 /** Public annotations plus the current viewer's own private ones. */
 export async function getDocumentAnnotations(documentId: string, viewerId: string | null) {
   const visibility = viewerId
     ? or(eq(annotations.visibility, "public"), eq(annotations.authorId, viewerId))
     : eq(annotations.visibility, "public");
 
-  return db
+  const rows = await db
     .select({
       id: annotations.id,
       documentId: annotations.documentId,
@@ -338,12 +344,31 @@ export async function getDocumentAnnotations(documentId: string, viewerId: strin
       color: annotations.color,
       body: annotations.body,
       visibility: annotations.visibility,
+      allowDiscussion: annotations.allowDiscussion,
+      anchorText: annotations.anchorText,
+      anchorRects: annotations.anchorRects,
       createdAt: annotations.createdAt,
     })
     .from(annotations)
     .innerJoin(users, eq(annotations.authorId, users.id))
     .where(and(eq(annotations.documentId, documentId), visibility))
     .orderBy(asc(annotations.createdAt));
+
+  return rows.map((row) => ({
+    ...row,
+    allowDiscussion: Boolean(row.allowDiscussion),
+    anchorRects: parseAnchorRects(row.anchorRects),
+  }));
+}
+
+function parseAnchorRects(raw: string | null): AnchorRect[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getDocumentEditHistory(documentId: string) {
@@ -377,6 +402,8 @@ export type GraphNode = {
   label: string;
   type: "category" | "author";
   documentCount?: number;
+  /** Direct documents only (not descendants) — categories only, used for sizing in hierarchical layouts. */
+  directDocumentCount?: number;
   href?: string;
   /** Only set for category nodes — lets client layouts (e.g. circle packing) rebuild the tree. */
   parentId?: string;
@@ -449,6 +476,7 @@ export async function getGraphData() {
       label: category.name,
       type: "category",
       documentCount: cumulativeCounts.get(category.id) ?? 0,
+      directDocumentCount: directCounts.get(category.id) ?? 0,
       href: categoryHref(category.id),
       parentId: category.parentId ? `category:${category.parentId}` : undefined,
     });
@@ -495,12 +523,17 @@ export async function getGraphData() {
     const notable = notableAuthorIds.has(author.id) || (authorDocCount.get(author.id) ?? 0) >= 2;
     const firstDocId = authorFirstDocId.get(author.id);
     const label = notable ? author.name : docTitleById.get(firstDocId ?? "") ?? author.name;
+    // When the node is labelled by a document title rather than the author's
+    // name, "go to page" should open that document, not an author profile
+    // the visitor never asked to see.
+    const href = notable || !firstDocId ? `/authors/${author.slug}` : `/documents/${firstDocId}`;
 
     nodes.push({
       id: `author:${author.id}`,
       label,
       type: "author",
-      href: `/authors/${author.slug}`,
+      documentCount: authorDocCount.get(author.id) ?? 1,
+      href,
       notable,
     });
     for (const pair of relevantPairs) {
@@ -532,4 +565,216 @@ export async function getGraphData() {
   }
 
   return { nodes, edges };
+}
+
+export type ModerationItem = {
+  id: string;
+  kind: "annotation" | "comment";
+  documentId: string;
+  documentTitle: string;
+  authorId: string;
+  authorName: string;
+  authorStrikes: number;
+  snippet: string;
+  page: number | null;
+  visibility?: "public" | "private";
+  createdAt: string;
+  openReports: number;
+};
+
+/** Site-wide feed of recent stickers and comments for admins to spot-check, newest first, flagged with any open reports. */
+export async function getModerationFeed(limit = 150): Promise<ModerationItem[]> {
+  const [annotationRows, commentRows, openReportRows] = await Promise.all([
+    db
+      .select({
+        id: annotations.id,
+        documentId: annotations.documentId,
+        documentTitle: documents.title,
+        authorId: annotations.authorId,
+        authorName: users.name,
+        authorStrikes: users.strikes,
+        body: annotations.body,
+        shape: annotations.shape,
+        page: annotations.page,
+        visibility: annotations.visibility,
+        createdAt: annotations.createdAt,
+      })
+      .from(annotations)
+      .innerJoin(users, eq(annotations.authorId, users.id))
+      .innerJoin(documents, eq(annotations.documentId, documents.id))
+      .orderBy(desc(annotations.createdAt))
+      .limit(limit),
+    db
+      .select({
+        id: comments.id,
+        documentId: comments.documentId,
+        documentTitle: documents.title,
+        authorId: comments.authorId,
+        authorName: users.name,
+        authorStrikes: users.strikes,
+        body: comments.body,
+        page: comments.page,
+        createdAt: comments.createdAt,
+      })
+      .from(comments)
+      .innerJoin(users, eq(comments.authorId, users.id))
+      .innerJoin(documents, eq(comments.documentId, documents.id))
+      .orderBy(desc(comments.createdAt))
+      .limit(limit),
+    db.select({ targetId: reports.targetId }).from(reports).where(eq(reports.status, "open")),
+  ]);
+
+  const openReportCounts = new Map<string, number>();
+  for (const row of openReportRows) {
+    openReportCounts.set(row.targetId, (openReportCounts.get(row.targetId) ?? 0) + 1);
+  }
+
+  const items: ModerationItem[] = [
+    ...annotationRows.map((row) => ({
+      id: row.id,
+      kind: "annotation" as const,
+      documentId: row.documentId,
+      documentTitle: row.documentTitle,
+      authorId: row.authorId,
+      authorName: row.authorName,
+      authorStrikes: row.authorStrikes,
+      snippet:
+        row.shape === "drawing"
+          ? "Рисунок"
+          : row.shape === "formula"
+            ? `Формула: ${row.body || "—"}`
+            : row.body,
+      page: row.page,
+      visibility: row.visibility,
+      createdAt: row.createdAt,
+      openReports: openReportCounts.get(row.id) ?? 0,
+    })),
+    ...commentRows.map((row) => ({
+      id: row.id,
+      kind: "comment" as const,
+      documentId: row.documentId,
+      documentTitle: row.documentTitle,
+      authorId: row.authorId,
+      authorName: row.authorName,
+      authorStrikes: row.authorStrikes,
+      snippet: row.body,
+      page: row.page,
+      createdAt: row.createdAt,
+      openReports: openReportCounts.get(row.id) ?? 0,
+    })),
+  ];
+
+  return items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, limit);
+}
+
+export type ReportRow = {
+  id: string;
+  targetType: "annotation" | "comment";
+  targetId: string;
+  documentId: string;
+  documentTitle: string;
+  reporterId: string;
+  reporterName: string;
+  reason: string;
+  createdAt: string;
+};
+
+export async function getOpenReports(): Promise<ReportRow[]> {
+  return db
+    .select({
+      id: reports.id,
+      targetType: reports.targetType,
+      targetId: reports.targetId,
+      documentId: reports.documentId,
+      documentTitle: documents.title,
+      reporterId: reports.reporterId,
+      reporterName: users.name,
+      reason: reports.reason,
+      createdAt: reports.createdAt,
+    })
+    .from(reports)
+    .innerJoin(users, eq(reports.reporterId, users.id))
+    .innerJoin(documents, eq(reports.documentId, documents.id))
+    .where(eq(reports.status, "open"))
+    .orderBy(desc(reports.createdAt));
+}
+
+export type ReferralRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "booster" | "member";
+  status: "active" | "banned";
+  strikes: number;
+  referredCount: number;
+  invitesCreated: number;
+  invitesUnused: number;
+};
+
+/** For the admin "Рефералы" tab — who's bringing people in, and how many of their invite codes are still unused. */
+export async function getReferralStats(): Promise<ReferralRow[]> {
+  const [allUsers, allInvites] = await Promise.all([
+    db.select().from(users).orderBy(asc(users.createdAt)),
+    db.select().from(invites),
+  ]);
+
+  const referredCountByReferrer = new Map<string, number>();
+  for (const u of allUsers) {
+    if (!u.referredBy) continue;
+    referredCountByReferrer.set(u.referredBy, (referredCountByReferrer.get(u.referredBy) ?? 0) + 1);
+  }
+  const invitesCreatedBy = new Map<string, number>();
+  const invitesUnusedBy = new Map<string, number>();
+  for (const invite of allInvites) {
+    if (!invite.createdBy) continue;
+    invitesCreatedBy.set(invite.createdBy, (invitesCreatedBy.get(invite.createdBy) ?? 0) + 1);
+    if (!invite.usedBy) {
+      invitesUnusedBy.set(invite.createdBy, (invitesUnusedBy.get(invite.createdBy) ?? 0) + 1);
+    }
+  }
+
+  return allUsers
+    .map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      status: u.status,
+      strikes: u.strikes,
+      referredCount: referredCountByReferrer.get(u.id) ?? 0,
+      invitesCreated: invitesCreatedBy.get(u.id) ?? 0,
+      invitesUnused: invitesUnusedBy.get(u.id) ?? 0,
+    }))
+    .sort((a, b) => b.referredCount - a.referredCount);
+}
+
+/** A member's own invite codes, for their personal "invite a friend" page. */
+export async function getUserInvites(userId: string) {
+  return db
+    .select()
+    .from(invites)
+    .where(eq(invites.createdBy, userId))
+    .orderBy(desc(invites.createdAt));
+}
+
+export async function getReferredCount(userId: string) {
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.referredBy, userId));
+  return rows.length;
+}
+
+export async function getFeedbackList() {
+  return db
+    .select({
+      id: feedback.id,
+      authorId: feedback.authorId,
+      authorName: users.name,
+      name: feedback.name,
+      contact: feedback.contact,
+      body: feedback.body,
+      status: feedback.status,
+      createdAt: feedback.createdAt,
+    })
+    .from(feedback)
+    .leftJoin(users, eq(feedback.authorId, users.id))
+    .orderBy(desc(feedback.createdAt));
 }

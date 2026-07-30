@@ -13,6 +13,8 @@ import {
 } from "d3-force";
 import { ArrowUpRight, Minus, Pin, Plus, RotateCcw, Waypoints, X } from "lucide-react";
 import type { GraphEdge, GraphNode } from "@/lib/db/queries";
+import { estimateTextWidth, pickLabelPlacements } from "@/lib/label-layout";
+import { assignRootClusters, buildCategoryAuthorTree } from "@/lib/graph-tree";
 
 type SimNode = GraphNode & SimulationNodeDatum;
 type SimLink = {
@@ -35,6 +37,71 @@ function linkEndId(end: string | SimNode) {
   return typeof end === "string" ? end : end.id;
 }
 
+function nodeRadius(node: SimNode) {
+  return node.type === "author" ? 6 : 9 + Math.min(11, (node.documentCount ?? 0) / 2);
+}
+
+/**
+ * Nudges every node toward its subject's assigned angular slice around the
+ * center, without fighting whatever radius link/charge/collide settle it
+ * at. A plain point-anchor either pulls too weakly on a big, internally
+ * repulsive cluster (so it drifts wherever charge pushes it) or too
+ * literally on a lone node (so a nearly-empty section ends up stranded far
+ * from everything else, at the anchor point and nowhere near the rest of
+ * the map). Redirecting angle only means small sections stay close to the
+ * shared center — near the rest of the graph — while big ones are free to
+ * spread out along their own ray.
+ *
+ * Crucially the target radius is capped at `maxRadius`: without a cap, a
+ * weakly-linked section (e.g. one with almost no cross-links, so nothing
+ * but mutual charge repulsion acts on it) can get pushed outward by charge
+ * a little each tick, and since this force only ever preserves — never
+ * reduces — the current radius while re-aiming the angle, that outward
+ * creep never gets pulled back. Over hundreds of settle ticks it compounds
+ * into the node flying thousands of pixels off-screen. Clamping the target
+ * radius turns this into a real restoring force once a node drifts past
+ * the cap, instead of one that only ever chases wherever the node already is.
+ */
+function forceClusterSector(
+  rootOf: Map<string, string>,
+  angleOf: Map<string, number>,
+  centerX: number,
+  centerY: number,
+  maxRadius: number,
+) {
+  let nodesList: SimNode[] = [];
+  const force = (alpha: number) => {
+    const k = 0.5 * alpha;
+    for (const node of nodesList) {
+      const angle = angleOf.get(rootOf.get(node.id) ?? "");
+      if (angle === undefined) continue;
+      const x = node.x ?? centerX;
+      const y = node.y ?? centerY;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const r = Math.min(Math.hypot(dx, dy) || 1, maxRadius);
+      const targetX = centerX + Math.cos(angle) * r;
+      const targetY = centerY + Math.sin(angle) * r;
+      node.vx = (node.vx ?? 0) + (targetX - x) * k;
+      node.vy = (node.vy ?? 0) + (targetY - y) * k;
+    }
+  };
+  force.initialize = (initializedNodes: SimNode[]) => {
+    nodesList = initializedNodes;
+  };
+  return force;
+}
+
+function buildClusterAngles(nodes: GraphNode[], edges: GraphEdge[]) {
+  const tree = buildCategoryAuthorTree(nodes, edges);
+  const { rootOf, order } = assignRootClusters(tree);
+  const angleOf = new Map<string, number>();
+  order.forEach((rootId, index) => {
+    angleOf.set(rootId, (index / order.length) * Math.PI * 2 - Math.PI / 2);
+  });
+  return { angleOf, rootOf };
+}
+
 export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[] }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const simRef = useRef<Simulation<SimNode, undefined> | null>(null);
@@ -47,7 +114,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
 
-  const dragNode = useRef<{ id: string; moved: boolean } | null>(null);
+  const dragNode = useRef<{ id: string; moved: boolean; startX: number; startY: number } | null>(null);
   const dragPan = useRef<{
     startViewX: number;
     startViewY: number;
@@ -86,19 +153,22 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
       });
     }
 
+    const { angleOf, rootOf } = buildClusterAngles(nodes, edges);
+
     const simulation = forceSimulation(simNodes)
       .force(
         "link",
         forceLink(simLinks as never[])
           .id((d) => (d as SimNode).id)
-          .distance((d) => ((d as unknown as GraphEdge).kind === "relation" ? 100 : 62))
+          .distance((d) => ((d as unknown as GraphEdge).kind === "relation" ? 110 : 74))
           .strength(0.7),
       )
-      .force("charge", forceManyBody().strength(-110))
+      .force("charge", forceManyBody().strength(-140))
       .force("center", forceCenter(WIDTH / 2, HEIGHT / 2))
+      .force("cluster", forceClusterSector(rootOf, angleOf, WIDTH / 2, HEIGHT / 2, Math.min(WIDTH, HEIGHT) * 0.42))
       .force(
         "collide",
-        forceCollide<SimNode>().radius((d) => (d.type === "author" ? 22 : 34)),
+        forceCollide<SimNode>().radius((d) => (d.type === "author" ? 26 : 40)),
       )
       .alphaDecay(0.03)
       .stop();
@@ -113,7 +183,10 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     }
     fitView();
 
-    simulation.on("tick", () => forceRender((t) => t + 1)).on("end", fitView);
+    // Only the initial settle re-fits the view. Re-fitting on every "end"
+    // event would also fire after a node drag cools back down, silently
+    // snapping the user's own zoom/pan back to the full-graph framing.
+    simulation.on("tick", () => forceRender((t) => t + 1));
     simRef.current = simulation;
     forceRender((t) => t + 1);
     setVisible(true);
@@ -161,6 +234,56 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     return set;
   }, [activeId, links]);
 
+  const labelPlacements = useMemo(() => {
+    // Every node's own circle blocks label placement — not just the ones
+    // that end up with a visible label themselves — otherwise a label can
+    // land squarely on top of an unrelated, unlabeled node.
+    const nodeObstacles = positioned.map((node) => {
+      const r = nodeRadius(node);
+      const x = node.x ?? 0;
+      const y = node.y ?? 0;
+      return { x1: x - r, y1: y - r, x2: x + r, y2: y + r, id: node.id };
+    });
+    const edgeSegments = links
+      .map((link) => {
+        const source = nodeById.get(linkEndId(link.source));
+        const target = nodeById.get(linkEndId(link.target));
+        if (!source || !target) return null;
+        return {
+          x1: source.x ?? 0,
+          y1: source.y ?? 0,
+          x2: target.x ?? 0,
+          y2: target.y ?? 0,
+          sourceId: source.id,
+          targetId: target.id,
+        };
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+
+    const candidates = positioned
+      .filter((node) => {
+        const isAuthor = node.type === "author";
+        return !isAuthor || Boolean(activeId && neighborIds?.has(node.id));
+      })
+      .map((node) => {
+        const isAuthor = node.type === "author";
+        const fontSize = isAuthor ? 11 : 13;
+        return {
+          id: node.id,
+          anchorX: node.x ?? 0,
+          anchorY: node.y ?? 0,
+          radius: nodeRadius(node),
+          fontSize,
+          textWidth: estimateTextWidth(node.label, fontSize),
+          priority:
+            node.id === activeId
+              ? Number.POSITIVE_INFINITY
+              : (isAuthor ? 0 : 1000) + (node.documentCount ?? 0),
+        };
+      });
+    return pickLabelPlacements(candidates, nodeObstacles, edgeSegments);
+  }, [positioned, links, nodeById, activeId, neighborIds]);
+
   function zoomBy(factor: number) {
     setView((v) => {
       const k = clamp(v.k * factor, MIN_ZOOM, MAX_ZOOM);
@@ -178,29 +301,44 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   function handleNodePointerDown(event: React.PointerEvent, node: SimNode) {
     event.stopPropagation();
     (event.target as Element).setPointerCapture(event.pointerId);
-    dragNode.current = { id: node.id, moved: false };
-    simRef.current?.alphaTarget(0.25).restart();
-    node.fx = node.x;
-    node.fy = node.y;
+    // Don't touch the simulation yet — most pointerdowns on a node turn out
+    // to be a plain click, and reheating the layout for those made every
+    // click jostle the whole graph and (via the settle timer) eventually
+    // snap the view back to the fitted zoom.
+    dragNode.current = { id: node.id, moved: false, startX: event.clientX, startY: event.clientY };
   }
 
   function handleNodePointerMove(event: React.PointerEvent, node: SimNode) {
     if (!dragNode.current || dragNode.current.id !== node.id) return;
     const svg = svgRef.current;
     if (!svg) return;
+    if (!dragNode.current.moved) {
+      const dx = event.clientX - dragNode.current.startX;
+      const dy = event.clientY - dragNode.current.startY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      dragNode.current.moved = true;
+      simRef.current?.alphaTarget(0.25).restart();
+      node.fx = node.x;
+      node.fy = node.y;
+    }
     const point = toViewBoxPoint(svg, event);
     node.fx = (point.x - view.x) / view.k;
     node.fy = (point.y - view.y) / view.k;
-    dragNode.current.moved = true;
     forceRender((t) => t + 1);
   }
 
-  function handleNodePointerUp(node: SimNode) {
+  function handleNodePointerUp(event: React.PointerEvent, node: SimNode) {
     if (!dragNode.current || dragNode.current.id !== node.id) return;
-    simRef.current?.alphaTarget(0);
-    node.fx = null;
-    node.fy = null;
+    // Without this, the pointerup bubbles up to the background handler,
+    // which unconditionally clears any pin — so a click looked like it did
+    // nothing because the pin was set and then wiped in the same tick.
+    event.stopPropagation();
     const wasClick = !dragNode.current.moved;
+    if (!wasClick) {
+      simRef.current?.alphaTarget(0);
+      node.fx = null;
+      node.fy = null;
+    }
     dragNode.current = null;
     if (wasClick) {
       setPinnedId((current) => (current === node.id ? null : node.id));
@@ -225,13 +363,17 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     if (!dragPan.current) return;
     const svg = svgRef.current;
     if (!svg) return;
+    // Capture the drag object now — setView's updater can run after a
+    // concurrent pointerup has already nulled dragPan.current, so reading
+    // the ref again inside the callback risks a null dereference.
+    const drag = dragPan.current;
     const point = toViewBoxPoint(svg, event);
-    const dx = point.x - dragPan.current.startViewX;
-    const dy = point.y - dragPan.current.startViewY;
+    const dx = point.x - drag.startViewX;
+    const dy = point.y - drag.startViewY;
     if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
-      dragPan.current.moved = true;
+      drag.moved = true;
     }
-    setView((v) => ({ ...v, x: dragPan.current!.startPanX + dx, y: dragPan.current!.startPanY + dy }));
+    setView((v) => ({ ...v, x: drag.startPanX + dx, y: drag.startPanY + dy }));
   }
 
   function handleBackgroundPointerUp() {
@@ -359,8 +501,9 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
               const isPinned = pinnedId === node.id;
               const isHoverOnly = !pinnedId && hoverId === node.id;
               const isAuthor = node.type === "author";
-              const radius = isAuthor ? 6 : 9 + Math.min(11, (node.documentCount ?? 0) / 2);
-              const showLabel = !isAuthor || Boolean(activeId && neighborIds?.has(node.id));
+              const radius = nodeRadius(node);
+              const placement = labelPlacements.get(node.id);
+              const fontSize = isAuthor ? 11 : 13;
 
               return (
                 <g
@@ -370,7 +513,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   onPointerLeave={() => setHoverId(null)}
                   onPointerDown={(event) => handleNodePointerDown(event, node)}
                   onPointerMove={(event) => handleNodePointerMove(event, node)}
-                  onPointerUp={() => handleNodePointerUp(node)}
+                  onPointerUp={(event) => handleNodePointerUp(event, node)}
                   className="cursor-pointer"
                 >
                   {isPinned && (
@@ -400,23 +543,47 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                     opacity={dimmed ? 0.25 : 1}
                     className="transition-opacity duration-500 ease-out"
                   />
-                  {showLabel && (
-                    <text
-                      x={radius + 6}
-                      y={4}
-                      fontSize={isAuthor ? 11 : 13}
-                      fontWeight={isAuthor ? 500 : 600}
-                      fontFamily={isAuthor ? "inherit" : "var(--font-serif, serif)"}
-                      fill="#191f28"
-                      opacity={dimmed ? 0.2 : 1}
-                      stroke={HALO}
-                      strokeWidth={4}
-                      paintOrder="stroke"
-                      strokeLinejoin="round"
-                      className="transition-opacity duration-500 ease-out"
-                    >
-                      {node.label}
-                    </text>
+                  {placement && (
+                    <>
+                      <rect
+                        x={placement.box.x1 - (node.x ?? 0)}
+                        y={placement.box.y1 - (node.y ?? 0)}
+                        width={placement.box.x2 - placement.box.x1}
+                        height={placement.box.y2 - placement.box.y1}
+                        fill="transparent"
+                      />
+                      <text
+                        x={
+                          placement.side === "right"
+                            ? radius + 6
+                            : placement.side === "left"
+                              ? -(radius + 6)
+                              : 0
+                        }
+                        y={
+                          placement.side === "top"
+                            ? -(radius + 6)
+                            : placement.side === "bottom"
+                              ? radius + 6 + fontSize
+                              : 4
+                        }
+                        textAnchor={
+                          placement.side === "right" ? "start" : placement.side === "left" ? "end" : "middle"
+                        }
+                        fontSize={fontSize}
+                        fontWeight={isAuthor ? 500 : 600}
+                        fontFamily={isAuthor ? "inherit" : "var(--font-serif, serif)"}
+                        fill="#191f28"
+                        opacity={dimmed ? 0.2 : 1}
+                        stroke={HALO}
+                        strokeWidth={4}
+                        paintOrder="stroke"
+                        strokeLinejoin="round"
+                        className="pointer-events-none transition-opacity duration-500 ease-out"
+                      >
+                        {node.label}
+                      </text>
+                    </>
                   )}
                 </g>
               );

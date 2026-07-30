@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, Network, Settings, Tag, X } from "lucide-react";
+import { Menu, MessageCircleQuestion, Network, Settings, Tag, UserPlus, X } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export function MobileMenu({ isAdmin }: { isAdmin: boolean }) {
+export function MobileMenu({ isAdmin, isLoggedIn }: { isAdmin: boolean; isLoggedIn: boolean }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -41,6 +41,24 @@ export function MobileMenu({ isAdmin }: { isAdmin: boolean }) {
               <Tag size={14} />
               Метки
             </Link>
+            <Link
+              href="/feedback"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-1.5 text-ink"
+            >
+              <MessageCircleQuestion size={14} />
+              Обратная связь
+            </Link>
+            {isLoggedIn && (
+              <Link
+                href="/invite"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-1.5 text-ink"
+              >
+                <UserPlus size={14} />
+                Пригласить
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 href="/admin"

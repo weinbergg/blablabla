@@ -3,19 +3,32 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Ban,
   Check,
   Copy,
   FilePlus2,
   FolderPlus,
   LogOut,
+  MessageCircleQuestion,
   Pencil,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
   Trash2,
+  TriangleAlert,
+  Users,
   UserPlus,
   X,
 } from "lucide-react";
 import type { CategoryOption } from "@/components/document-edit-form";
-import type { CategoryNode } from "@/lib/db/queries";
+import type {
+  CategoryNode,
+  ModerationItem,
+  ReferralRow,
+  ReportRow,
+} from "@/lib/db/queries";
 import { countLabel } from "@/lib/pluralize";
+import { ROLE_LABELS } from "@/lib/roles";
 
 export type AdminDocument = {
   id: string;
@@ -37,16 +50,38 @@ export type AdminInvite = {
   createdAt: string;
 };
 
+export type AdminFeedbackItem = {
+  id: string;
+  authorName: string;
+  contact: string | null;
+  body: string;
+  status: "new" | "read" | "resolved";
+  createdAt: string;
+};
+
 type Props = {
   documents: AdminDocument[];
   categoryOptions: CategoryOption[];
   categoryTree: CategoryNode[];
   invites: AdminInvite[];
+  moderationFeed: ModerationItem[];
+  openReports: ReportRow[];
+  referralStats: ReferralRow[];
+  feedbackList: AdminFeedbackItem[];
 };
 
-const TABS = ["Материалы", "Разделы", "Приглашения"] as const;
+const TABS = ["Материалы", "Разделы", "Приглашения", "Модерация", "Рефералы", "Обратная связь"] as const;
 
-export function AdminDashboard({ documents, categoryOptions, categoryTree, invites }: Props) {
+export function AdminDashboard({
+  documents,
+  categoryOptions,
+  categoryTree,
+  invites,
+  moderationFeed,
+  openReports,
+  referralStats,
+  feedbackList,
+}: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Материалы");
 
@@ -72,17 +107,25 @@ export function AdminDashboard({ documents, categoryOptions, categoryTree, invit
       </header>
 
       <div className="shell py-8">
-        <div className="mb-8 flex gap-2 border-b border-ink/10">
+        <div className="mb-8 flex flex-wrap gap-2 border-b border-ink/10">
           {TABS.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => setTab(item)}
-              className={`border-b-2 px-3 pb-3 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 border-b-2 px-3 pb-3 text-sm font-medium transition-colors ${
                 tab === item ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"
               }`}
             >
               {item}
+              {item === "Модерация" && openReports.length > 0 && (
+                <span className="grid size-4 place-items-center rounded-full bg-rust text-[10px] text-white">
+                  {openReports.length}
+                </span>
+              )}
+              {item === "Обратная связь" && feedbackList.some((f) => f.status === "new") && (
+                <span className="size-1.5 rounded-full bg-rust" />
+              )}
             </button>
           ))}
         </div>
@@ -92,6 +135,9 @@ export function AdminDashboard({ documents, categoryOptions, categoryTree, invit
         )}
         {tab === "Разделы" && <CategoriesTab tree={categoryTree} />}
         {tab === "Приглашения" && <InvitesTab invites={invites} />}
+        {tab === "Модерация" && <ModerationTab feed={moderationFeed} reports={openReports} />}
+        {tab === "Рефералы" && <ReferralsTab stats={referralStats} />}
+        {tab === "Обратная связь" && <FeedbackTab items={feedbackList} />}
       </div>
     </main>
   );
@@ -513,5 +559,319 @@ function InviteLink({ code }: { code: string }) {
       <span className="truncate">{link}</span>
       {copied ? <Check size={14} /> : <Copy size={14} />}
     </button>
+  );
+}
+
+function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: ReportRow[] }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [onlyReported, setOnlyReported] = useState(reports.length > 0);
+
+  async function deleteContent(kind: "annotation" | "comment", id: string) {
+    if (!window.confirm("Удалить эту запись?")) return;
+    setBusyId(id);
+    await fetch(`/api/${kind === "annotation" ? "annotations" : "comments"}/${id}`, { method: "DELETE" });
+    setBusyId(null);
+    router.refresh();
+  }
+
+  async function moderateUser(userId: string, action: "strike" | "ban" | "unban") {
+    const confirmMessage =
+      action === "ban"
+        ? "Заблокировать этого пользователя? Он потеряет доступ ко всем сессиям."
+        : action === "strike"
+          ? "Выдать предупреждение (страйк) автору?"
+          : "Снять блокировку с пользователя?";
+    if (!window.confirm(confirmMessage)) return;
+    setBusyId(userId);
+    const response = await fetch(`/api/users/${userId}/moderate`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    setBusyId(null);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      window.alert(result.error || "Не удалось выполнить действие.");
+      return;
+    }
+    router.refresh();
+  }
+
+  async function resolveReport(id: string, status: "resolved" | "dismissed") {
+    setBusyId(id);
+    await fetch(`/api/reports/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    setBusyId(null);
+    router.refresh();
+  }
+
+  const reportedTargetIds = new Set(reports.map((r) => r.targetId));
+  const visibleFeed = onlyReported ? feed.filter((item) => reportedTargetIds.has(item.id)) : feed;
+
+  return (
+    <div className="space-y-8">
+      {reports.length > 0 && (
+        <section className="rounded-2xl border border-rust/30 bg-rust/[0.04] p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <ShieldAlert size={17} className="text-rust" />
+            <h2 className="font-serif text-2xl">Открытые жалобы</h2>
+            <span className="ml-auto font-mono text-xs text-muted">{reports.length}</span>
+          </div>
+          <div className="space-y-3">
+            {reports.map((report) => (
+              <div key={report.id} className="rounded-xl border border-ink/10 bg-white p-4 text-sm">
+                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                  <span className="font-medium text-ink">{report.reporterName}</span>
+                  пожаловался на {report.targetType === "annotation" ? "пометку" : "комментарий"} в
+                  <span className="font-medium text-ink">«{report.documentTitle}»</span>
+                  <span>· {new Date(report.createdAt).toLocaleDateString("ru-RU")}</span>
+                </div>
+                {report.reason && <p className="mb-3 text-sm">{report.reason}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => deleteContent(report.targetType, report.targetId)}
+                    disabled={busyId === report.targetId}
+                    className="button-secondary !py-1.5 !text-xs hover:!border-red-700 hover:!text-red-700"
+                  >
+                    <Trash2 size={12} />
+                    Удалить запись
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => resolveReport(report.id, "dismissed")}
+                    disabled={busyId === report.id}
+                    className="button-secondary !py-1.5 !text-xs"
+                  >
+                    Отклонить жалобу
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <h2 className="font-serif text-2xl">Лента пометок и комментариев</h2>
+          <label className="ml-auto flex items-center gap-2 text-xs text-muted">
+            <input type="checkbox" checked={onlyReported} onChange={(event) => setOnlyReported(event.target.checked)} />
+            Только с жалобами
+          </label>
+        </div>
+        <div className="space-y-2">
+          {visibleFeed.length === 0 && <p className="text-sm text-muted">Ничего не найдено.</p>}
+          {visibleFeed.map((item) => (
+            <div key={item.id} className="rounded-xl border border-ink/10 px-4 py-3 text-sm">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span className="font-medium text-ink">{item.authorName}</span>
+                {item.authorStrikes > 0 && (
+                  <span className="rounded-full bg-rust/10 px-2 py-0.5 text-[10px] text-rust">
+                    {countLabel(item.authorStrikes, ["страйк", "страйка", "страйков"])}
+                  </span>
+                )}
+                <span>{item.kind === "annotation" ? "пометка" : "комментарий"}</span>
+                {item.page && <span>· стр. {item.page}</span>}
+                <span>· «{item.documentTitle}»</span>
+                <span>· {new Date(item.createdAt).toLocaleDateString("ru-RU")}</span>
+                {item.openReports > 0 && (
+                  <span className="flex items-center gap-1 text-rust">
+                    <TriangleAlert size={11} />
+                    {item.openReports}
+                  </span>
+                )}
+              </div>
+              <p className="mb-2 truncate text-sm text-ink/80">{item.snippet || "(без текста)"}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => deleteContent(item.kind, item.id)}
+                  disabled={busyId === item.id}
+                  className="icon-button hover:!border-red-700 hover:!text-red-700"
+                  aria-label="Удалить"
+                  title="Удалить"
+                >
+                  <Trash2 size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moderateUser(item.authorId, "strike")}
+                  disabled={busyId === item.authorId}
+                  className="icon-button"
+                  aria-label="Сделать замечание автору"
+                  title="Сделать замечание (страйк)"
+                >
+                  <TriangleAlert size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moderateUser(item.authorId, "ban")}
+                  disabled={busyId === item.authorId}
+                  className="icon-button hover:!border-red-700 hover:!text-red-700"
+                  aria-label="Заблокировать автора"
+                  title="Заблокировать автора"
+                >
+                  <Ban size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ReferralsTab({ stats }: { stats: ReferralRow[] }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function toggleBan(userId: string, status: "active" | "banned") {
+    const action = status === "banned" ? "unban" : "ban";
+    if (!window.confirm(action === "ban" ? "Заблокировать пользователя?" : "Снять блокировку?")) return;
+    setBusyId(userId);
+    await fetch(`/api/users/${userId}/moderate`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    setBusyId(null);
+    router.refresh();
+  }
+
+  async function toggleBooster(userId: string, role: "admin" | "booster" | "member") {
+    const action = role === "booster" ? "demote" : "promote";
+    setBusyId(userId);
+    await fetch(`/api/users/${userId}/moderate`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    setBusyId(null);
+    router.refresh();
+  }
+
+  const totalReferred = stats.reduce((sum, row) => sum + row.referredCount, 0);
+
+  return (
+    <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm md:p-8">
+      <div className="mb-6 flex items-center gap-3">
+        <Users size={20} className="text-rust" />
+        <div>
+          <p className="eyebrow mb-1">Рефералы</p>
+          <h2 className="font-serif text-3xl">
+            {countLabel(totalReferred, ["человек пришёл", "человека пришло", "человек пришло"])} по приглашениям
+          </h2>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-ink/10 text-xs uppercase tracking-wide text-muted">
+              <th className="py-2 pr-3">Пользователь</th>
+              <th className="py-2 pr-3">Роль</th>
+              <th className="py-2 pr-3">Привёл</th>
+              <th className="py-2 pr-3">Приглашений</th>
+              <th className="py-2 pr-3">Статус</th>
+              <th className="py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {stats.map((row) => (
+              <tr key={row.id} className="border-b border-ink/5">
+                <td className="py-2.5 pr-3">
+                  <p className="font-medium">{row.name}</p>
+                  <p className="text-xs text-muted">{row.email}</p>
+                </td>
+                <td className="py-2.5 pr-3 text-xs">
+                  <span
+                    className={
+                      row.role === "admin"
+                        ? "text-ink"
+                        : row.role === "booster"
+                          ? "font-medium text-rust"
+                          : "text-muted"
+                    }
+                  >
+                    {ROLE_LABELS[row.role]}
+                  </span>
+                </td>
+                <td className="py-2.5 pr-3 font-mono">{row.referredCount}</td>
+                <td className="py-2.5 pr-3 font-mono text-xs text-muted">
+                  {row.invitesCreated} ({row.invitesUnused} активно)
+                </td>
+                <td className="py-2.5 pr-3">
+                  {row.strikes > 0 && (
+                    <span className="mr-2 rounded-full bg-rust/10 px-2 py-0.5 text-[10px] text-rust">
+                      {row.strikes} страйк(ов)
+                    </span>
+                  )}
+                  <span className={row.status === "banned" ? "text-rust" : "text-emerald-700"}>
+                    {row.status === "banned" ? "заблокирован" : "активен"}
+                  </span>
+                </td>
+                <td className="py-2.5 text-right">
+                  {row.role !== "admin" && (
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleBooster(row.id, row.role)}
+                        disabled={busyId === row.id}
+                        className={`icon-button ${row.role === "booster" ? "border-rust bg-rust text-white" : ""}`}
+                        aria-label={row.role === "booster" ? "Снять роль бустера" : "Сделать бустером"}
+                        title={row.role === "booster" ? "Снять роль бустера" : "Сделать бустером — сможет ставить пометки в файлах"}
+                      >
+                        <Sparkles size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleBan(row.id, row.status)}
+                        disabled={busyId === row.id}
+                        className="icon-button"
+                        aria-label={row.status === "banned" ? "Снять блокировку" : "Заблокировать"}
+                        title={row.status === "banned" ? "Снять блокировку" : "Заблокировать"}
+                      >
+                        {row.status === "banned" ? <ShieldCheck size={13} /> : <Ban size={13} />}
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function FeedbackTab({ items }: { items: AdminFeedbackItem[] }) {
+  return (
+    <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm md:p-8">
+      <div className="mb-6 flex items-center gap-3">
+        <MessageCircleQuestion size={20} className="text-rust" />
+        <h2 className="font-serif text-3xl">Вопросы и предложения</h2>
+        <span className="ml-auto font-mono text-xs text-muted">{items.length}</span>
+      </div>
+      <div className="space-y-3">
+        {items.length === 0 && <p className="text-sm text-muted">Пока ничего не приходило.</p>}
+        {items.map((item) => (
+          <div key={item.id} className="rounded-xl border border-ink/10 p-4 text-sm">
+            <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted">
+              <span className="font-medium text-ink">{item.authorName || "Аноним"}</span>
+              {item.contact && <span>· {item.contact}</span>}
+              <span>· {new Date(item.createdAt).toLocaleString("ru-RU")}</span>
+              {item.status === "new" && <span className="rounded-full bg-rust/10 px-2 py-0.5 text-[10px] text-rust">новое</span>}
+            </div>
+            <p className="whitespace-pre-wrap leading-6">{item.body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

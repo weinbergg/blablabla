@@ -117,14 +117,25 @@ export default async function DocumentPage({
 
           <div className="flex shrink-0 flex-col items-start gap-3 md:items-end">
             {document.fileUrl && (
-              <a
-                href={document.fileUrl}
-                download={document.fileName || undefined}
-                className="button-primary"
-              >
-                <ArrowDownToLine size={15} />
-                Скачать
-              </a>
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={document.fileUrl}
+                  download={document.fileName || undefined}
+                  className="button-primary"
+                >
+                  <ArrowDownToLine size={15} />
+                  Скачать
+                </a>
+                {document.fileType === "PDF" && annotations.length > 0 && (
+                  <a
+                    href={`/api/documents/${document.id}/download-annotated`}
+                    className="button-secondary"
+                    title="Скачать PDF с отмеченными страницами и списком пометок"
+                  >
+                    С пометками
+                  </a>
+                )}
+              </div>
             )}
             {currentUser && (
               <DocumentEditForm

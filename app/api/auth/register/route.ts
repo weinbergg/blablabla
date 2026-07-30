@@ -66,6 +66,7 @@ export async function POST(request: Request) {
     name,
     passwordHash: await hashPassword(password),
     role: "member",
+    referredBy: invite.createdBy ?? null,
   });
 
   await db

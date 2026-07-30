@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
-import { comments, documents } from "@/lib/db/schema";
+import { annotations, comments, documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: Request) {
@@ -17,12 +17,14 @@ export async function POST(request: Request) {
     body?: unknown;
     page?: unknown;
     parentId?: unknown;
+    annotationId?: unknown;
   } | null;
 
   const documentId = typeof body?.documentId === "string" ? body.documentId : "";
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  const page = typeof body?.page === "number" ? body.page : null;
+  let page = typeof body?.page === "number" ? body.page : null;
   const parentId = typeof body?.parentId === "string" ? body.parentId : null;
+  const annotationId = typeof body?.annotationId === "string" ? body.annotationId : null;
 
   if (!documentId || !text) {
     return NextResponse.json({ error: "Пустой комментарий." }, { status: 400 });
@@ -37,10 +39,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Материал не найден" }, { status: 404 });
   }
 
+  if (annotationId) {
+    const [annotation] = await db
+      .select()
+      .from(annotations)
+      .where(eq(annotations.id, annotationId))
+      .limit(1);
+    if (!annotation || annotation.documentId !== documentId) {
+      return NextResponse.json({ error: "Пометка не найдена" }, { status: 404 });
+    }
+    if (annotation.visibility !== "public" || !annotation.allowDiscussion) {
+      return NextResponse.json(
+        { error: "У этой пометки не открыто обсуждение." },
+        { status: 403 },
+      );
+    }
+    // Keep the comment's own page in sync with its sticker, so the
+    // "discussion by page/annotation" filter below stays meaningful.
+    page = annotation.page;
+  }
+
   await db.insert(comments).values({
     id: randomUUID(),
     documentId,
     parentId,
+    annotationId,
     authorId: user.id,
     page,
     body: text,

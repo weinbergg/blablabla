@@ -1,3 +1,4 @@
+import { AntoineMark } from "@/components/antoine-mark";
 import { CategoryCard } from "@/components/category-card";
 import { DocumentRow } from "@/components/document-row";
 import { Header } from "@/components/header";
@@ -121,7 +122,10 @@ export default async function Home() {
 
       <footer className="border-t border-ink/10">
         <div className="shell flex flex-col gap-4 py-8 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 blablablarden. Личная электронная библиотека.</p>
+          <p className="flex items-center gap-2">
+            <AntoineMark className="size-4 shrink-0 opacity-70" />
+            © 2026 blablablarden. Личная электронная библиотека.
+          </p>
           <p className="font-mono uppercase tracking-widest">
             Философия · История · Математика
           </p>

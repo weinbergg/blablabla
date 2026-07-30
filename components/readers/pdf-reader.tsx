@@ -11,7 +11,12 @@ import {
   SquareStack,
 } from "lucide-react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import { AnnotationLayer, type AnnotationDraft, type AnnotationItem } from "./annotation-layer";
+import {
+  AnnotationLayer,
+  type AnnotationCommentItem,
+  type AnnotationDraft,
+  type AnnotationItem,
+} from "./annotation-layer";
 
 type SpreadMode = "single" | "double";
 type FlipDirection = "forward" | "backward";
@@ -23,23 +28,52 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-async function renderPageToCanvas(
+async function renderPageSurface(
   canvas: HTMLCanvasElement,
+  textLayerContainer: HTMLDivElement | null,
   pdfPage: PDFPageProxy,
   targetWidth: number,
+  maxHeight?: number,
 ) {
   const baseViewport = pdfPage.getViewport({ scale: 1 });
-  const scale = clamp(targetWidth / baseViewport.width, 0.35, 3.5);
+  // Fitting the page purely to the available width leaves nothing stopping a
+  // tall page on a wide screen from spilling past the bottom of the viewport
+  // in fullscreen mode — cap the scale by the available height too, the same
+  // way `object-fit: contain` would, so the whole spread always lands inside
+  // the screen instead of needing a scroll to see the rest of it.
+  const widthScale = targetWidth / baseViewport.width;
+  const heightScale = maxHeight ? maxHeight / baseViewport.height : Infinity;
+  const scale = clamp(Math.min(widthScale, heightScale), 0.35, 3.5);
   const viewport = pdfPage.getViewport({ scale });
+
   const context = canvas.getContext("2d");
-  if (!context) return;
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-  canvas.width = Math.floor(viewport.width * dpr);
-  canvas.height = Math.floor(viewport.height * dpr);
-  canvas.style.width = `${viewport.width}px`;
-  canvas.style.height = `${viewport.height}px`;
-  context.setTransform(dpr, 0, 0, dpr, 0, 0);
-  await pdfPage.render({ canvasContext: context, viewport }).promise;
+  if (context) {
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    canvas.width = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width = `${viewport.width}px`;
+    canvas.style.height = `${viewport.height}px`;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    await pdfPage.render({ canvasContext: context, viewport }).promise;
+  }
+
+  // The text layer is invisible (transparent, selectable) — it exists only so
+  // a reader can select a passage and anchor a sticker to it. If it fails to
+  // build for any reason, reading and stickers-by-click still work fine.
+  if (textLayerContainer) {
+    textLayerContainer.replaceChildren();
+    textLayerContainer.style.setProperty("--scale-factor", String(scale));
+    textLayerContainer.style.width = `${viewport.width}px`;
+    textLayerContainer.style.height = `${viewport.height}px`;
+    try {
+      const { TextLayer } = await import("pdfjs-dist");
+      const textContent = await pdfPage.getTextContent();
+      const layer = new TextLayer({ textContentSource: textContent, container: textLayerContainer, viewport });
+      await layer.render();
+    } catch {
+      // ignore — see comment above
+    }
+  }
 }
 
 export function PdfReader({
@@ -49,6 +83,11 @@ export function PdfReader({
   documentId,
   currentUserId,
   initialAnnotations = [],
+  comments = [],
+  onReplyToAnnotation,
+  onReport,
+  fullscreen = false,
+  canAnnotate = false,
 }: {
   url: string;
   page: number;
@@ -56,11 +95,22 @@ export function PdfReader({
   documentId?: string;
   currentUserId?: string | null;
   initialAnnotations?: AnnotationItem[];
+  comments?: AnnotationCommentItem[];
+  onReplyToAnnotation?: (annotationId: string, body: string) => Promise<void> | void;
+  onReport?: (targetType: "annotation" | "comment", targetId: string) => void;
+  fullscreen?: boolean;
+  /** Only admins/boosters may drop new stickers on a page — everyone else can
+   * still read every existing one and take part in the discussion below. */
+  canAnnotate?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const spreadRef = useRef<HTMLDivElement>(null);
+  const leftPageWrapRef = useRef<HTMLDivElement>(null);
+  const rightPageWrapRef = useRef<HTMLDivElement>(null);
   const leftCanvasRef = useRef<HTMLCanvasElement>(null);
   const rightCanvasRef = useRef<HTMLCanvasElement>(null);
+  const leftTextLayerRef = useRef<HTMLDivElement>(null);
+  const rightTextLayerRef = useRef<HTMLDivElement>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
   const prevPageRef = useRef(page);
 
@@ -68,6 +118,7 @@ export function PdfReader({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [containerWidth, setContainerWidth] = useState(900);
+  const [maxPageHeight, setMaxPageHeight] = useState<number | undefined>(undefined);
   const [mode, setMode] = useState<SpreadMode>("double");
   const [animate, setAnimate] = useState(true);
   const [flipNonce, setFlipNonce] = useState(0);
@@ -128,8 +179,33 @@ export function PdfReader({
       if (width) setContainerWidth(width);
     });
     observer.observe(el);
+    // The observer only fires once the browser actually recomputes layout —
+    // reading the current box synchronously right after a fullscreen toggle
+    // means the very first page render already targets the right width
+    // instead of one frame at the old (small or huge) size.
+    setContainerWidth(el.getBoundingClientRect().width);
     return () => observer.disconnect();
-  }, []);
+  }, [fullscreen]);
+
+  useEffect(() => {
+    if (!fullscreen) {
+      setMaxPageHeight(undefined);
+      return;
+    }
+    // Measured from the container's actual position rather than a guessed
+    // "chrome height" constant, so it stays correct regardless of exactly
+    // how tall the toolbar/header/progress bar above it render.
+    function update() {
+      const el = containerRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const bottomBreathingRoom = 12;
+      setMaxPageHeight(Math.max(320, window.innerHeight - top - bottomBreathingRoom));
+    }
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [fullscreen]);
 
   useEffect(() => {
     if (page === prevPageRef.current) return;
@@ -167,14 +243,14 @@ export function PdfReader({
       const leftPage = await docRef.current!.getPage(leftPageNumber);
       if (cancelled) return;
       if (leftCanvasRef.current) {
-        await renderPageToCanvas(leftCanvasRef.current, leftPage, perPageWidth);
+        await renderPageSurface(leftCanvasRef.current, leftTextLayerRef.current, leftPage, perPageWidth, maxPageHeight);
       }
 
       if (rightPageNumber) {
         const rightPage = await docRef.current!.getPage(rightPageNumber);
         if (cancelled) return;
         if (rightCanvasRef.current) {
-          await renderPageToCanvas(rightCanvasRef.current, rightPage, perPageWidth);
+          await renderPageSurface(rightCanvasRef.current, rightTextLayerRef.current, rightPage, perPageWidth, maxPageHeight);
         }
       }
     })();
@@ -182,7 +258,7 @@ export function PdfReader({
     return () => {
       cancelled = true;
     };
-  }, [leftPageNumber, rightPageNumber, isDouble, numPages, containerWidth]);
+  }, [leftPageNumber, rightPageNumber, isDouble, numPages, containerWidth, maxPageHeight]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -226,6 +302,9 @@ export function PdfReader({
         color: draft.color,
         body: draft.body,
         visibility: draft.visibility,
+        allowDiscussion: draft.allowDiscussion,
+        anchorText: draft.anchorText,
+        anchorRects: draft.anchorRects,
         createdAt: new Date().toISOString(),
       },
     ]);
@@ -249,9 +328,26 @@ export function PdfReader({
     ? `стр. ${leftPageNumber}–${rightPageNumber} из ${numPages}`
     : `стр. ${leftPageNumber} из ${numPages}`;
 
+  const annotationHandlers = {
+    currentUserId: currentUserId ?? null,
+    placing,
+    comments,
+    onCreate: createAnnotation,
+    onDelete: deleteAnnotation,
+    onReply: onReplyToAnnotation ?? (() => {}),
+    onReport: onReport ?? (() => {}),
+    onPlaced: () => setPlacing(false),
+  };
+
   return (
-    <div className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-7">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div
+      className={
+        fullscreen
+          ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-2.5"
+          : "rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-7"
+      }
+    >
+      <div className={fullscreen ? "mb-2 flex flex-wrap items-center justify-between gap-3" : "mb-4 flex flex-wrap items-center justify-between gap-3"}>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -308,7 +404,7 @@ export function PdfReader({
           >
             <Sparkles size={14} />
           </button>
-          {documentId && currentUserId && (
+          {documentId && currentUserId && canAnnotate && (
             <button
               type="button"
               onClick={() => setPlacing((p) => !p)}
@@ -324,12 +420,12 @@ export function PdfReader({
 
       {placing && (
         <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">
-          Кликните в нужном месте страницы, чтобы поставить пометку.
+          Выделите фрагмент текста (необязательно), затем кликните в нужном месте, чтобы поставить пометку.
         </p>
       )}
 
       {numPages > 0 && (
-        <div className="mb-4 h-1 w-full overflow-hidden rounded-full bg-ink/10">
+        <div className={`${fullscreen ? "mb-2" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
           <div
             className="h-full rounded-full bg-rust transition-[width] duration-300 ease-out"
             style={{ width: `${(Math.min(rightPageNumber ?? leftPageNumber, numPages) / numPages) * 100}%` }}
@@ -337,7 +433,11 @@ export function PdfReader({
         </div>
       )}
 
-      <div ref={containerRef} className="relative min-h-[65vh]" style={{ perspective: "2200px" }}>
+      <div
+        ref={containerRef}
+        className={fullscreen ? "relative" : "relative min-h-[65vh]"}
+        style={{ perspective: "2200px" }}
+      >
         {loading ? (
           <div className="flex min-h-[65vh] items-center justify-center">
             <Loader2 className="animate-spin text-muted" />
@@ -368,29 +468,25 @@ export function PdfReader({
             </button>
 
             <div ref={spreadRef} className="flex justify-center gap-7">
-              <div className="relative">
+              <div ref={leftPageWrapRef} className="relative">
                 <canvas ref={leftCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
+                <div ref={leftTextLayerRef} className="textLayer" />
                 <AnnotationLayer
                   pageNumber={leftPageNumber}
                   items={annotations}
-                  currentUserId={currentUserId ?? null}
-                  placing={placing}
-                  onCreate={createAnnotation}
-                  onDelete={deleteAnnotation}
-                  onPlaced={() => setPlacing(false)}
+                  containerRef={leftPageWrapRef}
+                  {...annotationHandlers}
                 />
               </div>
               {isDouble && (
-                <div className="relative">
+                <div ref={rightPageWrapRef} className="relative">
                   <canvas ref={rightCanvasRef} className="block max-w-full rounded-lg bg-white shadow-sm" />
+                  <div ref={rightTextLayerRef} className="textLayer" />
                   <AnnotationLayer
                     pageNumber={rightPageNumber}
                     items={annotations}
-                    currentUserId={currentUserId ?? null}
-                    placing={placing}
-                    onCreate={createAnnotation}
-                    onDelete={deleteAnnotation}
-                    onPlaced={() => setPlacing(false)}
+                    containerRef={rightPageWrapRef}
+                    {...annotationHandlers}
                   />
                 </div>
               )}

@@ -37,6 +37,9 @@ export function HeaderAccount({ user }: { user: User }) {
           Управление
         </Link>
       )}
+      <Link href="/invite" className="hidden text-muted transition-colors hover:text-ink sm:block">
+        Пригласить
+      </Link>
       <span className="hidden text-muted sm:block">{user.name}</span>
       <button
         type="button"

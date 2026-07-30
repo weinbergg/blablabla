@@ -4,7 +4,15 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
 import { invites } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
-import { flattenCategoryOptions, getAllDocumentsForSearch, getCategoryTree } from "@/lib/db/queries";
+import {
+  flattenCategoryOptions,
+  getAllDocumentsForSearch,
+  getCategoryTree,
+  getFeedbackList,
+  getModerationFeed,
+  getOpenReports,
+  getReferralStats,
+} from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +21,16 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "admin") redirect("/");
 
-  const [tree, allDocuments, inviteRows] = await Promise.all([
-    getCategoryTree(),
-    getAllDocumentsForSearch(),
-    db.select().from(invites).orderBy(desc(invites.createdAt)),
-  ]);
+  const [tree, allDocuments, inviteRows, moderationFeed, openReports, referralStats, feedbackList] =
+    await Promise.all([
+      getCategoryTree(),
+      getAllDocumentsForSearch(),
+      db.select().from(invites).orderBy(desc(invites.createdAt)),
+      getModerationFeed(),
+      getOpenReports(),
+      getReferralStats(),
+      getFeedbackList(),
+    ]);
 
   const categoryById = new Map<string, string>();
   const walk = (nodes: typeof tree) => {
@@ -51,6 +64,13 @@ export default async function AdminPage() {
         note: invite.note,
         usedBy: invite.usedBy,
         createdAt: invite.createdAt,
+      }))}
+      moderationFeed={moderationFeed}
+      openReports={openReports}
+      referralStats={referralStats}
+      feedbackList={feedbackList.map((item) => ({
+        ...item,
+        authorName: item.authorName ?? item.name ?? "Аноним",
       }))}
     />
   );

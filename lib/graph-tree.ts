@@ -36,3 +36,21 @@ export function countLeaves(t: GraphTreeNode): number {
   if (!t.children.length) return 1;
   return t.children.reduce((sum, c) => sum + countLeaves(c), 0);
 }
+
+/**
+ * Maps every node id to the id of its top-level ("root") category, plus the
+ * ordered list of root ids (largest subtree first). Used to anchor each
+ * subject cluster to its own spot in the layout instead of letting
+ * unrelated topics (a language course, a lone empty section) drift wherever
+ * repulsion happens to push them.
+ */
+export function assignRootClusters(tree: GraphTreeNode[]): { rootOf: Map<string, string>; order: string[] } {
+  const rootOf = new Map<string, string>();
+  function visit(node: GraphTreeNode, rootId: string) {
+    rootOf.set(node.id, rootId);
+    for (const child of node.children) visit(child, rootId);
+  }
+  const sorted = [...tree].sort((a, b) => countLeaves(b) - countLeaves(a));
+  for (const root of sorted) visit(root, root.id);
+  return { rootOf, order: sorted.map((t) => t.id) };
+}
