@@ -98,23 +98,23 @@ export default async function CategoryPage({
             </div>
           )}
 
-          <div>
-            <div className="mb-3 flex items-baseline justify-between">
-              <p className="eyebrow">Материалы в этом разделе</p>
-              <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-                {documents.length}
-              </span>
+          {(documents.length > 0 || visibleChildren.length === 0) && (
+            <div>
+              <div className="mb-3 flex items-baseline justify-between">
+                <p className="eyebrow">Материалы в этом разделе</p>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+                  {documents.length}
+                </span>
+              </div>
+              {documents.length ? (
+                <CategoryDocumentList documents={documents} />
+              ) : (
+                <p className="border-t border-ink/10 py-7 text-sm text-muted">
+                  Раздел пока пуст — материалы появятся позже.
+                </p>
+              )}
             </div>
-            {documents.length ? (
-              <CategoryDocumentList documents={documents} />
-            ) : (
-              <p className="border-t border-ink/10 py-7 text-sm text-muted">
-                {visibleChildren.length
-                  ? "В самом разделе материалов пока нет — загляните в подразделы выше."
-                  : "Раздел пока пуст — материалы появятся позже."}
-              </p>
-            )}
-          </div>
+          )}
 
           {tree.length > 0 && (
             <div className="mt-16 border-t border-ink/10 pt-8">

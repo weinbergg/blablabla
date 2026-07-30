@@ -156,7 +156,6 @@ export const catalog: CategorySeed[] = [
   {
     slug: "istoriya",
     name: "История",
-    description: "Раздел пока пуст — материалы появятся позже.",
   },
   {
     slug: "matematika",
@@ -473,7 +472,6 @@ export const catalog: CategorySeed[] = [
       {
         slug: "teoriya-mnozhestv",
         name: "Теория множеств",
-        description: "Раздел пока пуст — материалы появятся позже.",
       },
     ],
   },
