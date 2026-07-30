@@ -42,6 +42,27 @@ function nodeRadius(node: SimNode) {
 }
 
 /**
+ * How much node circles and label text grow (or shrink) with zoom, relative
+ * to `view.k` itself. A flat `scale(view.k)` on the whole graph — the
+ * previous behaviour — makes every element grow exactly as fast as the
+ * layout spreads apart, so zooming in reads as "the picture got bigger"
+ * rather than "I got a closer look", and zooming out on a big graph that
+ * doesn't fit the viewport shrinks node circles right along with their
+ * spacing, which is the only reason they don't overlap at a small fit-to-
+ * screen zoom. Applying zoom to *positions* only (not sizes at all) fixes
+ * the first problem but breaks the second: a graph too big to fit at k=1
+ * would render at k<1 with full-size, badly overlapping circles. Damping
+ * size growth to the square root of zoom is the middle ground — spacing
+ * between nodes still grows/shrinks fully with zoom (so zooming in reliably
+ * opens up real breathing room in a crowded cluster), while circles and text
+ * grow much more mildly, staying close to their design size across the
+ * whole zoom range instead of ballooning or collapsing with it.
+ */
+function elementScale(k: number) {
+  return Math.pow(k, 0.5);
+}
+
+/**
  * Nudges every node toward its subject's assigned angular slice around the
  * center, without fighting whatever radius link/charge/collide settle it
  * at. A plain point-anchor either pulls too weakly on a big, internally
@@ -235,11 +256,24 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   }, [activeId, links]);
 
   const labelPlacements = useMemo(() => {
+    // Node circles and label text are rendered at `baseSize * elementScale(k)`
+    // screen pixels (see `elementScale`'s comment), while node *positions*
+    // move through the full, undamped zoom. So a given screen size occupies
+    // `elementScale(k) / k` world-space units — smaller and smaller the
+    // further in you zoom — and that's what every size fed into the
+    // collision-based label algorithm (which operates in world coordinates,
+    // matching node positions) is converted to below: the same label that
+    // doesn't fit at k=1 can click into a newly-opened gap once you zoom in,
+    // a real "get closer to see more detail" zoom rather than a static
+    // picture that just gets bigger.
+    const k = view.k;
+    const worldFactor = elementScale(k) / k;
+
     // Every node's own circle blocks label placement — not just the ones
     // that end up with a visible label themselves — otherwise a label can
     // land squarely on top of an unrelated, unlabeled node.
     const nodeObstacles = positioned.map((node) => {
-      const r = nodeRadius(node);
+      const r = nodeRadius(node) * worldFactor;
       const x = node.x ?? 0;
       const y = node.y ?? 0;
       return { x1: x - r, y1: y - r, x2: x + r, y2: y + r, id: node.id };
@@ -272,17 +306,17 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
           id: node.id,
           anchorX: node.x ?? 0,
           anchorY: node.y ?? 0,
-          radius: nodeRadius(node),
-          fontSize,
-          textWidth: estimateTextWidth(node.label, fontSize),
+          radius: nodeRadius(node) * worldFactor,
+          fontSize: fontSize * worldFactor,
+          textWidth: estimateTextWidth(node.label, fontSize) * worldFactor,
           priority:
             node.id === activeId
               ? Number.POSITIVE_INFINITY
               : (isAuthor ? 0 : 1000) + (node.documentCount ?? 0),
         };
       });
-    return pickLabelPlacements(candidates, nodeObstacles, edgeSegments);
-  }, [positioned, links, nodeById, activeId, neighborIds]);
+    return pickLabelPlacements(candidates, nodeObstacles, edgeSegments, 4 / k);
+  }, [positioned, links, nodeById, activeId, neighborIds, view.k]);
 
   function zoomBy(factor: number) {
     setView((v) => {
@@ -468,10 +502,16 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
           onPointerUp={handleBackgroundPointerUp}
         >
         <g
-          transform={`translate(${view.x}, ${view.y}) scale(${view.k})`}
           className="transition-opacity duration-700 ease-out"
           style={{ opacity: visible ? 1 : 0 }}
         >
+          {/* Deliberately no `scale(view.k)` here — only node *positions* are
+              projected through the current zoom/pan (via `toScreenX/Y` below);
+              circle radii, stroke widths and font sizes stay literal screen
+              pixels. That's what makes this a "vector" zoom rather than a photo
+              blow-up: zooming in spreads the layout apart and opens up real
+              breathing room between nodes, instead of just scaling everything
+              (nodes, gaps and overlaps alike) up together. */}
           <g>
             {links.map((link, index) => {
               const source = nodeById.get(linkEndId(link.source));
@@ -482,10 +522,10 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
               return (
                 <line
                   key={index}
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
+                  x1={toScreenX(source.x ?? 0, view)}
+                  y1={toScreenY(source.y ?? 0, view)}
+                  x2={toScreenX(target.x ?? 0, view)}
+                  y2={toScreenY(target.y ?? 0, view)}
                   stroke={link.kind === "relation" ? CATEGORY_COLOR : "#191f28"}
                   strokeOpacity={dimmed ? 0.04 : link.kind === "relation" ? 0.6 : 0.16}
                   strokeDasharray={link.kind === "relation" ? "4 3" : undefined}
@@ -501,14 +541,17 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
               const isPinned = pinnedId === node.id;
               const isHoverOnly = !pinnedId && hoverId === node.id;
               const isAuthor = node.type === "author";
-              const radius = nodeRadius(node);
+              const scale = elementScale(view.k);
+              const radius = nodeRadius(node) * scale;
               const placement = labelPlacements.get(node.id);
-              const fontSize = isAuthor ? 11 : 13;
+              const fontSize = (isAuthor ? 11 : 13) * scale;
+              const textWidth = estimateTextWidth(node.label, fontSize);
+              const gap = radius + 6;
 
               return (
                 <g
                   key={node.id}
-                  transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
+                  transform={`translate(${toScreenX(node.x ?? 0, view)}, ${toScreenY(node.y ?? 0, view)})`}
                   onPointerEnter={() => setHoverId(node.id)}
                   onPointerLeave={() => setHoverId(null)}
                   onPointerDown={(event) => handleNodePointerDown(event, node)}
@@ -546,25 +589,37 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   {placement && (
                     <>
                       <rect
-                        x={placement.box.x1 - (node.x ?? 0)}
-                        y={placement.box.y1 - (node.y ?? 0)}
-                        width={placement.box.x2 - placement.box.x1}
-                        height={placement.box.y2 - placement.box.y1}
+                        x={
+                          placement.side === "right"
+                            ? gap
+                            : placement.side === "left"
+                              ? -(gap + textWidth + 8)
+                              : -(textWidth + 8) / 2
+                        }
+                        y={
+                          placement.side === "top"
+                            ? -(gap + fontSize + 4)
+                            : placement.side === "bottom"
+                              ? gap
+                              : -fontSize
+                        }
+                        width={textWidth + 8}
+                        height={fontSize + 8}
                         fill="transparent"
                       />
                       <text
                         x={
                           placement.side === "right"
-                            ? radius + 6
+                            ? gap
                             : placement.side === "left"
-                              ? -(radius + 6)
+                              ? -gap
                               : 0
                         }
                         y={
                           placement.side === "top"
-                            ? -(radius + 6)
+                            ? -gap
                             : placement.side === "bottom"
-                              ? radius + 6 + fontSize
+                              ? gap + fontSize
                               : 4
                         }
                         textAnchor={
@@ -635,6 +690,14 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function toScreenX(worldX: number, view: { x: number; k: number }) {
+  return worldX * view.k + view.x;
+}
+
+function toScreenY(worldY: number, view: { y: number; k: number }) {
+  return worldY * view.k + view.y;
 }
 
 function toViewBoxPoint(svg: SVGSVGElement, event: { clientX: number; clientY: number }) {

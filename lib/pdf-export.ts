@@ -20,14 +20,51 @@ export type ExportAnnotation = {
 
 const DRAWING_VIEWBOX = { w: 260, h: 150 };
 
-function parseDrawingPaths(body: string): string[] | null {
+type DrawingPayload = {
+  paths: string[];
+  viewBox: { w: number; h: number };
+  fullPage?: boolean;
+  strokeWidth?: number;
+};
+
+function parseDrawing(body: string): DrawingPayload | null {
   try {
     const parsed = JSON.parse(body);
-    if (parsed && Array.isArray(parsed.paths)) return parsed.paths.filter((p: unknown) => typeof p === "string");
+    if (parsed && Array.isArray(parsed.paths)) {
+      return {
+        paths: parsed.paths.filter((p: unknown) => typeof p === "string"),
+        viewBox: parsed.viewBox && typeof parsed.viewBox.w === "number" ? parsed.viewBox : DRAWING_VIEWBOX,
+        fullPage: Boolean(parsed.fullPage),
+        strokeWidth: typeof parsed.strokeWidth === "number" ? parsed.strokeWidth : undefined,
+      };
+    }
   } catch {
     /* not a drawing payload */
   }
   return null;
+}
+
+/** Rescales the numeric x/y pairs in a "M x y L x y ..." path (the only
+ * commands our sketchpads ever emit) by independent x/y factors — pdf-lib's
+ * own `drawSvgPath` only takes a single uniform `scale`, which would distort
+ * a page-spanning drawing whenever the page itself isn't square. */
+function rescalePath(d: string, scaleX: number, scaleY: number): string {
+  let axis: 0 | 1 = 0;
+  return d
+    .trim()
+    .split(/\s+/)
+    .map((token) => {
+      if (token === "M" || token === "L") {
+        axis = 0;
+        return token;
+      }
+      const value = Number(token);
+      if (Number.isNaN(value)) return token;
+      const scaled = axis === 0 ? value * scaleX : value * scaleY;
+      axis = axis === 0 ? 1 : 0;
+      return String(Math.round(scaled * 100) / 100);
+    })
+    .join(" ");
 }
 
 function hexToRgb(hex: string) {
@@ -89,6 +126,24 @@ export async function exportPdfWithAnnotations(
     const { width, height } = page.getSize();
     const color = hexToRgb(annotation.color);
 
+    if (annotation.shape === "drawing") {
+      const drawing = parseDrawing(annotation.body);
+      if (drawing?.fullPage && drawing.paths.length) {
+        const scaleX = width / drawing.viewBox.w;
+        const scaleY = height / drawing.viewBox.h;
+        const strokeWidth = drawing.strokeWidth ?? 6;
+        for (const d of drawing.paths) {
+          page.drawSvgPath(rescalePath(d, scaleX, scaleY), {
+            x: 0,
+            y: height,
+            borderColor: color,
+            borderWidth: strokeWidth * ((scaleX + scaleY) / 2),
+            borderOpacity: 0.92,
+          });
+        }
+      }
+    }
+
     if (annotation.anchorRects) {
       for (const rect of annotation.anchorRects) {
         page.drawRectangle({
@@ -149,20 +204,29 @@ export async function exportPdfWithAnnotations(
       cursorY -= 16;
 
       if (annotation.shape === "drawing") {
-        const drawingPaths = parseDrawingPaths(annotation.body);
-        if (drawingPaths && drawingPaths.length) {
-          const scale = Math.min(1, maxWidth / DRAWING_VIEWBOX.w);
-          const drawnHeight = DRAWING_VIEWBOX.h * scale;
+        const drawing = parseDrawing(annotation.body);
+        if (drawing?.fullPage) {
+          page.drawText("(рисунок нанесён прямо на страницу — см. выше)", {
+            x: margin,
+            y: cursorY,
+            size: 10.5,
+            font,
+            color: rgb(0.1, 0.1, 0.1),
+          });
+          cursorY -= 14;
+        } else if (drawing && drawing.paths.length) {
+          const scale = Math.min(1, maxWidth / drawing.viewBox.w, 160 / drawing.viewBox.h);
+          const drawnHeight = drawing.viewBox.h * scale;
           ensureSpace(drawnHeight + 6);
           const color = hexToRgb(annotation.color);
           const top = cursorY;
-          for (const d of drawingPaths) {
+          for (const d of drawing.paths) {
             page.drawSvgPath(d, {
               x: margin,
               y: top,
               scale,
               borderColor: color,
-              borderWidth: 1.4 / scale,
+              borderWidth: (drawing.strokeWidth ?? 3.2) / scale,
             });
           }
           cursorY -= drawnHeight + 6;

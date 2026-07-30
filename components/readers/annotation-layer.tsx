@@ -3,6 +3,8 @@
 import { useRef, useEffect, useState } from "react";
 import katex from "katex";
 import {
+  Check,
+  Eraser,
   Flag,
   Heart,
   HelpCircle,
@@ -15,6 +17,7 @@ import {
   StickyNote,
   Trash2,
   TriangleAlert,
+  Undo2,
   X,
 } from "lucide-react";
 
@@ -84,7 +87,19 @@ export const COLOR_PRESETS = ["#c85c35", "#8a5a9e", "#2f6f4f", "#1d5b8a", "#b886
 
 /** Fixed logical canvas that a freehand drawing is normalized to, so it stays crisp at any zoom level. */
 export const DRAWING_VIEWBOX = { w: 260, h: 150 };
-type DrawingData = { paths: string[]; viewBox: typeof DRAWING_VIEWBOX };
+/** A drawing made directly on the page (not in the small popup pad) is
+ * normalized to this square, page-relative canvas — matching how every other
+ * annotation coordinate on the page (x/y, anchorRects) is already stored as a
+ * 0..1000 fraction of the page's own width/height. */
+export const PAGE_DRAWING_VIEWBOX = { w: 1000, h: 1000 };
+type DrawingData = { paths: string[]; viewBox: { w: number; h: number }; fullPage?: boolean; strokeWidth?: number };
+
+export type StrokeWidthPreset = "thin" | "medium" | "thick";
+/** Absolute stroke widths in each tool's own viewBox units — the small pad
+ * (260×150) and the full-page canvas (1000×1000) need very different
+ * absolute numbers for "medium" to look like the same relative thickness. */
+export const SMALL_STROKE_PRESETS: Record<StrokeWidthPreset, number> = { thin: 1.8, medium: 3.2, thick: 5.5 };
+export const PAGE_STROKE_PRESETS: Record<StrokeWidthPreset, number> = { thin: 3.5, medium: 6, thick: 10 };
 
 function parseDrawing(source: string): DrawingData | null {
   try {
@@ -95,6 +110,35 @@ function parseDrawing(source: string): DrawingData | null {
   }
   return null;
 }
+
+/** Where the small pin for a full-page drawing sits — arbitrary (the drawing
+ * itself covers the page, not just this point) but consistent, in the same
+ * top-right corner a real sticky note tab would sit. */
+export const PAGE_DRAWING_PIN = { x: 960, y: 40 };
+
+/** State for an in-progress "draw directly on the page" session, threaded down
+ * from `PdfReader` since a two-page spread has two `AnnotationLayer`
+ * instances (one per page) sharing one drawing session: `isTarget` says which
+ * of the two owns the in-progress strokes and toolbar once the user has
+ * actually started drawing on it. */
+export type PageDrawSession = {
+  /** This page is eligible to start a new drawing, or already owns one. */
+  active: boolean;
+  /** This specific page instance owns the in-progress strokes/toolbar. */
+  isTarget: boolean;
+  paths: string[];
+  color: string;
+  strokeWidthPreset: StrokeWidthPreset;
+  visibility: AnnotationVisibility;
+  saving: boolean;
+  onStart: () => void;
+  onPathsChange: (paths: string[]) => void;
+  onColorChange: (color: string) => void;
+  onStrokeWidthPresetChange: (preset: StrokeWidthPreset) => void;
+  onVisibilityChange: (visibility: AnnotationVisibility) => void;
+  onCancel: () => void;
+  onSave: () => void;
+};
 
 function clampInt(value: number) {
   return Math.min(1000, Math.max(0, value));
@@ -136,15 +180,247 @@ function DrawingBody({ source, color }: { source: string; color: string }) {
     return <p className="text-sm italic text-muted">Пустой рисунок</p>;
   }
   return (
-    <svg
-      viewBox={`0 0 ${data.viewBox.w} ${data.viewBox.h}`}
-      className="w-full rounded-lg border border-ink/10 bg-ink/[0.02]"
-      style={{ height: 150 }}
-    >
-      {data.paths.map((d, index) => (
-        <path key={index} d={d} fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+    <>
+      <svg
+        viewBox={`0 0 ${data.viewBox.w} ${data.viewBox.h}`}
+        preserveAspectRatio={data.fullPage ? "xMidYMid meet" : undefined}
+        className="w-full rounded-lg border border-ink/10 bg-ink/[0.02]"
+        style={{ height: 150 }}
+      >
+        {data.paths.map((d, index) => (
+          <path
+            key={index}
+            d={d}
+            fill="none"
+            stroke={color}
+            strokeWidth={data.strokeWidth ?? (data.fullPage ? PAGE_STROKE_PRESETS.medium : SMALL_STROKE_PRESETS.medium)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+      </svg>
+      {data.fullPage && <p className="mt-1.5 text-[11px] text-muted">Рисунок на всей странице — превью уменьшено.</p>}
+    </>
+  );
+}
+
+/** Full-page freehand drawing: a transparent overlay over the whole page that
+ * captures pointer strokes directly on top of the rendered text/image,
+ * plus a small floating toolbar for colour/undo/clear/visibility/save. This
+ * is the primary way to draw on a book — the small pad inside a pin's popup
+ * (`DrawingPad`) still exists as a quick, page-independent alternative. */
+function PageDrawingLayer({ containerRef, session }: { containerRef: React.RefObject<HTMLDivElement | null>; session: PageDrawSession }) {
+  const [liveStroke, setLiveStroke] = useState<string | null>(null);
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const strokeRef = useRef<string | null>(null);
+
+  function toPoint(event: React.PointerEvent<SVGSVGElement>) {
+    const rect = containerRef.current!.getBoundingClientRect();
+    const x = Math.round(((event.clientX - rect.left) / rect.width) * PAGE_DRAWING_VIEWBOX.w * 10) / 10;
+    const y = Math.round(((event.clientY - rect.top) / rect.height) * PAGE_DRAWING_VIEWBOX.h * 10) / 10;
+    return { x, y };
+  }
+
+  function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
+    if (!session.active) return;
+    event.preventDefault();
+    (event.target as Element).setPointerCapture(event.pointerId);
+    if (!session.isTarget) session.onStart();
+    const point = toPoint(event);
+    drawingRef.current = true;
+    lastPointRef.current = point;
+    strokeRef.current = `M ${point.x} ${point.y}`;
+    setLiveStroke(strokeRef.current);
+  }
+
+  function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
+    if (!drawingRef.current) return;
+    const point = toPoint(event);
+    const last = lastPointRef.current;
+    if (last && Math.hypot(point.x - last.x, point.y - last.y) < 3) return;
+    lastPointRef.current = point;
+    strokeRef.current = strokeRef.current ? `${strokeRef.current} L ${point.x} ${point.y}` : `M ${point.x} ${point.y}`;
+    setLiveStroke(strokeRef.current);
+  }
+
+  function handlePointerUp() {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    lastPointRef.current = null;
+    const stroke = strokeRef.current;
+    strokeRef.current = null;
+    setLiveStroke(null);
+    if (stroke) session.onPathsChange([...session.paths, stroke]);
+  }
+
+  return (
+    <>
+      <svg
+        viewBox={`0 0 ${PAGE_DRAWING_VIEWBOX.w} ${PAGE_DRAWING_VIEWBOX.h}`}
+        preserveAspectRatio="none"
+        className="pointer-events-auto absolute inset-0 h-full w-full touch-none"
+        style={{ cursor: "crosshair" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+      >
+        {session.isTarget &&
+          session.paths.map((d, index) => (
+            <path
+              key={index}
+              d={d}
+              fill="none"
+              stroke={session.color}
+              strokeWidth={PAGE_STROKE_PRESETS[session.strokeWidthPreset]}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        {session.isTarget && liveStroke && (
+          <path
+            d={liveStroke}
+            fill="none"
+            stroke={session.color}
+            strokeWidth={PAGE_STROKE_PRESETS[session.strokeWidthPreset]}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+
+      {session.isTarget && (
+        <div
+          data-annotation-ui
+          onClick={(event) => event.stopPropagation()}
+          className="pointer-events-auto absolute inset-x-2 bottom-2 z-40 flex flex-wrap items-center gap-2 rounded-xl border border-ink/10 bg-white/95 p-2.5 shadow-lg backdrop-blur"
+        >
+          <div className="flex items-center gap-1.5">
+            {COLOR_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => session.onColorChange(preset)}
+                className="size-6 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: preset,
+                  boxShadow: session.color === preset ? `0 0 0 2px white, 0 0 0 4px ${preset}` : undefined,
+                }}
+                aria-label={preset}
+              />
+            ))}
+          </div>
+          <div className="h-5 w-px bg-ink/10" />
+          <StrokeWidthPicker
+            value={session.strokeWidthPreset}
+            onChange={session.onStrokeWidthPresetChange}
+            dotColor={session.color}
+          />
+          <div className="h-5 w-px bg-ink/10" />
+          <button
+            type="button"
+            onClick={() => session.onPathsChange(session.paths.slice(0, -1))}
+            disabled={!session.paths.length}
+            className="icon-button"
+            aria-label="Отменить штрих"
+            title="Отменить штрих"
+          >
+            <Undo2 size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => session.onPathsChange([])}
+            disabled={!session.paths.length}
+            className="icon-button"
+            aria-label="Очистить"
+            title="Очистить"
+          >
+            <Eraser size={14} />
+          </button>
+          <div className="hidden h-5 w-px bg-ink/10 sm:block" />
+          <div className="hidden items-center rounded-full border border-ink/10 p-0.5 text-xs sm:flex">
+            <button
+              type="button"
+              onClick={() => session.onVisibilityChange("public")}
+              className={`rounded-full px-2.5 py-1 transition-colors ${
+                session.visibility === "public" ? "bg-ink text-paper" : "text-muted"
+              }`}
+            >
+              Публично
+            </button>
+            <button
+              type="button"
+              onClick={() => session.onVisibilityChange("private")}
+              className={`rounded-full px-2.5 py-1 transition-colors ${
+                session.visibility === "private" ? "bg-ink text-paper" : "text-muted"
+              }`}
+            >
+              Лично
+            </button>
+          </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button type="button" onClick={session.onCancel} className="icon-button" aria-label="Отменить рисунок" title="Отмена">
+              <X size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={session.onSave}
+              disabled={session.saving || !session.paths.length}
+              className="button-primary px-3 py-1.5 text-xs"
+              title="Сохранить рисунок на странице"
+            >
+              {session.saving ? (
+                "Сохраняем…"
+              ) : (
+                <>
+                  <Check size={13} className="mr-1 inline" />
+                  Сохранить
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Three preset dot sizes for picking a stroke thickness — shared by the
+ * small pad and the full-page tool so the control looks the same everywhere. */
+function StrokeWidthPicker({
+  value,
+  onChange,
+  dotColor,
+}: {
+  value: StrokeWidthPreset;
+  onChange: (preset: StrokeWidthPreset) => void;
+  dotColor: string;
+}) {
+  const presets: { key: StrokeWidthPreset; dot: number; label: string }[] = [
+    { key: "thin", dot: 5, label: "Тонко" },
+    { key: "medium", dot: 8, label: "Средне" },
+    { key: "thick", dot: 12, label: "Толсто" },
+  ];
+  return (
+    <div className="flex items-center gap-0.5">
+      {presets.map((preset) => (
+        <button
+          key={preset.key}
+          type="button"
+          onClick={() => onChange(preset.key)}
+          aria-label={preset.label}
+          title={preset.label}
+          className={`grid size-7 shrink-0 place-items-center rounded-full border transition-colors ${
+            value === preset.key ? "border-ink/40 bg-ink/5" : "border-transparent"
+          }`}
+        >
+          <span className="rounded-full" style={{ width: preset.dot, height: preset.dot, backgroundColor: dotColor }} />
+        </button>
       ))}
-    </svg>
+    </div>
   );
 }
 
@@ -153,15 +429,27 @@ function DrawingPad({
   color,
   paths,
   onChange,
+  strokeWidthPreset,
+  onStrokeWidthPresetChange,
 }: {
   color: string;
   paths: string[];
   onChange: (paths: string[]) => void;
+  strokeWidthPreset: StrokeWidthPreset;
+  onStrokeWidthPresetChange: (preset: StrokeWidthPreset) => void;
 }) {
+  const strokeWidth = SMALL_STROKE_PRESETS[strokeWidthPreset];
   const svgRef = useRef<SVGSVGElement>(null);
   const [liveStroke, setLiveStroke] = useState<string | null>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  // Mirrors `liveStroke` outside React state so `handlePointerUp` can read the
+  // just-finished stroke synchronously. Reading it via setLiveStroke's own
+  // updater function instead (i.e. `setLiveStroke(prev => { onChange(...prev);
+  // return null })`) calls the parent's setter from inside this component's
+  // own state-update — React flags that as "updating AnnotationLayer while
+  // rendering DrawingPad", since updater functions are meant to be pure.
+  const strokeRef = useRef<string | null>(null);
 
   function toPoint(event: React.PointerEvent<SVGSVGElement>) {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -176,7 +464,8 @@ function DrawingPad({
     const point = toPoint(event);
     drawingRef.current = true;
     lastPointRef.current = point;
-    setLiveStroke(`M ${point.x} ${point.y}`);
+    strokeRef.current = `M ${point.x} ${point.y}`;
+    setLiveStroke(strokeRef.current);
   }
 
   function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
@@ -185,17 +474,18 @@ function DrawingPad({
     const last = lastPointRef.current;
     if (last && Math.hypot(point.x - last.x, point.y - last.y) < 1.5) return;
     lastPointRef.current = point;
-    setLiveStroke((prev) => (prev ? `${prev} L ${point.x} ${point.y}` : `M ${point.x} ${point.y}`));
+    strokeRef.current = strokeRef.current ? `${strokeRef.current} L ${point.x} ${point.y}` : `M ${point.x} ${point.y}`;
+    setLiveStroke(strokeRef.current);
   }
 
   function handlePointerUp() {
     if (!drawingRef.current) return;
     drawingRef.current = false;
     lastPointRef.current = null;
-    setLiveStroke((prev) => {
-      if (prev) onChange([...paths, prev]);
-      return null;
-    });
+    const stroke = strokeRef.current;
+    strokeRef.current = null;
+    setLiveStroke(null);
+    if (stroke) onChange([...paths, stroke]);
   }
 
   return (
@@ -211,10 +501,10 @@ function DrawingPad({
         onPointerLeave={handlePointerUp}
       >
         {paths.map((d, index) => (
-          <path key={index} d={d} fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+          <path key={index} d={d} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
         ))}
         {liveStroke && (
-          <path d={liveStroke} fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+          <path d={liveStroke} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
         )}
         {paths.length === 0 && !liveStroke && (
           <text x={DRAWING_VIEWBOX.w / 2} y={DRAWING_VIEWBOX.h / 2} textAnchor="middle" fontSize="11" fill="#9aa1a8">
@@ -222,23 +512,26 @@ function DrawingPad({
           </text>
         )}
       </svg>
-      <div className="mt-1.5 flex items-center justify-end gap-3">
-        <button
-          type="button"
-          onClick={() => onChange(paths.slice(0, -1))}
-          disabled={!paths.length}
-          className="text-[11px] text-muted hover:text-ink disabled:opacity-40"
-        >
-          Отменить штрих
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange([])}
-          disabled={!paths.length}
-          className="text-[11px] text-muted hover:text-rust disabled:opacity-40"
-        >
-          Очистить
-        </button>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <StrokeWidthPicker value={strokeWidthPreset} onChange={onStrokeWidthPresetChange} dotColor={color} />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onChange(paths.slice(0, -1))}
+            disabled={!paths.length}
+            className="text-[11px] text-muted hover:text-ink disabled:opacity-40"
+          >
+            Отменить штрих
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            disabled={!paths.length}
+            className="text-[11px] text-muted hover:text-rust disabled:opacity-40"
+          >
+            Очистить
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -256,6 +549,7 @@ export function AnnotationLayer({
   onReply,
   onReport,
   onPlaced,
+  pageDraw,
 }: {
   pageNumber: number | null;
   items: AnnotationItem[];
@@ -268,6 +562,9 @@ export function AnnotationLayer({
   onReply: (annotationId: string, body: string) => Promise<void> | void;
   onReport: (targetType: "annotation" | "comment", targetId: string) => void;
   onPlaced: () => void;
+  /** Set (on both pages of a spread) while "draw on the page" mode is on —
+   * see `PageDrawSession` for how the two pages coordinate ownership. */
+  pageDraw?: PageDrawSession;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ x: number; y: number; anchorText: string | null; anchorRects: AnchorRect[] | null } | null>(null);
@@ -275,12 +572,13 @@ export function AnnotationLayer({
   const [color, setColor] = useState(COLOR_PRESETS[0]);
   const [text, setText] = useState("");
   const [drawingPaths, setDrawingPaths] = useState<string[]>([]);
+  const [drawingStrokeWidth, setDrawingStrokeWidth] = useState<StrokeWidthPreset>("medium");
   const [visibility, setVisibility] = useState<AnnotationVisibility>("public");
   const [allowDiscussion, setAllowDiscussion] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!placing) return;
+    if (!placing || pageDraw?.active) return;
     const container = containerRef.current;
     if (!container) return;
 
@@ -307,6 +605,7 @@ export function AnnotationLayer({
       setColor(COLOR_PRESETS[0]);
       setText("");
       setDrawingPaths([]);
+      setDrawingStrokeWidth("medium");
       setVisibility("public");
       setAllowDiscussion(false);
       setOpenId(null);
@@ -314,7 +613,7 @@ export function AnnotationLayer({
 
     container.addEventListener("click", handleContainerClick);
     return () => container.removeEventListener("click", handleContainerClick);
-  }, [placing, containerRef]);
+  }, [placing, containerRef, pageDraw?.active]);
 
   if (pageNumber === null) return null;
   const pageItems = items.filter((item) => item.page === pageNumber);
@@ -324,7 +623,11 @@ export function AnnotationLayer({
     setSaving(true);
     const body =
       shape === "drawing"
-        ? JSON.stringify({ paths: drawingPaths, viewBox: DRAWING_VIEWBOX })
+        ? JSON.stringify({
+            paths: drawingPaths,
+            viewBox: DRAWING_VIEWBOX,
+            strokeWidth: SMALL_STROKE_PRESETS[drawingStrokeWidth],
+          })
         : text.trim();
     await onCreate({
       page: pageNumber,
@@ -351,9 +654,35 @@ export function AnnotationLayer({
         const flip = item.x > 600;
         const isOpen = openId === item.id;
         const thread = comments.filter((c) => c.annotationId === item.id);
+        const drawingData = item.shape === "drawing" ? parseDrawing(item.body) : null;
 
         return (
           <div key={item.id}>
+            {/* A page-spanning drawing renders as an always-visible overlay —
+                like real ink on the page — separately from its small pin
+                (below), which only exists so it can still be opened/reported/
+                deleted like any other annotation. */}
+            {drawingData?.fullPage && drawingData.paths.length > 0 && (
+              <svg
+                viewBox={`0 0 ${drawingData.viewBox.w} ${drawingData.viewBox.h}`}
+                preserveAspectRatio="none"
+                className="pointer-events-none absolute inset-0 h-full w-full"
+              >
+                {drawingData.paths.map((d, index) => (
+                  <path
+                    key={index}
+                    d={d}
+                    fill="none"
+                    stroke={item.color}
+                    strokeWidth={drawingData.strokeWidth ?? PAGE_STROKE_PRESETS.medium}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                    opacity={0.92}
+                  />
+                ))}
+              </svg>
+            )}
             {isOpen && item.anchorRects && item.anchorRects.length > 0 && (
               <div className="pointer-events-none absolute inset-0">
                 {item.anchorRects.map((rect, index) => (
@@ -534,7 +863,18 @@ export function AnnotationLayer({
           </div>
 
           {shape === "drawing" ? (
-            <DrawingPad color={color} paths={drawingPaths} onChange={setDrawingPaths} />
+            <>
+              <p className="mb-2 text-[11px] text-muted">
+                Здесь — маленький набросок для этой пометки. Чтобы рисовать прямо по странице, закройте это окно и нажмите «Рисовать на странице» в панели читалки.
+              </p>
+              <DrawingPad
+                color={color}
+                paths={drawingPaths}
+                onChange={setDrawingPaths}
+                strokeWidthPreset={drawingStrokeWidth}
+                onStrokeWidthPresetChange={setDrawingStrokeWidth}
+              />
+            </>
           ) : (
             <>
               <textarea
@@ -595,6 +935,8 @@ export function AnnotationLayer({
           </button>
         </div>
       )}
+
+      {pageDraw?.active && <PageDrawingLayer containerRef={containerRef} session={pageDraw} />}
     </div>
   );
 }

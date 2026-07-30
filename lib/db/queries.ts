@@ -44,12 +44,40 @@ async function documentCountsByCategory() {
   return counts;
 }
 
-/** Builds the full category tree with per-node and cumulative document counts. */
+/**
+ * Cumulative (own + every descendant's) document counts for every category —
+ * shared by the catalog pages, the category tree, and the graph, so a
+ * section that only groups subsections never shows a misleading "0 текстов"
+ * just because nothing is filed directly under it.
+ */
+async function cumulativeCountsByCategory(): Promise<Map<string, number>> {
+  const [rows, directCounts] = await Promise.all([allCategories(), documentCountsByCategory()]);
+
+  const childrenByParent = new Map<string, string[]>();
+  for (const category of rows) {
+    if (!category.parentId) continue;
+    childrenByParent.set(category.parentId, [
+      ...(childrenByParent.get(category.parentId) ?? []),
+      category.id,
+    ]);
+  }
+
+  const cumulativeCounts = new Map<string, number>();
+  function cumulativeCount(id: string): number {
+    if (cumulativeCounts.has(id)) return cumulativeCounts.get(id)!;
+    const total =
+      (directCounts.get(id) ?? 0) +
+      (childrenByParent.get(id) ?? []).reduce((sum, childId) => sum + cumulativeCount(childId), 0);
+    cumulativeCounts.set(id, total);
+    return total;
+  }
+  for (const category of rows) cumulativeCount(category.id);
+  return cumulativeCounts;
+}
+
+/** Builds the full category tree with cumulative (own + descendants') document counts. */
 export async function getCategoryTree(): Promise<CategoryNode[]> {
-  const [rows, counts] = await Promise.all([
-    allCategories(),
-    documentCountsByCategory(),
-  ]);
+  const [rows, counts] = await Promise.all([allCategories(), cumulativeCountsByCategory()]);
 
   const nodeById = new Map<string, CategoryNode>();
   for (const row of rows) {
@@ -65,16 +93,6 @@ export async function getCategoryTree(): Promise<CategoryNode[]> {
       roots.push(node);
     }
   }
-
-  const addChildCounts = (node: CategoryNode): number => {
-    const childTotal = node.children.reduce(
-      (sum, child) => sum + addChildCounts(child),
-      0,
-    );
-    node.documentCount += childTotal;
-    return node.documentCount;
-  };
-  roots.forEach(addChildCounts);
 
   return roots;
 }
@@ -107,7 +125,7 @@ export async function getChildCategories(parentId: string | null) {
     .from(categories)
     .where(parentId ? eq(categories.parentId, parentId) : isNull(categories.parentId))
     .orderBy(asc(categories.sortOrder));
-  const counts = await documentCountsByCategory();
+  const counts = await cumulativeCountsByCategory();
   return rows.map((row) => ({ ...row, documentCount: counts.get(row.id) ?? 0 }));
 }
 
@@ -431,34 +449,16 @@ export async function getGraphData() {
       db.select().from(authorRelations),
     ]);
 
-  const directCounts = await documentCountsByCategory();
+  const [directCounts, cumulativeCounts] = await Promise.all([
+    documentCountsByCategory(),
+    cumulativeCountsByCategory(),
+  ]);
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
   const categoryHasContent = new Set<string>();
   const docCategoryById = new Map(docRows.map((doc) => [doc.id, doc.categoryId]));
   const categoryById = new Map(categoryRows.map((row) => [row.id, row]));
-
-  // Sections often just group subsections and hold no documents directly —
-  // "0 текстов" would be misleading there, so counts include the whole subtree.
-  const childrenByParent = new Map<string, string[]>();
-  for (const category of categoryRows) {
-    if (!category.parentId) continue;
-    childrenByParent.set(category.parentId, [
-      ...(childrenByParent.get(category.parentId) ?? []),
-      category.id,
-    ]);
-  }
-  const cumulativeCounts = new Map<string, number>();
-  function cumulativeCount(id: string): number {
-    if (cumulativeCounts.has(id)) return cumulativeCounts.get(id)!;
-    const total =
-      (directCounts.get(id) ?? 0) +
-      (childrenByParent.get(id) ?? []).reduce((sum, childId) => sum + cumulativeCount(childId), 0);
-    cumulativeCounts.set(id, total);
-    return total;
-  }
-  for (const category of categoryRows) cumulativeCount(category.id);
 
   function categoryHref(id: string): string {
     const slugs: string[] = [];
@@ -640,7 +640,9 @@ export async function getModerationFeed(limit = 150): Promise<ModerationItem[]> 
       authorStrikes: row.authorStrikes,
       snippet:
         row.shape === "drawing"
-          ? "Рисунок"
+          ? row.body.includes('"fullPage":true')
+            ? "Рисунок на всей странице"
+            : "Рисунок"
           : row.shape === "formula"
             ? `Формула: ${row.body || "—"}`
             : row.body,

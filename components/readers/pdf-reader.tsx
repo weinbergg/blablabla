@@ -7,15 +7,23 @@ import {
   ChevronRight,
   Loader2,
   MapPin,
+  PenTool,
   Sparkles,
   SquareStack,
 } from "lucide-react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import {
   AnnotationLayer,
+  COLOR_PRESETS,
+  PAGE_DRAWING_PIN,
+  PAGE_DRAWING_VIEWBOX,
+  PAGE_STROKE_PRESETS,
   type AnnotationCommentItem,
   type AnnotationDraft,
   type AnnotationItem,
+  type AnnotationVisibility,
+  type PageDrawSession,
+  type StrokeWidthPreset,
 } from "./annotation-layer";
 
 type SpreadMode = "single" | "double";
@@ -126,6 +134,13 @@ export function PdfReader({
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [annotations, setAnnotations] = useState<AnnotationItem[]>(initialAnnotations);
   const [placing, setPlacing] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawTargetPage, setDrawTargetPage] = useState<number | null>(null);
+  const [drawPaths, setDrawPaths] = useState<string[]>([]);
+  const [drawColor, setDrawColor] = useState(COLOR_PRESETS[0]);
+  const [drawStrokeWidth, setDrawStrokeWidth] = useState<StrokeWidthPreset>("medium");
+  const [drawVisibility, setDrawVisibility] = useState<AnnotationVisibility>("public");
+  const [drawSaving, setDrawSaving] = useState(false);
 
   useEffect(() => {
     const storedMode = window.localStorage.getItem(SPREAD_KEY);
@@ -270,12 +285,24 @@ export function PdfReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, numPages, isDouble]);
 
+  /** Turning the page while an un-saved page drawing is in progress would
+   * silently strand it (the overlay only shows on the page it started on) —
+   * so this is the one place we interrupt navigation to ask first. */
+  function confirmDiscardDrawing() {
+    if (!drawTargetPage || !drawPaths.length) return true;
+    const ok = window.confirm("Рисунок на странице ещё не сохранён. Уйти со страницы и потерять его?");
+    if (ok) cancelPageDrawing();
+    return ok;
+  }
+
   function goPrev() {
+    if (!confirmDiscardDrawing()) return;
     const step = isDouble ? 2 : 1;
     onPageChange(Math.max(1, leftPageNumber - step), numPages);
   }
 
   function goNext() {
+    if (!confirmDiscardDrawing()) return;
     const step = isDouble ? 2 : 1;
     onPageChange(Math.min(numPages, leftPageNumber + step), numPages);
   }
@@ -313,6 +340,69 @@ export function PdfReader({
   async function deleteAnnotation(id: string) {
     setAnnotations((current) => current.filter((item) => item.id !== id));
     await fetch(`/api/annotations/${id}`, { method: "DELETE" });
+  }
+
+  function toggleDrawMode() {
+    setDrawMode((current) => !current);
+    setDrawTargetPage(null);
+    setDrawPaths([]);
+    setDrawStrokeWidth("medium");
+    setPlacing(false);
+  }
+
+  function cancelPageDrawing() {
+    setDrawTargetPage(null);
+    setDrawPaths([]);
+  }
+
+  async function savePageDrawing() {
+    if (drawTargetPage == null || !drawPaths.length) return;
+    setDrawSaving(true);
+    await createAnnotation({
+      page: drawTargetPage,
+      x: PAGE_DRAWING_PIN.x,
+      y: PAGE_DRAWING_PIN.y,
+      shape: "drawing",
+      color: drawColor,
+      body: JSON.stringify({
+        paths: drawPaths,
+        viewBox: PAGE_DRAWING_VIEWBOX,
+        fullPage: true,
+        strokeWidth: PAGE_STROKE_PRESETS[drawStrokeWidth],
+      }),
+      visibility: drawVisibility,
+      allowDiscussion: false,
+      anchorText: null,
+      anchorRects: null,
+    });
+    setDrawSaving(false);
+    setDrawTargetPage(null);
+    setDrawPaths([]);
+    setDrawMode(false);
+  }
+
+  /** Builds the shared drawing-session prop for one of the (up to two) pages
+   * on screen — see `PageDrawSession` for why both need to know about each
+   * other even though only one ends up owning the strokes. */
+  function pageDrawSessionFor(pageNumber: number): PageDrawSession | undefined {
+    if (!drawMode) return undefined;
+    const isTarget = drawTargetPage === pageNumber;
+    return {
+      active: drawTargetPage === null || isTarget,
+      isTarget,
+      paths: isTarget ? drawPaths : [],
+      color: drawColor,
+      strokeWidthPreset: drawStrokeWidth,
+      visibility: drawVisibility,
+      saving: drawSaving,
+      onStart: () => setDrawTargetPage(pageNumber),
+      onPathsChange: setDrawPaths,
+      onColorChange: setDrawColor,
+      onStrokeWidthPresetChange: setDrawStrokeWidth,
+      onVisibilityChange: setDrawVisibility,
+      onCancel: cancelPageDrawing,
+      onSave: savePageDrawing,
+    };
   }
 
   if (error) {
@@ -405,15 +495,31 @@ export function PdfReader({
             <Sparkles size={14} />
           </button>
           {documentId && currentUserId && canAnnotate && (
-            <button
-              type="button"
-              onClick={() => setPlacing((p) => !p)}
-              className={`icon-button ${placing ? "border-rust bg-rust text-white" : ""}`}
-              aria-label={placing ? "Отменить добавление пометки" : "Добавить пометку на страницу"}
-              title={placing ? "Кликните на странице, чтобы поставить пометку" : "Добавить пометку"}
-            >
-              <MapPin size={14} />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setPlacing((p) => !p);
+                  setDrawMode(false);
+                  setDrawTargetPage(null);
+                  setDrawPaths([]);
+                }}
+                className={`icon-button ${placing ? "border-rust bg-rust text-white" : ""}`}
+                aria-label={placing ? "Отменить добавление пометки" : "Добавить пометку на страницу"}
+                title={placing ? "Кликните на странице, чтобы поставить пометку" : "Добавить пометку"}
+              >
+                <MapPin size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={toggleDrawMode}
+                className={`icon-button ${drawMode ? "border-rust bg-rust text-white" : ""}`}
+                aria-label={drawMode ? "Выключить рисование на странице" : "Рисовать на странице"}
+                title={drawMode ? "Выключить рисование на странице" : "Рисовать прямо на странице"}
+              >
+                <PenTool size={14} />
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -421,6 +527,11 @@ export function PdfReader({
       {placing && (
         <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">
           Выделите фрагмент текста (необязательно), затем кликните в нужном месте, чтобы поставить пометку.
+        </p>
+      )}
+      {drawMode && drawTargetPage === null && (
+        <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">
+          Проведите пальцем или мышью прямо по странице, чтобы начать рисовать.
         </p>
       )}
 
@@ -475,6 +586,7 @@ export function PdfReader({
                   pageNumber={leftPageNumber}
                   items={annotations}
                   containerRef={leftPageWrapRef}
+                  pageDraw={pageDrawSessionFor(leftPageNumber)}
                   {...annotationHandlers}
                 />
               </div>
@@ -486,6 +598,7 @@ export function PdfReader({
                     pageNumber={rightPageNumber}
                     items={annotations}
                     containerRef={rightPageWrapRef}
+                    pageDraw={rightPageNumber ? pageDrawSessionFor(rightPageNumber) : undefined}
                     {...annotationHandlers}
                   />
                 </div>
