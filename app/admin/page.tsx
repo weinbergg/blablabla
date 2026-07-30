@@ -7,6 +7,7 @@ import { desc } from "drizzle-orm";
 import {
   flattenCategoryOptions,
   getAllDocumentsForSearch,
+  getAllSecondaryCategoryIdsByDoc,
   getCategoryTree,
   getFeedbackList,
   getModerationFeed,
@@ -21,7 +22,7 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "admin") redirect("/");
 
-  const [tree, allDocuments, inviteRows, moderationFeed, openReports, referralStats, feedbackList] =
+  const [tree, allDocuments, inviteRows, moderationFeed, openReports, referralStats, feedbackList, secondaryCategoryIdsByDoc] =
     await Promise.all([
       getCategoryTree(),
       getAllDocumentsForSearch(),
@@ -30,6 +31,7 @@ export default async function AdminPage() {
       getOpenReports(),
       getReferralStats(),
       getFeedbackList(),
+      getAllSecondaryCategoryIdsByDoc(),
     ]);
 
   const categoryById = new Map<string, string>();
@@ -48,6 +50,7 @@ export default async function AdminPage() {
     tagNames: doc.tags.map((t) => t.name).join(", "),
     categoryId: doc.categoryId,
     categoryName: categoryById.get(doc.categoryId) ?? "",
+    secondaryCategoryIds: secondaryCategoryIdsByDoc.get(doc.id) ?? [],
     fileType: doc.fileType,
     confidence: doc.confidence,
     language: doc.language ?? "",

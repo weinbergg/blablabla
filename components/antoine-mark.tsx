@@ -1,38 +1,34 @@
 /**
- * A small mark based on Antoine's necklace — the classic construction of a
- * closed chain of solid tori (rings), each linked through its neighbours,
- * where every torus is in turn replaced by a smaller linked chain inside it,
- * repeated forever. Earlier versions used solid beads, which read as a
- * flower/medallion rather than a "necklace" — this version instead draws
- * each link as an actual open ring (torus cross-section, i.e. a stroke with
- * a visible hole) overlapping its neighbours, which is what makes a chain of
- * rings legible as a *chain* rather than a cluster of dots. One link (top)
- * nests a smaller accent-coloured ring inside its hole, standing in for the
- * next level of the recursive construction.
- * Used as the site's identity mark (header, favicon) — deliberately just a
- * mark, not another visualisation.
+ * The site's mark: a draped chain of linked rings with a small pendant —
+ * read at a glance as an actual necklace (chain + hanging charm), while the
+ * links still nod to Antoine's necklace (a closed chain of interlocking
+ * rings). Earlier versions arranged the rings in a full circle, which at
+ * small sizes reads as a sunburst/mandala rather than jewellery — a shallow
+ * hanging arc is what actually looks worn. Kept strictly monochrome (no
+ * accent colour) so it stays legible and calm at header/favicon sizes.
  */
 
-const TAU = Math.PI * 2;
+const LINKS: { x: number; y: number }[] = [
+  { x: 13, y: 22 },
+  { x: 19, y: 29 },
+  { x: 26, y: 34 },
+  { x: 32, y: 35.5 },
+  { x: 38, y: 34 },
+  { x: 45, y: 29 },
+  { x: 51, y: 22 },
+];
 
-function ringCenters(count: number, radius: number, cx: number, cy: number, startDeg: number) {
-  const start = (startDeg * Math.PI) / 180;
-  return Array.from({ length: count }, (_, i) => {
-    const angle = start + (i / count) * TAU;
-    return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
-  });
-}
-
-const LINKS = ringCenters(6, 16, 32, 32, -90);
-const LINK_RADIUS = 11;
-const LINK_STROKE = 5;
-const NESTED_RADIUS = 4.5;
-const NESTED_STROKE = 2.2;
+const LINK_RADIUS = 6;
+const LINK_STROKE = 3.2;
+const PENDANT_Y = 45;
+const PENDANT_RADIUS = 3.4;
 
 export function AntoineMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
       <circle cx={32} cy={32} r={32} className="fill-ink" />
+      <line x1={32} y1={35.5} x2={32} y2={PENDANT_Y - PENDANT_RADIUS + 1} className="stroke-paper" strokeWidth={1.6} />
+      <circle cx={32} cy={PENDANT_Y} r={PENDANT_RADIUS} className="fill-paper" />
       {LINKS.map((p, i) => (
         <circle
           key={`link-${i}`}
@@ -44,7 +40,6 @@ export function AntoineMark({ className }: { className?: string }) {
           strokeWidth={LINK_STROKE}
         />
       ))}
-      <circle cx={LINKS[0].x} cy={LINKS[0].y} r={NESTED_RADIUS} fill="none" className="stroke-rust" strokeWidth={NESTED_STROKE} />
     </svg>
   );
 }

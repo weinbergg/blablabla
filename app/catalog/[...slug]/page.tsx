@@ -10,6 +10,7 @@ import {
   getCategoryTree,
   getChildCategories,
   getDocumentsForCategory,
+  isPubliclyVisibleCategory,
 } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export default async function CategoryPage({
     getCategoryTree(),
   ]);
 
+  const visibleChildren = children.filter(isPubliclyVisibleCategory);
   const accent = categoryAccent(category.id);
   const trailHrefs = trail.map(
     (item, index) => `/catalog/${trail.slice(0, index + 1).map((t) => t.slug).join("/")}`,
@@ -80,11 +82,11 @@ export default async function CategoryPage({
         </section>
 
         <div className="shell py-14 md:py-20">
-          {children.length > 0 && (
+          {visibleChildren.length > 0 && (
             <div className="mb-16">
               <p className="eyebrow mb-5">Подразделы</p>
               <div className="grid border-b border-l border-ink/10 sm:grid-cols-2 lg:grid-cols-3">
-                {children.map((child, index) => (
+                {visibleChildren.map((child, index) => (
                   <CategoryCard
                     key={child.id}
                     category={{ ...child, children: [] }}
@@ -107,7 +109,7 @@ export default async function CategoryPage({
               <CategoryDocumentList documents={documents} />
             ) : (
               <p className="border-t border-ink/10 py-7 text-sm text-muted">
-                {children.length
+                {visibleChildren.length
                   ? "В самом разделе материалов пока нет — загляните в подразделы выше."
                   : "Раздел пока пуст — материалы появятся позже."}
               </p>

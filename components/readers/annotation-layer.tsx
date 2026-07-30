@@ -723,7 +723,7 @@ export function AnnotationLayer({
                 <div
                   data-annotation-ui
                   onClick={(event) => event.stopPropagation()}
-                  className={`absolute top-full z-20 mt-2 w-72 max-h-[60vh] overflow-y-auto rounded-xl border border-ink/10 bg-white p-3.5 text-left shadow-xl ${
+                  className={`absolute top-full z-20 mt-2 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl border border-ink/10 bg-white p-3.5 text-left shadow-xl ${
                     flip ? "right-0" : "left-0"
                   }`}
                 >
@@ -797,7 +797,7 @@ export function AnnotationLayer({
         <div
           data-annotation-ui
           onClick={(event) => event.stopPropagation()}
-          className="sticker-pop pointer-events-auto absolute z-30 w-72 rounded-xl border border-ink/10 bg-white p-4 text-left shadow-xl"
+          className="sticker-pop pointer-events-auto absolute z-30 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-ink/10 bg-white p-4 text-left shadow-xl"
           style={{
             left: `${Math.min(draft.x / 10, 72)}%`,
             top: `${Math.min(draft.y / 10, 65)}%`,

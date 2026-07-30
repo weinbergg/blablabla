@@ -8,6 +8,7 @@ import {
   categoryRelations,
   comments,
   documentAuthors,
+  documentCategories,
   documentEdits,
   documents,
   documentTags,
@@ -33,12 +34,16 @@ async function allCategories() {
   return db.select().from(categories).orderBy(asc(categories.sortOrder));
 }
 
+/** Direct counts per category, counting a document once for its primary
+ * category and once more for every secondary category it's cross-listed
+ * into — a text filed under three sections should show up in all three. */
 async function documentCountsByCategory() {
-  const rows = await db
-    .select({ categoryId: documents.categoryId })
-    .from(documents);
+  const [primaryRows, secondaryRows] = await Promise.all([
+    db.select({ categoryId: documents.categoryId }).from(documents),
+    db.select({ categoryId: documentCategories.categoryId }).from(documentCategories),
+  ]);
   const counts = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of [...primaryRows, ...secondaryRows]) {
     counts.set(row.categoryId, (counts.get(row.categoryId) ?? 0) + 1);
   }
   return counts;
@@ -76,6 +81,15 @@ async function cumulativeCountsByCategory(): Promise<Map<string, number>> {
 }
 
 /** Builds the full category tree with cumulative (own + descendants') document counts. */
+/** "Без категории" and any category with nothing in it (directly or in a
+ * descendant) shouldn't clutter public browsing — they're still returned by
+ * getCategoryTree/getChildCategories as-is (the admin dashboard needs the
+ * full list to file documents into a brand-new, still-empty category), it's
+ * just the public-facing pages that filter them out with this. */
+export function isPubliclyVisibleCategory(node: { slug: string; documentCount: number }): boolean {
+  return node.slug !== "bez-kategorii" && node.documentCount > 0;
+}
+
 export async function getCategoryTree(): Promise<CategoryNode[]> {
   const [rows, counts] = await Promise.all([allCategories(), cumulativeCountsByCategory()]);
 
@@ -209,11 +223,23 @@ export async function getTagBySlug(slug: string) {
   return { tag, documents: documentsWithCategory };
 }
 
+/** Documents filed under this category either as their primary section or
+ * as one of their secondary (cross-listed) sections. */
 export async function getDocumentsForCategory(categoryId: string) {
+  const secondaryLinks = await db
+    .select({ documentId: documentCategories.documentId })
+    .from(documentCategories)
+    .where(eq(documentCategories.categoryId, categoryId));
+  const secondaryIds = secondaryLinks.map((link) => link.documentId);
+
   const rows = await db
     .select()
     .from(documents)
-    .where(eq(documents.categoryId, categoryId))
+    .where(
+      secondaryIds.length
+        ? or(eq(documents.categoryId, categoryId), inArray(documents.id, secondaryIds))
+        : eq(documents.categoryId, categoryId),
+    )
     .orderBy(asc(documents.title));
   return attachTags(await attachAuthors(rows));
 }
@@ -232,12 +258,33 @@ export async function getAllDocumentsForSearch() {
   return attachTags(await attachAuthors(rows));
 }
 
+/** A document's secondary (cross-listed) categories, beyond its primary `categoryId`. */
+export async function getSecondaryCategories(documentId: string) {
+  const rows = await db
+    .select({ category: categories })
+    .from(documentCategories)
+    .innerJoin(categories, eq(documentCategories.categoryId, categories.id))
+    .where(eq(documentCategories.documentId, documentId));
+  return rows.map((row) => row.category);
+}
+
+/** Secondary category ids for every document in one query, for admin list views. */
+export async function getAllSecondaryCategoryIdsByDoc(): Promise<Map<string, string[]>> {
+  const rows = await db.select().from(documentCategories);
+  const map = new Map<string, string[]>();
+  for (const row of rows) {
+    map.set(row.documentId, [...(map.get(row.documentId) ?? []), row.categoryId]);
+  }
+  return map;
+}
+
 export async function getDocumentById(id: string) {
   const rows = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
   if (!rows[0]) return null;
   const [withAuthors] = await attachAuthors([rows[0]]);
   const [withTags] = await attachTags([withAuthors]);
-  return withTags;
+  const secondaryCategories = await getSecondaryCategories(id);
+  return { ...withTags, secondaryCategories };
 }
 
 export async function getAuthorBySlug(slug: string) {
@@ -437,7 +484,7 @@ export type GraphEdge = {
 };
 
 export async function getGraphData() {
-  const [categoryRows, authorRows, docRows, docAuthorRows, catRelRows, authorRelRows] =
+  const [categoryRows, authorRows, docRows, docAuthorRows, catRelRows, authorRelRows, docCategoryRows] =
     await Promise.all([
       db.select().from(categories),
       db.select().from(authors),
@@ -447,6 +494,7 @@ export async function getGraphData() {
       db.select().from(documentAuthors),
       db.select().from(categoryRelations),
       db.select().from(authorRelations),
+      db.select().from(documentCategories),
     ]);
 
   const [directCounts, cumulativeCounts] = await Promise.all([
@@ -457,8 +505,21 @@ export async function getGraphData() {
   const edges: GraphEdge[] = [];
 
   const categoryHasContent = new Set<string>();
-  const docCategoryById = new Map(docRows.map((doc) => [doc.id, doc.categoryId]));
   const categoryById = new Map(categoryRows.map((row) => [row.id, row]));
+
+  // Every category a document belongs to — its primary section plus any
+  // secondary (cross-listed) ones — used both to link authors into all of
+  // their work's sections, and to draw an edge between two sections that
+  // happen to share a work (e.g. a text filed under both "История" and
+  // "Философия").
+  const allCategoryIdsByDoc = new Map<string, string[]>();
+  for (const doc of docRows) allCategoryIdsByDoc.set(doc.id, [doc.categoryId]);
+  for (const link of docCategoryRows) {
+    allCategoryIdsByDoc.set(link.documentId, [
+      ...(allCategoryIdsByDoc.get(link.documentId) ?? []),
+      link.categoryId,
+    ]);
+  }
 
   function categoryHref(id: string): string {
     const slugs: string[] = [];
@@ -470,7 +531,19 @@ export async function getGraphData() {
     return `/catalog/${slugs.join("/")}`;
   }
 
+  // "Без категории" is an internal working bucket for unsorted uploads, not
+  // a real topic — and any category with nothing in it (directly or in a
+  // descendant) is just noise on a map that's meant to show how content
+  // actually connects. Both are dropped from the graph the same way they're
+  // dropped from the homepage/catalog listings.
+  const visibleCategoryIds = new Set(
+    categoryRows
+      .filter((c) => c.slug !== "bez-kategorii" && (cumulativeCounts.get(c.id) ?? 0) > 0)
+      .map((c) => c.id),
+  );
+
   for (const category of categoryRows) {
+    if (!visibleCategoryIds.has(category.id)) continue;
     nodes.push({
       id: `category:${category.id}`,
       label: category.name,
@@ -480,7 +553,7 @@ export async function getGraphData() {
       href: categoryHref(category.id),
       parentId: category.parentId ? `category:${category.parentId}` : undefined,
     });
-    if (category.parentId) {
+    if (category.parentId && visibleCategoryIds.has(category.parentId)) {
       edges.push({
         source: `category:${category.parentId}`,
         target: `category:${category.id}`,
@@ -493,12 +566,16 @@ export async function getGraphData() {
   const authorDocCount = new Map<string, number>();
   const authorFirstDocId = new Map<string, string>();
   for (const link of docAuthorRows) {
-    const categoryId = docCategoryById.get(link.documentId);
-    if (!categoryId) continue;
-    const key = `${link.authorId}:${categoryId}`;
-    if (!authorCategoryPairs.has(key)) {
-      authorCategoryPairs.add(key);
-      categoryHasContent.add(categoryId);
+    const categoryIds = (allCategoryIdsByDoc.get(link.documentId) ?? []).filter((id) =>
+      visibleCategoryIds.has(id),
+    );
+    if (categoryIds.length === 0) continue;
+    for (const categoryId of categoryIds) {
+      const key = `${link.authorId}:${categoryId}`;
+      if (!authorCategoryPairs.has(key)) {
+        authorCategoryPairs.add(key);
+        categoryHasContent.add(categoryId);
+      }
     }
     authorDocCount.set(link.authorId, (authorDocCount.get(link.authorId) ?? 0) + 1);
     if (!authorFirstDocId.has(link.authorId)) authorFirstDocId.set(link.authorId, link.documentId);
@@ -547,10 +624,45 @@ export async function getGraphData() {
   }
 
   for (const relation of catRelRows) {
+    if (!visibleCategoryIds.has(relation.categoryAId) || !visibleCategoryIds.has(relation.categoryBId)) continue;
     edges.push({
       source: `category:${relation.categoryAId}`,
       target: `category:${relation.categoryBId}`,
       label: relation.label ?? undefined,
+      kind: "relation",
+    });
+  }
+
+  // Documents cross-listed into more than one section connect those
+  // sections directly — same "relation" styling as an editorial cross-link,
+  // since that's exactly what it is, just derived from shared content
+  // instead of curated by hand. Pairs are aggregated so ten shared texts
+  // between two sections still draw one edge, not ten.
+  const existingCategoryPairs = new Set(
+    edges
+      .filter((edge) => edge.kind === "relation" && edge.source.startsWith("category:"))
+      .map((edge) => [edge.source, edge.target].sort().join("|")),
+  );
+  const crossListPairs = new Map<string, { titles: string[]; a: string; b: string }>();
+  for (const [documentId, categoryIds] of allCategoryIdsByDoc) {
+    const visible = [...new Set(categoryIds)].filter((id) => visibleCategoryIds.has(id));
+    if (visible.length < 2) continue;
+    for (let i = 0; i < visible.length; i++) {
+      for (let j = i + 1; j < visible.length; j++) {
+        const [a, b] = [visible[i], visible[j]].sort();
+        const key = `category:${a}|category:${b}`;
+        if (existingCategoryPairs.has(key)) continue;
+        const entry = crossListPairs.get(key) ?? { titles: [], a, b };
+        if (entry.titles.length < 3) entry.titles.push(docTitleById.get(documentId) ?? "");
+        crossListPairs.set(key, entry);
+      }
+    }
+  }
+  for (const { a, b, titles } of crossListPairs.values()) {
+    edges.push({
+      source: `category:${a}`,
+      target: `category:${b}`,
+      label: titles.filter(Boolean).join(", "),
       kind: "relation",
     });
   }

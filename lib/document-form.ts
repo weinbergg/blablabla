@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { documentAuthors, documentEdits, documents, documentTags } from "@/lib/db/schema";
+import { documentAuthors, documentCategories, documentEdits, documents, documentTags } from "@/lib/db/schema";
 import { convertDjvuToPdf } from "@/lib/djvu";
 import { getOrCreateAuthorsByNames } from "@/lib/db/authors";
 import { getOrCreateTagsByNames } from "@/lib/db/tags";
@@ -110,6 +110,19 @@ async function setDocumentTags(documentId: string, tagNames: string[]) {
   }
 }
 
+/** `secondaryCategoryIds` beyond the primary `categoryId` — e.g. an ancient
+ * text filed primarily under "История" can also be cross-listed into
+ * "Философия" and "Литература". The primary id is filtered out even if a
+ * form happens to also submit it, so a document is never linked to its own
+ * category twice. */
+async function setDocumentCategories(documentId: string, primaryCategoryId: string, secondaryCategoryIds: string[]) {
+  await db.delete(documentCategories).where(eq(documentCategories.documentId, documentId));
+  const unique = [...new Set(secondaryCategoryIds)].filter((id) => id && id !== primaryCategoryId);
+  for (const categoryId of unique) {
+    await db.insert(documentCategories).values({ documentId, categoryId }).onConflictDoNothing();
+  }
+}
+
 export async function createDocument(formData: FormData, userId: string) {
   const title = stringValue(formData, "title");
   const categoryId = stringValue(formData, "categoryId");
@@ -148,6 +161,7 @@ export async function createDocument(formData: FormData, userId: string) {
 
   await setDocumentAuthors(documentId, authorNames);
   await setDocumentTags(documentId, parseTags(formData));
+  await setDocumentCategories(documentId, categoryId, formData.getAll("secondaryCategoryIds").map(String));
 
   return documentId;
 }
@@ -211,6 +225,15 @@ export async function updateDocument(
   const tagsField = formData.get("tags");
   if (typeof tagsField === "string") {
     await setDocumentTags(existing.id, parseTags(formData));
+  }
+
+  // Checkboxes that are all unchecked simply vanish from FormData, so a
+  // hidden marker field tells us the section was actually rendered (and an
+  // empty selection means "clear the secondary categories") rather than the
+  // request just not touching this at all.
+  if (formData.has("secondaryCategoryIdsPresent")) {
+    const finalCategoryId = (updates.categoryId as string | undefined) ?? existing.categoryId;
+    await setDocumentCategories(existing.id, finalCategoryId, formData.getAll("secondaryCategoryIds").map(String));
   }
 
   const finalTitle = (updates.title as string | undefined) ?? existing.title;

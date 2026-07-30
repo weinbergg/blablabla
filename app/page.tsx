@@ -7,6 +7,7 @@ import {
   getAllDocumentsForSearch,
   getCategoryTree,
   getRecentDocuments,
+  isPubliclyVisibleCategory,
 } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,9 @@ export default async function Home() {
 
   const categoryById = flattenCategories(tree);
   const totalDocuments = allDocuments.length;
+  const visibleTree = tree
+    .filter(isPubliclyVisibleCategory)
+    .map((category) => ({ ...category, children: category.children.filter(isPubliclyVisibleCategory) }));
 
   const searchable: SearchableDocument[] = allDocuments.map((doc) => ({
     id: doc.id,
@@ -81,7 +85,7 @@ export default async function Home() {
           </div>
 
           <div className="grid border-b border-l border-ink/10 sm:grid-cols-2 lg:grid-cols-3">
-            {tree.map((category, index) => (
+            {visibleTree.map((category, index) => (
               <CategoryCard
                 key={category.id}
                 category={category}

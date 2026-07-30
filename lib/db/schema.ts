@@ -144,6 +144,25 @@ export const documents = sqliteTable("documents", {
   categoryIdx: index("documents_category_idx").on(table.categoryId),
 }));
 
+/** Secondary categories a document also belongs to, beyond its primary
+ * `documents.categoryId` — e.g. a text on ancient mathematics can live
+ * under "Математика" as its primary section while also being tagged into
+ * "Философия → Античная философия" and "История". Used both to surface the
+ * document in more than one part of the catalog and to draw extra
+ * category↔category edges on the graph (two sections that share a work are
+ * visibly related). */
+export const documentCategories = sqliteTable("document_categories", {
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  categoryId: text("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pairIdx: uniqueIndex("document_categories_pair_idx").on(table.documentId, table.categoryId),
+  categoryIdx: index("document_categories_category_idx").on(table.categoryId),
+}));
+
 export const documentAuthors = sqliteTable("document_authors", {
   documentId: text("document_id")
     .notNull()

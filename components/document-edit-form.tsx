@@ -20,6 +20,7 @@ export function DocumentEditForm({
     year: string;
     description: string;
     categoryId: string;
+    secondaryCategoryIds: string[];
     pages: string;
     tags: string;
     language: string;
@@ -31,6 +32,8 @@ export function DocumentEditForm({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [categoryId, setCategoryId] = useState(initial.categoryId);
+  const [secondaryIds, setSecondaryIds] = useState<Set<string>>(new Set(initial.secondaryCategoryIds));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -101,7 +104,12 @@ export function DocumentEditForm({
         </div>
         <label className="field">
           <span>Раздел</span>
-          <select name="categoryId" defaultValue={initial.categoryId} required>
+          <select
+            name="categoryId"
+            value={categoryId}
+            onChange={(event) => setCategoryId(event.target.value)}
+            required
+          >
             {categoryOptions.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
@@ -109,6 +117,37 @@ export function DocumentEditForm({
             ))}
           </select>
         </label>
+        <div className="field">
+          <span>Дополнительные разделы (необязательно)</span>
+          <p className="mb-1.5 text-xs text-muted">
+            Например, античный исторический текст можно также отметить в «Античной философии» и
+            «Истории» — так он появится и там, и это создаст связь на графе.
+          </p>
+          <input type="hidden" name="secondaryCategoryIdsPresent" value="1" />
+          <div className="max-h-40 overflow-y-auto rounded-lg border border-ink/15 p-2">
+            {categoryOptions
+              .filter((option) => option.id !== categoryId)
+              .map((option) => (
+                <label key={option.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-ink/5">
+                  <input
+                    type="checkbox"
+                    name="secondaryCategoryIds"
+                    value={option.id}
+                    checked={secondaryIds.has(option.id)}
+                    onChange={(event) => {
+                      setSecondaryIds((prev) => {
+                        const next = new Set(prev);
+                        if (event.target.checked) next.add(option.id);
+                        else next.delete(option.id);
+                        return next;
+                      });
+                    }}
+                  />
+                  {option.label}
+                </label>
+              ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="field">
             <span>Язык</span>

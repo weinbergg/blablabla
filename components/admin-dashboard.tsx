@@ -39,6 +39,7 @@ export type AdminDocument = {
   tagNames: string;
   categoryId: string;
   categoryName: string;
+  secondaryCategoryIds: string[];
   fileType: string;
   confidence: string;
   language: string;
@@ -299,16 +300,11 @@ function DocumentsTab({
               <input name="pages" type="number" min="1" />
             </label>
           </div>
-          <label className="field">
-            <span>Раздел *</span>
-            <select name="categoryId" defaultValue={editing?.categoryId ?? categoryOptions[0]?.id} required>
-              {categoryOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <CategoryFields
+            categoryOptions={categoryOptions}
+            initialCategoryId={editing?.categoryId ?? categoryOptions[0]?.id ?? ""}
+            initialSecondaryIds={editing?.secondaryCategoryIds ?? []}
+          />
           <div className="grid grid-cols-2 gap-3">
             <label className="field">
               <span>Язык</span>
@@ -486,6 +482,65 @@ function DocumentsTab({
         </div>
       </section>
     </div>
+  );
+}
+
+/** The primary-section select plus the secondary (cross-listed) sections
+ * checklist, shared by the add and edit paths of the document form. Kept as
+ * its own component so it remounts (and resets its internal state) whenever
+ * the parent `<form>`'s key changes between "new" and a given document id. */
+function CategoryFields({
+  categoryOptions,
+  initialCategoryId,
+  initialSecondaryIds,
+}: {
+  categoryOptions: CategoryOption[];
+  initialCategoryId: string;
+  initialSecondaryIds: string[];
+}) {
+  const [categoryId, setCategoryId] = useState(initialCategoryId);
+  const [secondaryIds, setSecondaryIds] = useState<Set<string>>(new Set(initialSecondaryIds));
+
+  return (
+    <>
+      <label className="field">
+        <span>Раздел *</span>
+        <select name="categoryId" value={categoryId} onChange={(event) => setCategoryId(event.target.value)} required>
+          {categoryOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="field">
+        <span>Дополнительные разделы (необязательно)</span>
+        <input type="hidden" name="secondaryCategoryIdsPresent" value="1" />
+        <div className="max-h-40 overflow-y-auto rounded-lg border border-ink/15 p-2">
+          {categoryOptions
+            .filter((option) => option.id !== categoryId)
+            .map((option) => (
+              <label key={option.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-ink/5">
+                <input
+                  type="checkbox"
+                  name="secondaryCategoryIds"
+                  value={option.id}
+                  checked={secondaryIds.has(option.id)}
+                  onChange={(event) => {
+                    setSecondaryIds((prev) => {
+                      const next = new Set(prev);
+                      if (event.target.checked) next.add(option.id);
+                      else next.delete(option.id);
+                      return next;
+                    });
+                  }}
+                />
+                {option.label}
+              </label>
+            ))}
+        </div>
+      </div>
+    </>
   );
 }
 

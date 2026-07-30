@@ -52,6 +52,16 @@ export default async function DocumentPage({
   const authorNames = document.authors.map((a) => a.name).join(", ");
   const categoryOptions = flattenCategoryOptions(tree);
 
+  function pathForCategoryId(id: string, nodes = tree, trailSoFar: string[] = []): string[] | null {
+    for (const node of nodes) {
+      const nextTrail = [...trailSoFar, node.slug];
+      if (node.id === id) return nextTrail;
+      const found = pathForCategoryId(id, node.children, nextTrail);
+      if (found) return found;
+    }
+    return null;
+  }
+
   return (
     <>
       <Header />
@@ -108,6 +118,22 @@ export default async function DocumentPage({
                 ))}
               </div>
             )}
+            {document.secondaryCategories.length > 0 && (
+              <p className="mt-4 text-xs text-muted">
+                Также в разделах:{" "}
+                {document.secondaryCategories.map((category, index) => (
+                  <span key={category.id}>
+                    {index > 0 && ", "}
+                    <Link
+                      href={`/catalog/${(pathForCategoryId(category.id) ?? [category.slug]).join("/")}`}
+                      className="text-ink underline underline-offset-2 hover:text-rust"
+                    >
+                      {category.name}
+                    </Link>
+                  </span>
+                ))}
+              </p>
+            )}
             <p className="mt-4 font-mono text-[10px] uppercase tracking-widest text-muted">
               {document.fileType}
               {document.originalFormat ? ` · исходно ${document.originalFormat}` : ""}
@@ -156,6 +182,7 @@ export default async function DocumentPage({
                   year: document.year ?? "",
                   description: document.description ?? "",
                   categoryId: document.categoryId,
+                  secondaryCategoryIds: document.secondaryCategories.map((c) => c.id),
                   pages: document.pages ? String(document.pages) : "",
                   tags: document.tags.map((tag) => tag.name).join(", "),
                   language: document.language ?? "",

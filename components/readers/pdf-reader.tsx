@@ -111,6 +111,7 @@ export function PdfReader({
    * still read every existing one and take part in the discussion below. */
   canAnnotate?: boolean;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const spreadRef = useRef<HTMLDivElement>(null);
   const leftPageWrapRef = useRef<HTMLDivElement>(null);
@@ -145,7 +146,14 @@ export function PdfReader({
   useEffect(() => {
     const storedMode = window.localStorage.getItem(SPREAD_KEY);
     const storedAnimate = window.localStorage.getItem(ANIMATE_KEY);
-    if (storedMode === "single" || storedMode === "double") setMode(storedMode);
+    if (storedMode === "single" || storedMode === "double") {
+      setMode(storedMode);
+    } else if (window.innerWidth < 768) {
+      // A spread splits the width in two, so on a phone-sized screen each
+      // page would render too narrow to read — default to one page at a
+      // time there unless the reader has explicitly chosen otherwise.
+      setMode("single");
+    }
     if (storedAnimate === "0") setAnimate(false);
     setPreferencesReady(true);
   }, []);
@@ -188,38 +196,44 @@ export function PdfReader({
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width) setContainerWidth(width);
-    });
-    observer.observe(el);
-    // The observer only fires once the browser actually recomputes layout —
-    // reading the current box synchronously right after a fullscreen toggle
-    // means the very first page render already targets the right width
-    // instead of one frame at the old (small or huge) size.
-    setContainerWidth(el.getBoundingClientRect().width);
-    return () => observer.disconnect();
-  }, [fullscreen]);
+    const root = rootRef.current;
+    if (!el || !root) return;
 
-  useEffect(() => {
-    if (!fullscreen) {
-      setMaxPageHeight(undefined);
-      return;
-    }
     // Measured from the container's actual position rather than a guessed
     // "chrome height" constant, so it stays correct regardless of exactly
-    // how tall the toolbar/header/progress bar above it render.
+    // how tall the toolbar/header/progress bar above it render — and
+    // crucially, that height changes whenever *they* do, not just when the
+    // window itself is resized. On a narrow screen the toolbar's buttons
+    // wrap onto a second line (and the on-screen keyboard can appear/
+    // disappear), which shifts the container down without ever firing a
+    // window "resize" event; watching the whole reader root, not just the
+    // page container, is what catches that and is the actual fix for the
+    // page occasionally rendering taller than the visible screen.
     function update() {
-      const el = containerRef.current;
-      if (!el) return;
-      const top = el.getBoundingClientRect().top;
+      const width = el!.getBoundingClientRect().width;
+      if (width) setContainerWidth(width);
+      if (!fullscreen) {
+        setMaxPageHeight(undefined);
+        return;
+      }
+      const top = el!.getBoundingClientRect().top;
       const bottomBreathingRoom = 12;
-      setMaxPageHeight(Math.max(320, window.innerHeight - top - bottomBreathingRoom));
+      setMaxPageHeight(Math.max(240, window.innerHeight - top - bottomBreathingRoom));
     }
-    update();
+
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    // The container itself can also change size without the root doing so
+    // (e.g. the canvas growing) — observe both to be safe.
+    observer.observe(el);
     window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    update();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
   }, [fullscreen]);
 
   useEffect(() => {
@@ -431,9 +445,10 @@ export function PdfReader({
 
   return (
     <div
+      ref={rootRef}
       className={
         fullscreen
-          ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-2.5"
+          ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-2 md:p-2.5"
           : "rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-7"
       }
     >

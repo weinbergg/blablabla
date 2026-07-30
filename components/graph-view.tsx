@@ -131,6 +131,14 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   const [, forceRender] = useState(0);
 
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
+  // The label-placement pass below is the expensive part of a re-render (it
+  // runs a collision check for every candidate against every node and every
+  // edge) — recomputing it on every single frame of a zoom gesture is most
+  // of what made the graph feel laggy. Labels only need to catch up with
+  // the current zoom level shortly *after* the gesture settles, not on
+  // every intermediate frame, so this trails `view.k` with a short debounce
+  // while node/edge positions and sizes keep tracking the live value.
+  const [labelK, setLabelK] = useState(1);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
@@ -172,6 +180,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         x: WIDTH / 2 - ((minX + maxX) / 2) * k,
         y: HEIGHT / 2 - ((minY + maxY) / 2) * k,
       });
+      setLabelK(k);
     }
 
     const { angleOf, rootOf } = buildClusterAngles(nodes, edges);
@@ -220,20 +229,46 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    const handler = (event: WheelEvent) => {
-      event.preventDefault();
-      const point = toViewBoxPoint(svg, event);
+    // Trackpads can fire wheel events far faster than the screen repaints —
+    // without coalescing them, a single zoom gesture can queue up many more
+    // `setView` updates (each re-rendering 500+ SVG nodes) than frames ever
+    // get painted, which is what "lags a lot" actually was. Collecting the
+    // deltas and only committing once per animation frame keeps the work in
+    // step with what the browser can actually draw.
+    let pendingDelta = 0;
+    let pendingPoint: { x: number; y: number } | null = null;
+    let rafId: number | null = null;
+    const flush = () => {
+      rafId = null;
+      if (!pendingPoint) return;
+      const point = pendingPoint;
+      const delta = pendingDelta;
+      pendingDelta = 0;
       setView((v) => {
-        const factor = Math.exp(-event.deltaY * 0.0015);
+        const factor = Math.exp(-delta * 0.0015);
         const k = clamp(v.k * factor, MIN_ZOOM, MAX_ZOOM);
         const worldX = (point.x - v.x) / v.k;
         const worldY = (point.y - v.y) / v.k;
         return { k, x: point.x - worldX * k, y: point.y - worldY * k };
       });
     };
+    const handler = (event: WheelEvent) => {
+      event.preventDefault();
+      pendingPoint = toViewBoxPoint(svg, event);
+      pendingDelta += event.deltaY;
+      if (rafId === null) rafId = requestAnimationFrame(flush);
+    };
     svg.addEventListener("wheel", handler, { passive: false });
-    return () => svg.removeEventListener("wheel", handler);
+    return () => {
+      svg.removeEventListener("wheel", handler);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
   }, []);
+
+  useEffect(() => {
+    const id = setTimeout(() => setLabelK(view.k), 140);
+    return () => clearTimeout(id);
+  }, [view.k]);
 
   const positioned = nodesRef.current;
   const links = linksRef.current;
@@ -266,7 +301,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     // doesn't fit at k=1 can click into a newly-opened gap once you zoom in,
     // a real "get closer to see more detail" zoom rather than a static
     // picture that just gets bigger.
-    const k = view.k;
+    const k = labelK;
     const worldFactor = elementScale(k) / k;
 
     // Every node's own circle blocks label placement — not just the ones
@@ -316,7 +351,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         };
       });
     return pickLabelPlacements(candidates, nodeObstacles, edgeSegments, 4 / k);
-  }, [positioned, links, nodeById, activeId, neighborIds, view.k]);
+  }, [positioned, links, nodeById, activeId, neighborIds, labelK]);
 
   function zoomBy(factor: number) {
     setView((v) => {

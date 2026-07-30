@@ -157,7 +157,7 @@ export function DocumentWorkspace({
               canAnnotate={canAnnotate}
             />
           )}
-          {fileUrl && isEpub && <EpubReader url={fileUrl} />}
+          {fileUrl && isEpub && <EpubReader url={fileUrl} fullscreen={fullscreen} />}
           {fileUrl && !isPdf && !isEpub && (
             <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
               Формат {fileType} пока не открывается прямо в браузере —

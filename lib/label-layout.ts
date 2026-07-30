@@ -110,13 +110,16 @@ function makeBox(c: LabelCandidate, side: LabelSide): Box {
 
 const SIDES: LabelSide[] = ["right", "left", "top", "bottom"];
 
-/** Priority floor above which a label is important enough to force onto the
- * canvas somewhere even when every side has *some* overlap (e.g. a big root
- * category sitting deep in the densest part of the graph, where its own
- * grandchildren's cross-edges can crowd all four sides at once). Below this
- * floor — mostly author dots, only shown at all when hovered/pinned — it's
- * better to just skip the label than clutter the view with an overlapping one. */
-const FORCE_PLACEMENT_PRIORITY = 1000;
+/** Only the one node the user actually selected (priority is set to
+ * `+Infinity` for it, see graph-view.tsx) is important enough to force onto
+ * the canvas even when every side has *some* overlap. Every other label —
+ * category or author — is dropped rather than shown overlapping: with 500+
+ * nodes on the map that's the only way to avoid a permanent pile-up of
+ * crossed-out text, and it doubles as the "progressive reveal" the map
+ * needs at that scale — a label that doesn't fit at a crowded zoom level
+ * simply appears once zooming in opens up genuine room for it, instead of
+ * being permanently jammed on top of its neighbours. */
+const FORCE_PLACEMENT_PRIORITY = Number.POSITIVE_INFINITY;
 
 /**
  * For every candidate, tries each side in turn (right, left, top, bottom)
