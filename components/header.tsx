@@ -6,10 +6,13 @@ import { HeaderAccount } from "@/components/header-account";
 import { MobileMenu } from "@/components/mobile-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getTotalUnreadCount } from "@/lib/db/messages";
+import { getIncomingFriendRequestCount } from "@/lib/db/friends";
 
 export async function Header() {
   const user = await getCurrentUser();
-  const unreadMessages = user ? await getTotalUnreadCount(user.id) : 0;
+  const [unreadMessages, incomingFriendRequests] = user
+    ? await Promise.all([getTotalUnreadCount(user.id), getIncomingFriendRequestCount(user.id)])
+    : [0, 0];
 
   return (
     <header className="relative border-b border-ink/10">
@@ -55,8 +58,16 @@ export async function Header() {
             Обратная связь
           </Link>
           <ThemeToggle className="hidden sm:grid" />
-          <HeaderAccount user={user} unreadMessages={unreadMessages} />
-          <MobileMenu isAdmin={user?.role === "admin"} isLoggedIn={Boolean(user)} />
+          <HeaderAccount
+            user={user}
+            unreadMessages={unreadMessages}
+            incomingFriendRequests={incomingFriendRequests}
+          />
+          <MobileMenu
+            isAdmin={user?.role === "admin"}
+            isLoggedIn={Boolean(user)}
+            incomingFriendRequests={incomingFriendRequests}
+          />
         </nav>
       </div>
     </header>

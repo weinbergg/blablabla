@@ -11,6 +11,7 @@ import {
   documentCategories,
   documentEdits,
   documents,
+  documentSubjects,
   documentTags,
   feedback,
   invites,
@@ -167,6 +168,27 @@ async function attachAuthors<T extends { id: string }>(docs: T[]) {
   return docs.map((doc) => ({ ...doc, authors: byDoc.get(doc.id) ?? [] }));
 }
 
+/** People a document is *about* rather than authored by — see `documentSubjects`. */
+async function attachSubjects<T extends { id: string }>(docs: T[]) {
+  if (docs.length === 0) return docs.map((doc) => ({ ...doc, subjects: [] as AuthorRow[] }));
+
+  const ids = docs.map((doc) => doc.id);
+  const links = await db
+    .select({ documentId: documentSubjects.documentId, author: authors })
+    .from(documentSubjects)
+    .innerJoin(authors, eq(documentSubjects.authorId, authors.id))
+    .where(inArray(documentSubjects.documentId, ids));
+
+  const byDoc = new Map<string, AuthorRow[]>();
+  for (const link of links) {
+    const list = byDoc.get(link.documentId) ?? [];
+    list.push(link.author);
+    byDoc.set(link.documentId, list);
+  }
+
+  return docs.map((doc) => ({ ...doc, subjects: byDoc.get(doc.id) ?? [] }));
+}
+
 async function attachTags<T extends { id: string }>(docs: T[]) {
   if (docs.length === 0) return docs.map((doc) => ({ ...doc, tags: [] as TagRow[] }));
 
@@ -241,7 +263,7 @@ export async function getDocumentsForCategory(categoryId: string) {
         : eq(documents.categoryId, categoryId),
     )
     .orderBy(asc(documents.title));
-  return attachTags(await attachAuthors(rows));
+  return attachSubjects(await attachTags(await attachAuthors(rows)));
 }
 
 export async function getRecentDocuments(limit = 6) {
@@ -255,7 +277,7 @@ export async function getRecentDocuments(limit = 6) {
 
 export async function getAllDocumentsForSearch() {
   const rows = await db.select().from(documents);
-  return attachTags(await attachAuthors(rows));
+  return attachSubjects(await attachTags(await attachAuthors(rows)));
 }
 
 /** A document's secondary (cross-listed) categories, beyond its primary `categoryId`. */
@@ -283,8 +305,9 @@ export async function getDocumentById(id: string) {
   if (!rows[0]) return null;
   const [withAuthors] = await attachAuthors([rows[0]]);
   const [withTags] = await attachTags([withAuthors]);
+  const [withSubjects] = await attachSubjects([withTags]);
   const secondaryCategories = await getSecondaryCategories(id);
-  return { ...withTags, secondaryCategories };
+  return { ...withSubjects, secondaryCategories };
 }
 
 export async function getAuthorBySlug(slug: string) {

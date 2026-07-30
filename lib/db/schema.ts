@@ -178,6 +178,26 @@ export const documentAuthors = sqliteTable("document_authors", {
   ),
 }));
 
+/** A document *about* a person rather than written by them, e.g. a biography
+ * of Kant filed separately from Kant's own texts — lets a category page
+ * group "работы Канта" apart from "о Канте" instead of mixing the two under
+ * one author heading. Reuses the same `authors` table as `documentAuthors`
+ * so a person is one entity whether they're the writer or the subject. */
+export const documentSubjects = sqliteTable("document_subjects", {
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => authors.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pairIdx: uniqueIndex("document_subjects_pair_idx").on(
+    table.documentId,
+    table.authorId,
+  ),
+  authorIdx: index("document_subjects_author_idx").on(table.authorId),
+}));
+
 /** Free-form labels that cut across the category tree, e.g. "конспект", "перевод", "первоисточник". */
 export const tags = sqliteTable("tags", {
   id: text("id").primaryKey(),
@@ -337,6 +357,53 @@ export const directMessages = sqliteTable("direct_messages", {
     .default(sql`(strftime('%Y-%m-%d %H:%M:%f', 'now'))`),
 }, (table) => ({
   conversationIdx: index("direct_messages_conversation_idx").on(table.conversationId),
+}));
+
+/** A document on someone's personal shelf — separate from the shared catalog,
+ * this is what powers "/library": what they want to read, are reading, or
+ * have finished, plus a private note. One row per user+document. */
+export const libraryItems = sqliteTable("library_items", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["want", "reading", "done"] })
+    .notNull()
+    .default("want"),
+  note: text("note"),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+  ...timestamps,
+}, (table) => ({
+  pairIdx: uniqueIndex("library_items_pair_idx").on(table.userId, table.documentId),
+  userIdx: index("library_items_user_idx").on(table.userId),
+  documentIdx: index("library_items_document_idx").on(table.documentId),
+}));
+
+/** Friend connections, stored as one row per pair — `status` starts at
+ * "pending" (requested by `requesterId`) and flips to "accepted" once the
+ * other side confirms. Symmetric once accepted; queries check both
+ * directions rather than storing the pair twice. */
+export const friendships = sqliteTable("friendships", {
+  id: text("id").primaryKey(),
+  requesterId: text("requester_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  addresseeId: text("addressee_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["pending", "accepted"] })
+    .notNull()
+    .default("pending"),
+  ...timestamps,
+}, (table) => ({
+  pairIdx: uniqueIndex("friendships_pair_idx").on(table.requesterId, table.addresseeId),
+  requesterIdx: index("friendships_requester_idx").on(table.requesterId),
+  addresseeIdx: index("friendships_addressee_idx").on(table.addresseeId),
 }));
 
 /** Free-standing questions/suggestions from readers — deliberately not tied to a document. */

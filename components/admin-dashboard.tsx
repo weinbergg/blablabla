@@ -38,6 +38,7 @@ export type AdminDocument = {
   id: string;
   title: string;
   authorNames: string;
+  subjectNames: string;
   tagNames: string;
   categoryId: string;
   categoryName: string;
@@ -194,7 +195,7 @@ function DocumentsTab({
   const filtered = documents.filter((d) => {
     if (search) {
       const needle = search.toLowerCase();
-      const haystack = `${d.title} ${d.authorNames} ${d.tagNames}`.toLowerCase();
+      const haystack = `${d.title} ${d.authorNames} ${d.subjectNames} ${d.tagNames}`.toLowerCase();
       if (!haystack.includes(needle)) return false;
     }
     if (categoryFilter && d.categoryId !== categoryFilter) return false;
@@ -295,6 +296,10 @@ function DocumentsTab({
           <label className="field">
             <span>Авторы, через запятую</span>
             <input name="authors" defaultValue={editing?.authorNames} placeholder="Иммануил Кант" />
+          </label>
+          <label className="field">
+            <span>О ком (не авторы), через запятую</span>
+            <input name="subjects" defaultValue={editing?.subjectNames} placeholder="например: Кант" />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="field">
@@ -452,7 +457,8 @@ function DocumentsTab({
                   )}
                 </p>
                 <p className="mt-1 truncate text-xs text-muted">
-                  {document.authorNames || "автор не указан"} · {document.categoryName} · {document.fileType}
+                  {document.authorNames || "автор не указан"}
+                  {document.subjectNames ? ` · о: ${document.subjectNames}` : ""} · {document.categoryName} · {document.fileType}
                   {document.language
                     ? ` · ${languageLabel(document.language)}${
                         document.secondaryLanguage ? `/${languageLabel(document.secondaryLanguage)}` : ""

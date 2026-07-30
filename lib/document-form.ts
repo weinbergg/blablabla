@@ -3,7 +3,14 @@ import { promises as fs } from "fs";
 import path from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { documentAuthors, documentCategories, documentEdits, documents, documentTags } from "@/lib/db/schema";
+import {
+  documentAuthors,
+  documentCategories,
+  documentEdits,
+  documents,
+  documentSubjects,
+  documentTags,
+} from "@/lib/db/schema";
 import { convertDjvuToPdf } from "@/lib/djvu";
 import { getOrCreateAuthorsByNames } from "@/lib/db/authors";
 import { getOrCreateTagsByNames } from "@/lib/db/tags";
@@ -29,6 +36,13 @@ function stringValue(formData: FormData, key: string) {
 
 function parseAuthors(formData: FormData) {
   return stringValue(formData, "authors")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function parseSubjects(formData: FormData) {
+  return stringValue(formData, "subjects")
     .split(",")
     .map((name) => name.trim())
     .filter(Boolean);
@@ -102,6 +116,14 @@ async function setDocumentAuthors(documentId: string, authorNames: string[]) {
   }
 }
 
+async function setDocumentSubjects(documentId: string, subjectNames: string[]) {
+  await db.delete(documentSubjects).where(eq(documentSubjects.documentId, documentId));
+  const authorIds = await getOrCreateAuthorsByNames(subjectNames);
+  for (const authorId of authorIds) {
+    await db.insert(documentSubjects).values({ documentId, authorId }).onConflictDoNothing();
+  }
+}
+
 async function setDocumentTags(documentId: string, tagNames: string[]) {
   await db.delete(documentTags).where(eq(documentTags.documentId, documentId));
   const tagIds = await getOrCreateTagsByNames(tagNames);
@@ -160,6 +182,7 @@ export async function createDocument(formData: FormData, userId: string) {
   });
 
   await setDocumentAuthors(documentId, authorNames);
+  await setDocumentSubjects(documentId, parseSubjects(formData));
   await setDocumentTags(documentId, parseTags(formData));
   await setDocumentCategories(documentId, categoryId, formData.getAll("secondaryCategoryIds").map(String));
 
@@ -225,6 +248,11 @@ export async function updateDocument(
   const tagsField = formData.get("tags");
   if (typeof tagsField === "string") {
     await setDocumentTags(existing.id, parseTags(formData));
+  }
+
+  const subjectsField = formData.get("subjects");
+  if (typeof subjectsField === "string") {
+    await setDocumentSubjects(existing.id, parseSubjects(formData));
   }
 
   // Checkboxes that are all unchecked simply vanish from FormData, so a

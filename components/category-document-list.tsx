@@ -5,33 +5,109 @@ import { DocumentRow } from "@/components/document-row";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import type { AuthorRow, DocumentRow as DocumentRowType } from "@/lib/db/queries";
 
-type Doc = DocumentRowType & { authors: AuthorRow[] };
+type Doc = DocumentRowType & { authors: AuthorRow[]; subjects?: AuthorRow[] };
 
-/** Client-side language/bilingual filter for a category's document list —
- * the catalog itself is small enough per category that filtering in the
- * browser (rather than a server round-trip) keeps this snappy. */
+type AuthorGroup = {
+  id: string;
+  name: string;
+  byDocs: Doc[];
+  aboutDocs: Doc[];
+};
+
+function sortDocs(docs: Doc[], sortBy: "title" | "year") {
+  const sorted = [...docs];
+  if (sortBy === "year") {
+    sorted.sort((a, b) => {
+      const ay = a.year ? Number.parseInt(a.year, 10) : null;
+      const by = b.year ? Number.parseInt(b.year, 10) : null;
+      if (ay === null && by === null) return a.title.localeCompare(b.title, "ru");
+      if (ay === null) return 1;
+      if (by === null) return -1;
+      return ay - by;
+    });
+  } else {
+    sorted.sort((a, b) => a.title.localeCompare(b.title, "ru"));
+  }
+  return sorted;
+}
+
+/** Client-side filters/grouping for a category's document list — the
+ * catalog is small enough per category that doing this in the browser
+ * (rather than a server round-trip) keeps it snappy. */
 export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
   const [language, setLanguage] = useState("");
   const [bilingualOnly, setBilingualOnly] = useState(false);
+  const [authorId, setAuthorId] = useState("");
+  const [sortBy, setSortBy] = useState<"title" | "year">("title");
 
   const usedLanguages = useMemo(
     () => LANGUAGES.filter((l) => documents.some((d) => d.language === l.code)),
     [documents],
   );
   const hasBilingual = useMemo(() => documents.some((d) => d.secondaryLanguage), [documents]);
+  const hasYears = useMemo(() => documents.some((d) => d.year), [documents]);
+
+  const authorOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const doc of documents) {
+      for (const author of doc.authors) byId.set(author.id, author.name);
+      for (const subject of doc.subjects ?? []) byId.set(subject.id, subject.name);
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  }, [documents]);
+
+  const [groupByAuthor, setGroupByAuthor] = useState(() => authorOptions.length >= 3);
 
   const filtered = useMemo(
     () =>
       documents.filter((d) => {
         if (language && d.language !== language) return false;
         if (bilingualOnly && !d.secondaryLanguage) return false;
+        if (authorId) {
+          const matches =
+            d.authors.some((a) => a.id === authorId) || (d.subjects ?? []).some((a) => a.id === authorId);
+          if (!matches) return false;
+        }
         return true;
       }),
-    [documents, language, bilingualOnly],
+    [documents, language, bilingualOnly, authorId],
   );
 
-  const filtersActive = language || bilingualOnly;
-  const showFilters = usedLanguages.length > 1 || hasBilingual;
+  const groups = useMemo<{ named: AuthorGroup[]; unattributed: Doc[] }>(() => {
+    if (!groupByAuthor) return { named: [], unattributed: [] };
+    const byId = new Map<string, AuthorGroup>();
+    const unattributed: Doc[] = [];
+    for (const doc of filtered) {
+      const authorIds = doc.authors.map((a) => a.id);
+      const subjectIds = (doc.subjects ?? []).map((a) => a.id);
+      if (authorIds.length === 0 && subjectIds.length === 0) {
+        unattributed.push(doc);
+        continue;
+      }
+      for (const author of doc.authors) {
+        const group = byId.get(author.id) ?? { id: author.id, name: author.name, byDocs: [], aboutDocs: [] };
+        group.byDocs.push(doc);
+        byId.set(author.id, group);
+      }
+      for (const subject of doc.subjects ?? []) {
+        const group = byId.get(subject.id) ?? { id: subject.id, name: subject.name, byDocs: [], aboutDocs: [] };
+        group.aboutDocs.push(doc);
+        byId.set(subject.id, group);
+      }
+    }
+    const named = [...byId.values()]
+      .map((group) => ({ ...group, byDocs: sortDocs(group.byDocs, sortBy), aboutDocs: sortDocs(group.aboutDocs, sortBy) }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    return { named, unattributed: sortDocs(unattributed, sortBy) };
+  }, [filtered, groupByAuthor, sortBy]);
+
+  const flatSorted = useMemo(() => sortDocs(filtered, sortBy), [filtered, sortBy]);
+
+  const filtersActive = Boolean(language || bilingualOnly || authorId);
+  const showFilters =
+    usedLanguages.length > 1 || hasBilingual || authorOptions.length > 1 || hasYears || authorOptions.length >= 2;
 
   return (
     <div>
@@ -61,12 +137,47 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
               только билингва
             </label>
           )}
+          {authorOptions.length > 1 && (
+            <select
+              value={authorId}
+              onChange={(event) => setAuthorId(event.target.value)}
+              className="max-w-[14rem] truncate rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5"
+            >
+              <option value="">Все авторы и темы</option>
+              {authorOptions.map((author) => (
+                <option key={author.id} value={author.id}>
+                  {author.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {hasYears && (
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as "title" | "year")}
+              className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5"
+            >
+              <option value="title">по алфавиту</option>
+              <option value="year">по году</option>
+            </select>
+          )}
+          {authorOptions.length >= 2 && (
+            <label className="flex items-center gap-1.5 rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5">
+              <input
+                type="checkbox"
+                checked={groupByAuthor}
+                onChange={(event) => setGroupByAuthor(event.target.checked)}
+              />
+              группировать по автору
+            </label>
+          )}
           {filtersActive && (
             <button
               type="button"
               onClick={() => {
                 setLanguage("");
                 setBilingualOnly(false);
+                setAuthorId("");
               }}
               className="text-xs text-muted underline underline-offset-2 hover:text-ink"
             >
@@ -81,12 +192,48 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
         </div>
       )}
 
-      {filtered.length ? (
-        filtered.map((document) => <DocumentRow key={document.id} document={document} />)
-      ) : (
+      {filtered.length === 0 && (
         <p className="border-t border-ink/10 py-7 text-sm text-muted">
           Ничего не подходит под выбранный фильтр.
         </p>
+      )}
+
+      {filtered.length > 0 && !groupByAuthor && flatSorted.map((document) => <DocumentRow key={document.id} document={document} />)}
+
+      {filtered.length > 0 && groupByAuthor && (
+        <div className="space-y-8">
+          {groups.named.map((group) => (
+            <div key={group.id}>
+              <p className="mb-1 font-serif text-lg tracking-tight">{group.name}</p>
+              {group.byDocs.length > 0 && (
+                <div className="mt-2">
+                  {group.aboutDocs.length > 0 && (
+                    <p className="eyebrow mb-1 text-[10px]">Тексты автора</p>
+                  )}
+                  {group.byDocs.map((document) => (
+                    <DocumentRow key={document.id} document={document} />
+                  ))}
+                </div>
+              )}
+              {group.aboutDocs.length > 0 && (
+                <div className="mt-3">
+                  <p className="eyebrow mb-1 text-[10px]">О нём/о ней</p>
+                  {group.aboutDocs.map((document) => (
+                    <DocumentRow key={document.id} document={document} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {groups.unattributed.length > 0 && (
+            <div>
+              {groups.named.length > 0 && <p className="mb-1 font-serif text-lg tracking-tight">Без указания автора</p>}
+              {groups.unattributed.map((document) => (
+                <DocumentRow key={document.id} document={document} />
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

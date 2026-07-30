@@ -17,6 +17,7 @@ export function DocumentEditForm({
     title: string;
     alternateTitle: string;
     authors: string;
+    subjects: string;
     year: string;
     description: string;
     categoryId: string;
@@ -91,6 +92,14 @@ export function DocumentEditForm({
         <label className="field">
           <span>Авторы, через запятую</span>
           <input name="authors" defaultValue={initial.authors} />
+        </label>
+        <label className="field">
+          <span>О ком (не авторы), через запятую</span>
+          <p className="mb-1.5 text-xs text-muted">
+            Например, биография Канта: в «Авторы» — имя биографа, а здесь — «Кант». Так книга
+            попадёт в отдельную подгруппу «о нём» рядом с текстами самого Канта.
+          </p>
+          <input name="subjects" defaultValue={initial.subjects} placeholder="например: Кант" />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="field">

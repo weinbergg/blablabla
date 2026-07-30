@@ -4,7 +4,9 @@ import { notFound } from "next/navigation";
 import { Header } from "@/components/header";
 import { DocumentWorkspace } from "@/components/document-workspace";
 import { DocumentEditForm } from "@/components/document-edit-form";
+import { LibraryButton } from "@/components/library-button";
 import { getCurrentUser } from "@/lib/auth";
+import { getLibraryStatusForDocument } from "@/lib/db/library";
 import {
   flattenCategoryOptions,
   getCategoryTrail,
@@ -41,12 +43,13 @@ export default async function DocumentPage({
 
   const currentUser = await getCurrentUser();
 
-  const [trail, comments, history, tree, annotations] = await Promise.all([
+  const [trail, comments, history, tree, annotations, libraryItem] = await Promise.all([
     getCategoryTrail(document.categoryId),
     getDocumentComments(document.id),
     getDocumentEditHistory(document.id),
     getCategoryTree(),
     getDocumentAnnotations(document.id, currentUser?.id ?? null),
+    currentUser ? getLibraryStatusForDocument(currentUser.id, document.id) : Promise.resolve(null),
   ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -100,6 +103,9 @@ export default async function DocumentPage({
               {authorNames || "Автор не указан"}
               {document.year ? `, ${document.year}` : ""}
             </p>
+            {document.subjects.length > 0 && (
+              <p className="mt-1 text-sm text-muted">О ком: {document.subjects.map((s) => s.name).join(", ")}</p>
+            )}
             {document.description && (
               <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
                 {document.description}
@@ -150,6 +156,9 @@ export default async function DocumentPage({
           </div>
 
           <div className="flex shrink-0 flex-col items-start gap-3 md:items-end">
+            {currentUser && (
+              <LibraryButton documentId={document.id} initialStatus={libraryItem?.status ?? null} />
+            )}
             {document.fileUrl && (
               <div className="flex flex-wrap items-center gap-2">
                 <a
@@ -179,6 +188,7 @@ export default async function DocumentPage({
                   title: document.title,
                   alternateTitle: document.alternateTitle ?? "",
                   authors: authorNames,
+                  subjects: document.subjects.map((s) => s.name).join(", "),
                   year: document.year ?? "",
                   description: document.description ?? "",
                   categoryId: document.categoryId,
