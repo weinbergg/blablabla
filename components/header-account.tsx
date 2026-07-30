@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, LogOut } from "lucide-react";
+import { ArrowUpRight, LogOut, Settings } from "lucide-react";
 
 type User = { id: string; name: string; role: string } | null;
 
@@ -40,7 +40,19 @@ export function HeaderAccount({ user }: { user: User }) {
       <Link href="/invite" className="hidden text-muted transition-colors hover:text-ink sm:block">
         Пригласить
       </Link>
-      <span className="hidden text-muted sm:block">{user.name}</span>
+      <Link
+        href="/account"
+        className="hidden text-muted transition-colors hover:text-ink sm:block"
+      >
+        {user.name}
+      </Link>
+      <Link
+        href="/account"
+        className="text-muted transition-colors hover:text-ink sm:hidden"
+        aria-label="Настройки аккаунта"
+      >
+        <Settings size={15} />
+      </Link>
       <button
         type="button"
         onClick={logout}
