@@ -2,12 +2,14 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Ban,
   Check,
   Copy,
   FilePlus2,
   FolderPlus,
+  Home,
   LogOut,
   MessageCircleQuestion,
   Pencil,
@@ -113,6 +115,10 @@ export function AdminDashboard({
             <h1 className="mt-1 font-serif text-2xl">Управление библиотекой</h1>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/" className="button-secondary">
+              <Home size={15} />
+              На сайт
+            </Link>
             <a href="/api/admin/export" className="button-secondary" title="Скачать zip-архив всех файлов и метаданных сайта">
               Скачать архив сайта
             </a>

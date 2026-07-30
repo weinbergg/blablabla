@@ -157,7 +157,24 @@ export function DocumentWorkspace({
               canAnnotate={canAnnotate}
             />
           )}
-          {fileUrl && isEpub && <EpubReader url={fileUrl} fullscreen={fullscreen} />}
+          {fileUrl && isEpub && (
+            <EpubReader
+              url={fileUrl}
+              page={page}
+              onPageChange={(next, total) => {
+                setPage(next);
+                setNumPages(total);
+              }}
+              documentId={documentId}
+              currentUserId={currentUser?.id ?? null}
+              initialAnnotations={annotations}
+              comments={annotationComments}
+              onReplyToAnnotation={replyToAnnotation}
+              onReport={submitReport}
+              fullscreen={fullscreen}
+              canAnnotate={canAnnotate}
+            />
+          )}
           {fileUrl && !isPdf && !isEpub && (
             <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
               Формат {fileType} пока не открывается прямо в браузере —
@@ -181,7 +198,7 @@ export function DocumentWorkspace({
             {annotations.length > 0 && (
               <AnnotationsIndex
                 annotations={annotations}
-                isPdf={isPdf}
+                canJump={isPdf || isEpub}
                 onJumpToPage={(target) => setPage(target)}
               />
             )}
@@ -386,11 +403,11 @@ function CommentBubble({ comment, currentUserId }: { comment: CommentItem; curre
  * left a mark and where, then jump straight to that page instead of hunting through it. */
 function AnnotationsIndex({
   annotations,
-  isPdf,
+  canJump,
   onJumpToPage,
 }: {
   annotations: AnnotationItem[];
-  isPdf: boolean;
+  canJump: boolean;
   onJumpToPage: (page: number) => void;
 }) {
   const [author, setAuthor] = useState("");
@@ -456,8 +473,8 @@ function AnnotationsIndex({
           <button
             key={item.id}
             type="button"
-            onClick={() => isPdf && onJumpToPage(item.page)}
-            disabled={!isPdf}
+            onClick={() => canJump && onJumpToPage(item.page)}
+            disabled={!canJump}
             className="flex w-full items-center justify-between gap-3 rounded-xl border border-ink/10 px-3.5 py-2.5 text-left text-sm transition-colors hover:border-rust/40 disabled:cursor-default disabled:hover:border-ink/10"
           >
             <span className="min-w-0 flex-1 truncate">
@@ -478,7 +495,7 @@ function AnnotationsIndex({
             </span>
             <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted">
               стр. {item.page}
-              {isPdf && <ArrowRight size={12} />}
+              {canJump && <ArrowRight size={12} />}
             </span>
           </button>
         ))}

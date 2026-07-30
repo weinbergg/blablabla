@@ -8,38 +8,51 @@ export function CategoryCard({
   category,
   href,
   index,
+  wide = false,
 }: {
   category: CategoryNode;
   href: string;
   index: number;
+  /** When a category is left alone in the final row of the grid, spanning
+   * the full width and laying out horizontally reads as an intentional
+   * "featured" slot instead of a lopsided leftover card next to empty
+   * space. */
+  wide?: boolean;
 }) {
   const accent = categoryAccent(category.id);
+  // A description is optional when a category is created, but leaving the
+  // card without one creates an odd, uneven gap above the bottom divider —
+  // every card gets a line of text either way, curated or a plain fallback.
+  const description =
+    category.description ||
+    (category.children.length
+      ? `${countLabel(category.children.length, ["раздел", "раздела", "разделов"])} с текстами по теме «${category.name.toLowerCase()}».`
+      : `Тексты по теме «${category.name.toLowerCase()}».`);
 
   return (
     <Link
       href={href}
-      className="category-card group relative min-h-[280px] overflow-hidden border-r border-t border-ink/10 p-7 md:p-9"
+      className={`category-card group relative overflow-hidden bg-paper p-7 md:p-9 ${
+        wide ? "sm:col-span-2 lg:col-span-3" : "min-h-[280px]"
+      }`}
     >
       <div className="category-wash" style={{ backgroundColor: accent }} />
-      <div className="relative flex h-full flex-col">
+      <div className={`relative flex h-full flex-col ${wide ? "lg:min-h-[200px]" : ""}`}>
         <div className="flex items-start justify-between">
           <span className="font-mono text-xs text-muted">
             {String(index + 1).padStart(2, "0")}
           </span>
-          <span
-            className="grid size-11 place-items-center rounded-full font-serif text-lg"
-            style={{ backgroundColor: `${accent}18`, color: accent }}
-          >
+          <span className="grid size-11 place-items-center rounded-full bg-ink/8 font-serif text-lg text-ink">
             {category.name.charAt(0).toUpperCase()}
           </span>
         </div>
-        <div className="mt-10">
-          <h3 className="font-serif text-3xl tracking-tight">{category.name}</h3>
-          {category.description && (
-            <p className="mt-3 max-w-xs text-sm leading-6 text-muted">
-              {category.description}
+        <div className={`mt-10 ${wide ? "lg:flex lg:items-end lg:justify-between lg:gap-10" : ""}`}>
+          <div>
+            <h3 className="font-serif text-3xl tracking-tight">{category.name}</h3>
+            <p className={`mt-3 text-sm leading-6 text-muted ${wide ? "lg:max-w-md" : "max-w-xs"}`}>
+              {description}
             </p>
-          )}
+          </div>
         </div>
         <div className="mt-auto flex items-center justify-between border-t border-ink/10 pt-4">
           <span className="font-mono text-[10px] uppercase tracking-widest text-muted">

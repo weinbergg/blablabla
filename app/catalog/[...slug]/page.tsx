@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { CategoryCard } from "@/components/category-card";
 import { CategoryDocumentList } from "@/components/category-document-list";
 import { Header } from "@/components/header";
-import { categoryAccent } from "@/lib/category-style";
+import { categoryAccent, isWideGridTail } from "@/lib/category-style";
 import {
   getCategoryBySlugPath,
   getCategoryTree,
@@ -85,13 +85,14 @@ export default async function CategoryPage({
           {visibleChildren.length > 0 && (
             <div className="mb-16">
               <p className="eyebrow mb-5">Подразделы</p>
-              <div className="grid border-b border-l border-ink/10 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-3">
                 {visibleChildren.map((child, index) => (
                   <CategoryCard
                     key={child.id}
                     category={{ ...child, children: [] }}
                     href={`${trailHrefs[trailHrefs.length - 1]}/${child.slug}`}
                     index={index}
+                    wide={isWideGridTail(index, visibleChildren.length)}
                   />
                 ))}
               </div>

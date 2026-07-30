@@ -9,6 +9,7 @@ import {
   getRecentDocuments,
   isPubliclyVisibleCategory,
 } from "@/lib/db/queries";
+import { isWideGridTail } from "@/lib/category-style";
 
 export const dynamic = "force-dynamic";
 
@@ -84,13 +85,14 @@ export default async function Home() {
             </p>
           </div>
 
-          <div className="grid border-b border-l border-ink/10 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-3">
             {visibleTree.map((category, index) => (
               <CategoryCard
                 key={category.id}
                 category={category}
                 href={`/catalog/${category.slug}`}
                 index={index}
+                wide={isWideGridTail(index, visibleTree.length)}
               />
             ))}
           </div>

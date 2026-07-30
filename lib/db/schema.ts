@@ -293,6 +293,47 @@ export const reports = sqliteTable("reports", {
   targetIdx: index("reports_target_idx").on(table.targetType, table.targetId),
 }));
 
+/** A private conversation between two or more users — a DM or a small group
+ * chat, entirely separate from the public per-document discussion threads
+ * above. `title` is only used for a group (3+ participants); a 1:1 chat is
+ * always labelled by the other participant's name in the UI instead. */
+export const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
+  title: text("title"),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  ...timestamps,
+});
+
+export const conversationParticipants = sqliteTable("conversation_participants", {
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Timestamp of the last message this participant has seen — everything
+   * newer than this in the conversation counts as unread for them. */
+  lastReadAt: text("last_read_at"),
+  ...timestamps,
+}, (table) => ({
+  pairIdx: uniqueIndex("conversation_participants_pair_idx").on(table.conversationId, table.userId),
+  userIdx: index("conversation_participants_user_idx").on(table.userId),
+}));
+
+export const directMessages = sqliteTable("direct_messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  ...timestamps,
+}, (table) => ({
+  conversationIdx: index("direct_messages_conversation_idx").on(table.conversationId),
+}));
+
 /** Free-standing questions/suggestions from readers — deliberately not tied to a document. */
 export const feedback = sqliteTable("feedback", {
   id: text("id").primaryKey(),
