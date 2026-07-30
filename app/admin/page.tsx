@@ -50,6 +50,8 @@ export default async function AdminPage() {
     categoryName: categoryById.get(doc.categoryId) ?? "",
     fileType: doc.fileType,
     confidence: doc.confidence,
+    language: doc.language ?? "",
+    secondaryLanguage: doc.secondaryLanguage ?? "",
   }));
 
   return (

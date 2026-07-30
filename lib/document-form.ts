@@ -140,6 +140,8 @@ export async function createDocument(formData: FormData, userId: string) {
     fileType,
     originalFormat,
     pages: Number.isFinite(pagesValue) && pagesValue > 0 ? pagesValue : null,
+    language: stringValue(formData, "language") || null,
+    secondaryLanguage: stringValue(formData, "secondaryLanguage") || null,
     confidence: "confirmed",
     createdBy: userId,
   });
@@ -156,6 +158,8 @@ const editableFields = [
   "year",
   "description",
   "categoryId",
+  "language",
+  "secondaryLanguage",
 ] as const;
 
 export async function updateDocument(

@@ -123,6 +123,12 @@ export const documents = sqliteTable("documents", {
   fileType: text("file_type").notNull(),
   originalFormat: text("original_format"),
   pages: integer("pages"),
+  /** Primary language of the text, as a short code (ru/en/de/fr/la/grc/…) — free-form
+   * rather than an enum since the library keeps growing into new languages. */
+  language: text("language"),
+  /** Set only for parallel/bilingual editions (e.g. Greek text with facing English
+   * translation) — the *other* language alongside `language`. Null for monolingual texts. */
+  secondaryLanguage: text("secondary_language"),
   confidence: text("confidence", { enum: ["confirmed", "low"] })
     .notNull()
     .default("confirmed"),

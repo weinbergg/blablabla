@@ -10,6 +10,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
     "import:repo": "tsx scripts/import-github-repo.ts",
+    "bulk-import": "tsx scripts/bulk-import.ts",
     "consolidate-categories": "tsx scripts/consolidate-small-categories.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "postinstall": "node scripts/copy-pdf-worker.mjs"

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { notFound } from "next/navigation";
 import { CategoryCard } from "@/components/category-card";
-import { DocumentRow } from "@/components/document-row";
+import { CategoryDocumentList } from "@/components/category-document-list";
 import { Header } from "@/components/header";
 import { categoryAccent } from "@/lib/category-style";
 import {
@@ -104,9 +104,7 @@ export default async function CategoryPage({
               </span>
             </div>
             {documents.length ? (
-              documents.map((document) => (
-                <DocumentRow key={document.id} document={document} />
-              ))
+              <CategoryDocumentList documents={documents} />
             ) : (
               <p className="border-t border-ink/10 py-7 text-sm text-muted">
                 {children.length

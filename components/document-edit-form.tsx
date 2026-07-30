@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, X } from "lucide-react";
+import { LANGUAGES } from "@/lib/languages";
 
 export type CategoryOption = { id: string; label: string };
 
@@ -21,6 +22,8 @@ export function DocumentEditForm({
     categoryId: string;
     pages: string;
     tags: string;
+    language: string;
+    secondaryLanguage: string;
   };
   categoryOptions: CategoryOption[];
 }) {
@@ -106,6 +109,30 @@ export function DocumentEditForm({
             ))}
           </select>
         </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="field">
+            <span>Язык</span>
+            <select name="language" defaultValue={initial.language}>
+              <option value="">не указан</option>
+              {LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Второй язык (билингва)</span>
+            <select name="secondaryLanguage" defaultValue={initial.secondaryLanguage}>
+              <option value="">нет, одноязычный</option>
+              {LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <label className="field">
           <span>Описание</span>
           <textarea name="description" rows={3} defaultValue={initial.description} />

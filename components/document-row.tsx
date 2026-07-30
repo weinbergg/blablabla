@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowDownToLine, ArrowUpRight } from "lucide-react";
 import type { AuthorRow, DocumentRow as DocumentRowType } from "@/lib/db/queries";
+import { languageLabel } from "@/lib/languages";
 
 type Props = {
   document: DocumentRowType & { authors: AuthorRow[] };
@@ -37,6 +38,8 @@ export function DocumentRow({ document, category, showCategory = false }: Props)
         <p className="font-mono text-[10px] uppercase tracking-wider">
           {document.fileType}
           {document.pages ? ` · ${document.pages} стр.` : ""}
+          {document.language ? ` · ${languageLabel(document.language)}` : ""}
+          {document.secondaryLanguage ? ` / ${languageLabel(document.secondaryLanguage)}` : ""}
         </p>
       </div>
 

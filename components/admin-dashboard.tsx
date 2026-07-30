@@ -29,6 +29,8 @@ import type {
 } from "@/lib/db/queries";
 import { countLabel } from "@/lib/pluralize";
 import { ROLE_LABELS } from "@/lib/roles";
+import { LANGUAGES, languageLabel } from "@/lib/languages";
+import { BulkImportTab } from "@/components/admin-bulk-import-tab";
 
 export type AdminDocument = {
   id: string;
@@ -39,6 +41,8 @@ export type AdminDocument = {
   categoryName: string;
   fileType: string;
   confidence: string;
+  language: string;
+  secondaryLanguage: string;
 };
 
 export type AdminInvite = {
@@ -70,7 +74,15 @@ type Props = {
   feedbackList: AdminFeedbackItem[];
 };
 
-const TABS = ["Материалы", "Разделы", "Приглашения", "Модерация", "Рефералы", "Обратная связь"] as const;
+const TABS = [
+  "Материалы",
+  "Загрузка",
+  "Разделы",
+  "Приглашения",
+  "Модерация",
+  "Рефералы",
+  "Обратная связь",
+] as const;
 
 export function AdminDashboard({
   documents,
@@ -99,10 +111,15 @@ export function AdminDashboard({
             <p className="eyebrow">blablablarden</p>
             <h1 className="mt-1 font-serif text-2xl">Управление библиотекой</h1>
           </div>
-          <button type="button" onClick={logout} className="button-secondary">
-            <LogOut size={15} />
-            Выйти
-          </button>
+          <div className="flex items-center gap-2">
+            <a href="/api/admin/export" className="button-secondary" title="Скачать zip-архив всех файлов и метаданных сайта">
+              Скачать архив сайта
+            </a>
+            <button type="button" onClick={logout} className="button-secondary">
+              <LogOut size={15} />
+              Выйти
+            </button>
+          </div>
         </div>
       </header>
 
@@ -133,6 +150,7 @@ export function AdminDashboard({
         {tab === "Материалы" && (
           <DocumentsTab documents={documents} categoryOptions={categoryOptions} />
         )}
+        {tab === "Загрузка" && <BulkImportTab categoryOptions={categoryOptions} />}
         {tab === "Разделы" && <CategoriesTab tree={categoryTree} />}
         {tab === "Приглашения" && <InvitesTab invites={invites} />}
         {tab === "Модерация" && <ModerationTab feed={moderationFeed} reports={openReports} />}
@@ -155,6 +173,42 @@ function DocumentsTab({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const editing = documents.find((d) => d.id === editingId) ?? null;
+
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [languageFilter, setLanguageFilter] = useState("");
+  const [bilingualOnly, setBilingualOnly] = useState(false);
+  const [formatFilter, setFormatFilter] = useState("");
+  const [confidenceFilter, setConfidenceFilter] = useState("");
+
+  const fileTypes = Array.from(new Set(documents.map((d) => d.fileType))).sort();
+  const usedLanguages = LANGUAGES.filter((l) => documents.some((d) => d.language === l.code));
+
+  const filtered = documents.filter((d) => {
+    if (search) {
+      const needle = search.toLowerCase();
+      const haystack = `${d.title} ${d.authorNames} ${d.tagNames}`.toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
+    if (categoryFilter && d.categoryId !== categoryFilter) return false;
+    if (languageFilter && d.language !== languageFilter) return false;
+    if (bilingualOnly && !d.secondaryLanguage) return false;
+    if (formatFilter && d.fileType !== formatFilter) return false;
+    if (confidenceFilter && d.confidence !== confidenceFilter) return false;
+    return true;
+  });
+
+  const filtersActive =
+    search || categoryFilter || languageFilter || bilingualOnly || formatFilter || confidenceFilter;
+
+  function resetFilters() {
+    setSearch("");
+    setCategoryFilter("");
+    setLanguageFilter("");
+    setBilingualOnly(false);
+    setFormatFilter("");
+    setConfidenceFilter("");
+  }
 
   function resetForm() {
     setEditingId(null);
@@ -255,6 +309,30 @@ function DocumentsTab({
               ))}
             </select>
           </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="field">
+              <span>Язык</span>
+              <select name="language" defaultValue={editing?.language}>
+                <option value="">не указан</option>
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Второй язык (билингва)</span>
+              <select name="secondaryLanguage" defaultValue={editing?.secondaryLanguage}>
+                <option value="">нет</option>
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <label className="field">
             <span>Краткое описание</span>
             <textarea name="description" rows={3} placeholder="О чём этот текст и почему он важен" />
@@ -293,11 +371,76 @@ function DocumentsTab({
             <p className="eyebrow mb-2">Каталог</p>
             <h2 className="font-serif text-3xl">Все материалы</h2>
           </div>
-          <span className="font-mono text-xs text-muted">{documents.length}</span>
+          <span className="font-mono text-xs text-muted">
+            {filtersActive ? `${filtered.length} из ${documents.length}` : documents.length}
+          </span>
+        </div>
+
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Поиск по названию, автору, метке…"
+            className="min-w-[200px] flex-1 rounded-full border border-ink/15 bg-white px-4 py-1.5 text-sm"
+          />
+          <select
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+          >
+            <option value="">Все разделы</option>
+            {categoryOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={languageFilter}
+            onChange={(event) => setLanguageFilter(event.target.value)}
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+          >
+            <option value="">Все языки</option>
+            {usedLanguages.map((lang) => (
+              <option key={lang.code} value={lang.code}>
+                {lang.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={formatFilter}
+            onChange={(event) => setFormatFilter(event.target.value)}
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+          >
+            <option value="">Все форматы</option>
+            {fileTypes.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+          <select
+            value={confidenceFilter}
+            onChange={(event) => setConfidenceFilter(event.target.value)}
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+          >
+            <option value="">Любая уверенность</option>
+            <option value="low">Только «уточнить»</option>
+            <option value="confirmed">Только подтверждённые</option>
+          </select>
+          <label className="flex items-center gap-1.5 text-sm text-muted">
+            <input type="checkbox" checked={bilingualOnly} onChange={(event) => setBilingualOnly(event.target.checked)} />
+            только билингва
+          </label>
+          {filtersActive && (
+            <button type="button" onClick={resetFilters} className="text-sm text-muted hover:text-rust">
+              Сбросить
+            </button>
+          )}
         </div>
 
         <div>
-          {documents.map((document) => (
+          {filtered.map((document) => (
             <article key={document.id} className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-ink/10 py-4">
               <div className="min-w-0">
                 <p className="truncate font-medium">
@@ -308,6 +451,11 @@ function DocumentsTab({
                 </p>
                 <p className="mt-1 truncate text-xs text-muted">
                   {document.authorNames || "автор не указан"} · {document.categoryName} · {document.fileType}
+                  {document.language
+                    ? ` · ${languageLabel(document.language)}${
+                        document.secondaryLanguage ? `/${languageLabel(document.secondaryLanguage)}` : ""
+                      }`
+                    : ""}
                   {document.tagNames ? ` · ${document.tagNames}` : ""}
                 </p>
               </div>

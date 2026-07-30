@@ -14,6 +14,7 @@ import {
   getDocumentComments,
   getDocumentEditHistory,
 } from "@/lib/db/queries";
+import { languageLabel } from "@/lib/languages";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,8 @@ const FIELD_LABELS: Record<string, string> = {
   categoryId: "Раздел",
   pages: "Страниц",
   file: "Файл",
+  language: "Язык",
+  secondaryLanguage: "Второй язык (билингва)",
 };
 
 export default async function DocumentPage({
@@ -109,6 +112,11 @@ export default async function DocumentPage({
               {document.fileType}
               {document.originalFormat ? ` · исходно ${document.originalFormat}` : ""}
               {document.pages ? ` · ${document.pages} стр.` : ""}
+              {document.language
+                ? ` · ${languageLabel(document.language)}${
+                    document.secondaryLanguage ? ` / ${languageLabel(document.secondaryLanguage)}` : ""
+                  }`
+                : ""}
             </p>
             {document.sourceNote && (
               <p className="mt-2 text-xs text-muted">Примечание: {document.sourceNote}</p>
@@ -150,6 +158,8 @@ export default async function DocumentPage({
                   categoryId: document.categoryId,
                   pages: document.pages ? String(document.pages) : "",
                   tags: document.tags.map((tag) => tag.name).join(", "),
+                  language: document.language ?? "",
+                  secondaryLanguage: document.secondaryLanguage ?? "",
                 }}
               />
             )}
