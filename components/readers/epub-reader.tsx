@@ -15,6 +15,7 @@ import {
   type PageDrawSession,
   type StrokeWidthPreset,
 } from "./annotation-layer";
+import { SelectionLookup } from "./selection-lookup";
 
 /**
  * EPUB annotations are keyed by spine section index rather than a PDF-style
@@ -74,6 +75,11 @@ export function EpubReader({
   const [height, setHeight] = useState("70vh");
 
   const [annotations, setAnnotations] = useState<AnnotationItem[]>(initialAnnotations);
+  // The book's own text lives inside epub.js's iframe, a separate document
+  // from this component's — tracked here so `SelectionLookup` can watch
+  // *that* document's selection instead of the outer page's (which never
+  // sees a selection made inside the iframe at all).
+  const [selectionDoc, setSelectionDoc] = useState<Document | null>(null);
   const [placing, setPlacing] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [drawPaths, setDrawPaths] = useState<string[]>([]);
@@ -121,6 +127,11 @@ export function EpubReader({
         });
         renditionRef.current = rendition;
 
+        function syncSelectionDoc() {
+          const contentsList = rendition.getContents() as unknown as { document: Document }[];
+          setSelectionDoc(contentsList[0]?.document ?? null);
+        }
+
         rendition.on("relocated", (location: { start: { index: number } }) => {
           const total = (book.spine as unknown as { length?: number }).length || 1;
           const index = location.start.index + 1;
@@ -128,10 +139,12 @@ export function EpubReader({
           setSection(index);
           setTotalSections(total);
           onPageChange(index, total);
+          syncSelectionDoc();
         });
 
         await book.ready;
         await rendition.display();
+        syncSelectionDoc();
         if (!cancelled) setLoading(false);
       } catch {
         if (!cancelled) {
@@ -345,6 +358,7 @@ export function EpubReader({
             pageDraw={pageDrawSession}
           />
         )}
+        <SelectionLookup containerRef={wrapRef} doc={selectionDoc} suppressed={placing || drawMode} />
       </div>
     </div>
   );

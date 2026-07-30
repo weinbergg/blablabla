@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, LogOut, Settings } from "lucide-react";
+import { ArrowUpRight, LogOut, Mail, Settings } from "lucide-react";
 
 type User = { id: string; name: string; role: string } | null;
 
-export function HeaderAccount({ user }: { user: User }) {
+export function HeaderAccount({ user, unreadMessages = 0 }: { user: User; unreadMessages?: number }) {
   const router = useRouter();
 
   async function logout() {
@@ -39,6 +39,19 @@ export function HeaderAccount({ user }: { user: User }) {
       )}
       <Link href="/invite" className="hidden text-muted transition-colors hover:text-ink sm:block">
         Пригласить
+      </Link>
+      <Link
+        href="/messages"
+        className="relative text-muted transition-colors hover:text-ink"
+        aria-label="Сообщения"
+        title="Сообщения"
+      >
+        <Mail size={16} />
+        {unreadMessages > 0 && (
+          <span className="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-full bg-rust text-[8px] font-semibold text-white">
+            {unreadMessages > 9 ? "9+" : unreadMessages}
+          </span>
+        )}
       </Link>
       <Link
         href="/account"

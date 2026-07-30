@@ -25,6 +25,7 @@ import {
   type PageDrawSession,
   type StrokeWidthPreset,
 } from "./annotation-layer";
+import { SelectionLookup } from "./selection-lookup";
 
 type SpreadMode = "single" | "double";
 type FlipDirection = "forward" | "backward";
@@ -604,6 +605,7 @@ export function PdfReader({
                   pageDraw={pageDrawSessionFor(leftPageNumber)}
                   {...annotationHandlers}
                 />
+                <SelectionLookup containerRef={leftPageWrapRef} suppressed={placing || drawMode} />
               </div>
               {isDouble && (
                 <div ref={rightPageWrapRef} className="relative">
@@ -616,6 +618,7 @@ export function PdfReader({
                     pageDraw={rightPageNumber ? pageDrawSessionFor(rightPageNumber) : undefined}
                     {...annotationHandlers}
                   />
+                  <SelectionLookup containerRef={rightPageWrapRef} suppressed={placing || drawMode} />
                 </div>
               )}
             </div>

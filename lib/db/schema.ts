@@ -329,7 +329,12 @@ export const directMessages = sqliteTable("direct_messages", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
-  ...timestamps,
+  // Millisecond precision (unlike the shared `timestamps` helper's
+  // second-precision default) so a rapid back-and-forth in a chat still
+  // orders correctly instead of tying on the same second.
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%d %H:%M:%f', 'now'))`),
 }, (table) => ({
   conversationIdx: index("direct_messages_conversation_idx").on(table.conversationId),
 }));

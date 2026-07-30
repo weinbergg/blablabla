@@ -5,9 +5,11 @@ import { AntoineMark } from "@/components/antoine-mark";
 import { HeaderAccount } from "@/components/header-account";
 import { MobileMenu } from "@/components/mobile-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { getTotalUnreadCount } from "@/lib/db/messages";
 
 export async function Header() {
   const user = await getCurrentUser();
+  const unreadMessages = user ? await getTotalUnreadCount(user.id) : 0;
 
   return (
     <header className="relative border-b border-ink/10">
@@ -53,7 +55,7 @@ export async function Header() {
             Обратная связь
           </Link>
           <ThemeToggle className="hidden sm:grid" />
-          <HeaderAccount user={user} />
+          <HeaderAccount user={user} unreadMessages={unreadMessages} />
           <MobileMenu isAdmin={user?.role === "admin"} isLoggedIn={Boolean(user)} />
         </nav>
       </div>
