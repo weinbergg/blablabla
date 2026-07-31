@@ -28,6 +28,10 @@ export type LibraryEntry = {
   itemId: string;
   status: LibraryStatus;
   note: string | null;
+  rating: number | null;
+  reviewBody: string | null;
   updatedAt: string;
   document: LibraryBookSummary;
 };
+
+export type RatingSummary = { average: number; count: number };

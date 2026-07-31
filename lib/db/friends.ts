@@ -71,6 +71,17 @@ export async function getUserPublicInfo(userId: string): Promise<FriendUser | nu
   return row ?? null;
 }
 
+export type PublicProfile = { id: string; name: string; role: string; createdAt: string };
+
+export async function getPublicProfile(userId: string): Promise<PublicProfile | null> {
+  const [row] = await db
+    .select({ id: users.id, name: users.name, role: users.role, createdAt: users.createdAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function areFriends(userAId: string, userBId: string) {
   const [row] = await db
     .select({ id: friendships.id })
@@ -86,6 +97,32 @@ export async function areFriends(userAId: string, userBId: string) {
     )
     .limit(1);
   return Boolean(row);
+}
+
+export type FriendshipStatus = {
+  status: "none" | "pending_outgoing" | "pending_incoming" | "accepted";
+  friendshipId: string | null;
+};
+
+/** The full relationship between two users, for rendering the right button
+ * (Add / Pending / Accept / Friends) on a profile page. */
+export async function getFriendshipStatus(viewerId: string, otherId: string): Promise<FriendshipStatus> {
+  const [row] = await db
+    .select()
+    .from(friendships)
+    .where(
+      or(
+        and(eq(friendships.requesterId, viewerId), eq(friendships.addresseeId, otherId)),
+        and(eq(friendships.requesterId, otherId), eq(friendships.addresseeId, viewerId)),
+      ),
+    )
+    .limit(1);
+  if (!row) return { status: "none", friendshipId: null };
+  if (row.status === "accepted") return { status: "accepted", friendshipId: row.id };
+  return {
+    status: row.requesterId === viewerId ? "pending_outgoing" : "pending_incoming",
+    friendshipId: row.id,
+  };
 }
 
 export async function sendFriendRequest(requesterId: string, addresseeId: string) {

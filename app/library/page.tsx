@@ -2,9 +2,9 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Header } from "@/components/header";
-import { Bookshelf, RecommendationShelf } from "@/components/bookshelf";
+import { Bookshelf, PopularShelf, RecommendationShelf } from "@/components/bookshelf";
 import { getCurrentUser } from "@/lib/auth";
-import { getLibraryForUser, getRecommendationsForUser } from "@/lib/db/library";
+import { getLibraryForUser, getPopularBooks, getRecommendationsForUser } from "@/lib/db/library";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +12,10 @@ export default async function LibraryPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [entries, recommendations] = await Promise.all([
+  const [entries, recommendations, popular] = await Promise.all([
     getLibraryForUser(user.id),
     getRecommendationsForUser(user.id),
+    getPopularBooks(),
   ]);
 
   return (
@@ -44,6 +45,12 @@ export default async function LibraryPage() {
         {recommendations.length > 0 && (
           <div className="mt-14 border-t border-ink/10 pt-10">
             <RecommendationShelf books={recommendations} />
+          </div>
+        )}
+
+        {popular.length > 0 && (
+          <div className="mt-14 border-t border-ink/10 pt-10">
+            <PopularShelf books={popular} />
           </div>
         )}
       </main>

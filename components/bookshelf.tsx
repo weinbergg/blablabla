@@ -138,6 +138,36 @@ export function Bookshelf({
   );
 }
 
+export function PopularShelf({ books }: { books: { document: LibraryBookSummary; shelvedCount: number }[] }) {
+  if (books.length === 0) return null;
+  return (
+    <div>
+      <div className="mb-4 flex items-baseline justify-between">
+        <p className="eyebrow">Популярное на сайте</p>
+        <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+          чаще всего добавляют на полку
+        </span>
+      </div>
+      <ShelfRow>
+        {books.map(({ document, shelvedCount }) => (
+          <div key={document.id} className="relative shrink-0">
+            <BookSpine
+              id={document.id}
+              title={document.title}
+              authorLabel={document.authors.map((a) => a.name).join(", ") || "автор не указан"}
+              year={document.year}
+              fileType={document.fileType}
+            />
+            <span className="absolute -left-1.5 -top-1.5 grid size-6 place-items-center rounded-full border border-ink/10 bg-paper text-[10px] font-mono shadow-sm">
+              {shelvedCount}
+            </span>
+          </div>
+        ))}
+      </ShelfRow>
+    </div>
+  );
+}
+
 export function RecommendationShelf({ books }: { books: LibraryBookSummary[] }) {
   if (books.length === 0) return null;
   return (

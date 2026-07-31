@@ -3,8 +3,10 @@ import { ArrowLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Header } from "@/components/header";
 import { FriendsPanel } from "@/components/friends-panel";
+import { ActivityFeed } from "@/components/activity-feed";
 import { getCurrentUser } from "@/lib/auth";
 import { getFriendsData } from "@/lib/db/friends";
+import { getFriendActivity } from "@/lib/db/library";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,7 @@ export default async function FriendsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const data = await getFriendsData(user.id);
+  const [data, activity] = await Promise.all([getFriendsData(user.id), getFriendActivity(user.id)]);
 
   return (
     <>
@@ -31,6 +33,7 @@ export default async function FriendsPage() {
           Добавляйте других читателей библиотеки в друзья, чтобы сравнивать книжные полки и
           находить общий интерес.
         </p>
+        <ActivityFeed entries={activity} />
         <FriendsPanel data={data} currentUserId={user.id} />
       </main>
     </>

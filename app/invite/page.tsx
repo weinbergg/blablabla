@@ -29,9 +29,12 @@ export default async function InviteRoute() {
             note: invite.note,
             usedBy: invite.usedBy,
             createdAt: invite.createdAt,
+            multiUse: Boolean(invite.multiUse),
+            useCount: invite.useCount,
           }))}
           referredCount={referredCount}
           maxUnused={user.role === "admin" ? Infinity : MEMBER_MAX_UNUSED_INVITES}
+          canCreateMassInvite={user.role === "admin" || user.role === "booster"}
         />
       </main>
     </>

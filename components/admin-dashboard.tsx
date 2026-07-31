@@ -25,6 +25,7 @@ import {
 import type { CategoryOption } from "@/components/document-edit-form";
 import type {
   CategoryNode,
+  GrowthSummary,
   ModerationItem,
   ReferralRow,
   ReportRow,
@@ -56,6 +57,8 @@ export type AdminInvite = {
   note: string | null;
   usedBy: string | null;
   createdAt: string;
+  multiUse: boolean;
+  useCount: number;
 };
 
 export type AdminFeedbackItem = {
@@ -75,6 +78,7 @@ type Props = {
   moderationFeed: ModerationItem[];
   openReports: ReportRow[];
   referralStats: ReferralRow[];
+  growthSummary: GrowthSummary;
   feedbackList: AdminFeedbackItem[];
 };
 
@@ -96,6 +100,7 @@ export function AdminDashboard({
   moderationFeed,
   openReports,
   referralStats,
+  growthSummary,
   feedbackList,
 }: Props) {
   const router = useRouter();
@@ -162,7 +167,7 @@ export function AdminDashboard({
         {tab === "Разделы" && <CategoriesTab tree={categoryTree} />}
         {tab === "Приглашения" && <InvitesTab invites={invites} />}
         {tab === "Модерация" && <ModerationTab feed={moderationFeed} reports={openReports} />}
-        {tab === "Рефералы" && <ReferralsTab stats={referralStats} />}
+        {tab === "Рефералы" && <ReferralsTab stats={referralStats} growth={growthSummary} />}
         {tab === "Обратная связь" && <FeedbackTab items={feedbackList} />}
       </div>
     </main>
@@ -683,6 +688,7 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [lastCode, setLastCode] = useState("");
+  const [massMode, setMassMode] = useState(false);
 
   async function createInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -693,7 +699,7 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
     const response = await fetch("/api/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: formData.get("email"), note: formData.get("note") }),
+      body: JSON.stringify({ email: formData.get("email"), note: formData.get("note"), multiUse: massMode }),
     });
     const result = (await response.json().catch(() => ({}))) as { code?: string; error?: string };
     setBusy(false);
@@ -715,14 +721,32 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
           </span>
           <p className="font-medium">Новое приглашение</p>
         </div>
+        <div className="mb-4 flex gap-2 rounded-full bg-ink/5 p-1 text-xs">
+          <button
+            type="button"
+            onClick={() => setMassMode(false)}
+            className={`flex-1 rounded-full py-1.5 transition-colors ${!massMode ? "bg-paper shadow-sm" : "text-muted"}`}
+          >
+            Обычное
+          </button>
+          <button
+            type="button"
+            onClick={() => setMassMode(true)}
+            className={`flex-1 rounded-full py-1.5 transition-colors ${massMode ? "bg-paper shadow-sm" : "text-muted"}`}
+          >
+            Массовое (для чата)
+          </button>
+        </div>
         <form onSubmit={createInvite} className="space-y-4">
-          <label className="field">
-            <span>Почта (необязательно)</span>
-            <input name="email" type="email" placeholder="друг@example.com" />
-          </label>
+          {!massMode && (
+            <label className="field">
+              <span>Почта (необязательно)</span>
+              <input name="email" type="email" placeholder="друг@example.com" />
+            </label>
+          )}
           <label className="field">
             <span>Заметка (необязательно)</span>
-            <input name="note" placeholder="Для кого приглашение" />
+            <input name="note" placeholder={massMode ? "например: общий чат в Telegram" : "Для кого приглашение"} />
           </label>
           <button className="button-primary w-full" disabled={busy}>
             {busy ? "Создаю…" : "Сгенерировать код"}
@@ -741,13 +765,24 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
           {invites.map((invite) => (
             <div key={invite.id} className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-ink/10 py-3">
               <div className="min-w-0">
-                <p className="font-mono text-sm">{invite.code}</p>
+                <p className="font-mono text-sm">
+                  {invite.code}
+                  {invite.multiUse && (
+                    <span className="ml-2 rounded-full bg-rust/10 px-2 py-0.5 text-[10px] font-sans text-rust">
+                      массовая
+                    </span>
+                  )}
+                </p>
                 <p className="truncate text-xs text-muted">
                   {invite.email || "любая почта"} {invite.note ? `· ${invite.note}` : ""}
                 </p>
               </div>
-              <span className={`text-xs ${invite.usedBy ? "text-muted" : "text-emerald-700"}`}>
-                {invite.usedBy ? "использовано" : "активно"}
+              <span className={`text-xs ${invite.usedBy || invite.useCount > 0 ? "text-muted" : "text-emerald-700"}`}>
+                {invite.multiUse
+                  ? `использована ${invite.useCount} раз`
+                  : invite.usedBy
+                    ? "использовано"
+                    : "активно"}
               </span>
             </div>
           ))}
@@ -942,7 +977,7 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
   );
 }
 
-function ReferralsTab({ stats }: { stats: ReferralRow[] }) {
+function ReferralsTab({ stats, growth }: { stats: ReferralRow[]; growth: GrowthSummary }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -972,6 +1007,7 @@ function ReferralsTab({ stats }: { stats: ReferralRow[] }) {
   }
 
   const totalReferred = stats.reduce((sum, row) => sum + row.referredCount, 0);
+  const maxDaily = Math.max(1, ...growth.dailyLast14.map((d) => d.count));
 
   return (
     <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm md:p-8">
@@ -984,11 +1020,44 @@ function ReferralsTab({ stats }: { stats: ReferralRow[] }) {
           </h2>
         </div>
       </div>
+
+      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "Всего пользователей", value: growth.total },
+          { label: "За 24 часа", value: growth.last24h },
+          { label: "За 7 дней", value: growth.last7d },
+          { label: "За 30 дней", value: growth.last30d },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-xl bg-ink/5 px-4 py-3">
+            <p className="font-mono text-2xl">{stat.value}</p>
+            <p className="text-xs text-muted">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-8">
+        <p className="eyebrow mb-3">Регистрации за 14 дней</p>
+        <div className="flex h-20 items-end gap-1.5">
+          {growth.dailyLast14.map((day) => (
+            <div key={day.date} className="group relative flex-1">
+              <div
+                className="rounded-t bg-rust/70 transition-colors group-hover:bg-rust"
+                style={{ height: `${Math.max(4, (day.count / maxDaily) * 72)}px` }}
+              />
+              <div className="pointer-events-none absolute bottom-full left-1/2 mb-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded bg-ink px-2 py-1 text-[10px] text-paper group-hover:block">
+                {new Date(day.date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}: {day.count}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-ink/10 text-xs uppercase tracking-wide text-muted">
               <th className="py-2 pr-3">Пользователь</th>
+              <th className="py-2 pr-3">Вступил</th>
               <th className="py-2 pr-3">Роль</th>
               <th className="py-2 pr-3">Привёл</th>
               <th className="py-2 pr-3">Приглашений</th>
@@ -1002,6 +1071,13 @@ function ReferralsTab({ stats }: { stats: ReferralRow[] }) {
                 <td className="py-2.5 pr-3">
                   <p className="font-medium">{row.name}</p>
                   <p className="text-xs text-muted">{row.email}</p>
+                </td>
+                <td className="py-2.5 pr-3 text-xs text-muted">
+                  {new Date(`${row.createdAt.replace(" ", "T")}Z`).toLocaleDateString("ru-RU", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
                 </td>
                 <td className="py-2.5 pr-3 text-xs">
                   <span

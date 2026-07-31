@@ -55,6 +55,12 @@ export const invites = sqliteTable("invites", {
     onDelete: "set null",
   }),
   usedAt: text("used_at"),
+  /** A "mass" link (admin/booster only) meant to be dropped once into a group
+   * chat rather than handed to one person — registering through it doesn't
+   * consume it, so `usedBy` stays null and `useCount` tracks how many people
+   * have joined through it instead. */
+  multiUse: integer("multi_use").notNull().default(0),
+  useCount: integer("use_count").notNull().default(0),
   ...timestamps,
 }, (table) => ({
   codeIdx: uniqueIndex("invites_code_idx").on(table.code),
@@ -374,6 +380,13 @@ export const libraryItems = sqliteTable("library_items", {
     .notNull()
     .default("want"),
   note: text("note"),
+  /** 1–5 stars, set independently of status (most naturally once "done", but
+   * not enforced — someone might rate a re-read they're still "reading"). */
+  rating: integer("rating"),
+  /** Short public review text shown alongside the rating on the book's page
+   * and in the friends' activity feed — separate from `note`, which stays
+   * private to the shelf owner. */
+  reviewBody: text("review_body"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`(current_timestamp)`),

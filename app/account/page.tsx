@@ -36,6 +36,12 @@ export default async function AccountPage() {
             понадобится ввести текущий пароль.
           </p>
           <AccountForm email={user.email} />
+          <Link
+            href={`/users/${user.id}`}
+            className="mt-6 block text-center text-sm text-muted underline underline-offset-2 hover:text-ink"
+          >
+            Посмотреть свой публичный профиль
+          </Link>
         </section>
       </div>
     </main>

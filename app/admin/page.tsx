@@ -10,6 +10,7 @@ import {
   getAllSecondaryCategoryIdsByDoc,
   getCategoryTree,
   getFeedbackList,
+  getGrowthSummary,
   getModerationFeed,
   getOpenReports,
   getReferralStats,
@@ -22,17 +23,27 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "admin") redirect("/");
 
-  const [tree, allDocuments, inviteRows, moderationFeed, openReports, referralStats, feedbackList, secondaryCategoryIdsByDoc] =
-    await Promise.all([
-      getCategoryTree(),
-      getAllDocumentsForSearch(),
-      db.select().from(invites).orderBy(desc(invites.createdAt)),
-      getModerationFeed(),
-      getOpenReports(),
-      getReferralStats(),
-      getFeedbackList(),
-      getAllSecondaryCategoryIdsByDoc(),
-    ]);
+  const [
+    tree,
+    allDocuments,
+    inviteRows,
+    moderationFeed,
+    openReports,
+    referralStats,
+    growthSummary,
+    feedbackList,
+    secondaryCategoryIdsByDoc,
+  ] = await Promise.all([
+    getCategoryTree(),
+    getAllDocumentsForSearch(),
+    db.select().from(invites).orderBy(desc(invites.createdAt)),
+    getModerationFeed(),
+    getOpenReports(),
+    getReferralStats(),
+    getGrowthSummary(),
+    getFeedbackList(),
+    getAllSecondaryCategoryIdsByDoc(),
+  ]);
 
   const categoryById = new Map<string, string>();
   const walk = (nodes: typeof tree) => {
@@ -70,10 +81,13 @@ export default async function AdminPage() {
         note: invite.note,
         usedBy: invite.usedBy,
         createdAt: invite.createdAt,
+        multiUse: Boolean(invite.multiUse),
+        useCount: invite.useCount,
       }))}
       moderationFeed={moderationFeed}
       openReports={openReports}
       referralStats={referralStats}
+      growthSummary={growthSummary}
       feedbackList={feedbackList.map((item) => ({
         ...item,
         authorName: item.authorName ?? item.name ?? "Аноним",

@@ -846,6 +846,7 @@ export type ReferralRow = {
   referredCount: number;
   invitesCreated: number;
   invitesUnused: number;
+  createdAt: string;
 };
 
 /** For the admin "Рефералы" tab — who's bringing people in, and how many of their invite codes are still unused. */
@@ -881,8 +882,49 @@ export async function getReferralStats(): Promise<ReferralRow[]> {
       referredCount: referredCountByReferrer.get(u.id) ?? 0,
       invitesCreated: invitesCreatedBy.get(u.id) ?? 0,
       invitesUnused: invitesUnusedBy.get(u.id) ?? 0,
+      createdAt: u.createdAt,
     }))
-    .sort((a, b) => b.referredCount - a.referredCount);
+    .sort((a, b) => new Date(`${b.createdAt.replace(" ", "T")}Z`).getTime() - new Date(`${a.createdAt.replace(" ", "T")}Z`).getTime());
+}
+
+export type GrowthSummary = {
+  total: number;
+  last24h: number;
+  last7d: number;
+  last30d: number;
+  /** Signup counts for the last 14 calendar days, oldest first — enough for
+   * a small bar chart without pulling in a charting library. */
+  dailyLast14: { date: string; count: number }[];
+};
+
+/** Powers the growth readout at the top of the admin "Рефералы" tab — cheap
+ * to compute in JS since the whole `users` table is at most a few thousand
+ * rows for a project like this. */
+export async function getGrowthSummary(): Promise<GrowthSummary> {
+  const rows = await db.select({ createdAt: users.createdAt }).from(users);
+  const now = Date.now();
+  const DAY = 86_400_000;
+  const timestamps = rows.map((r) => new Date(`${r.createdAt.replace(" ", "T")}Z`).getTime());
+
+  const dayKey = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+  const countsByDay = new Map<string, number>();
+  for (const ts of timestamps) {
+    const key = dayKey(ts);
+    countsByDay.set(key, (countsByDay.get(key) ?? 0) + 1);
+  }
+  const dailyLast14: { date: string; count: number }[] = [];
+  for (let i = 13; i >= 0; i -= 1) {
+    const key = dayKey(now - i * DAY);
+    dailyLast14.push({ date: key, count: countsByDay.get(key) ?? 0 });
+  }
+
+  return {
+    total: timestamps.length,
+    last24h: timestamps.filter((ts) => now - ts <= DAY).length,
+    last7d: timestamps.filter((ts) => now - ts <= 7 * DAY).length,
+    last30d: timestamps.filter((ts) => now - ts <= 30 * DAY).length,
+    dailyLast14,
+  };
 }
 
 /** A member's own invite codes, for their personal "invite a friend" page. */

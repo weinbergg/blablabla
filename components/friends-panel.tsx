@@ -68,7 +68,9 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
           <div className="divide-y divide-ink/10 rounded-2xl border border-ink/10">
             {incoming.map((request) => (
               <div key={request.friendshipId} className="flex items-center justify-between gap-3 p-4">
-                <span className="font-medium">{request.name}</span>
+                <Link href={`/users/${request.id}`} className="font-medium hover:text-rust">
+                  {request.name}
+                </Link>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -106,7 +108,9 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
           <div className="divide-y divide-ink/10 rounded-2xl border border-ink/10">
             {friends.map((friend) => (
               <div key={friend.id} className="flex items-center justify-between gap-3 p-4">
-                <span className="font-medium">{friend.name}</span>
+                <Link href={`/users/${friend.id}`} className="font-medium hover:text-rust">
+                  {friend.name}
+                </Link>
                 <div className="flex items-center gap-2">
                   <Link href={`/friends/${friend.id}`} className="button-secondary !px-3 !py-1.5 text-xs">
                     <Scale size={13} />
@@ -133,7 +137,9 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
           <div className="divide-y divide-ink/10 rounded-2xl border border-ink/10">
             {outgoing.map((request) => (
               <div key={request.friendshipId} className="flex items-center justify-between gap-3 p-4">
-                <span className="text-sm text-muted">{request.name}</span>
+                <Link href={`/users/${request.id}`} className="text-sm text-muted hover:text-ink">
+                  {request.name}
+                </Link>
                 <button
                   type="button"
                   onClick={() => cancelOutgoing(request.friendshipId)}

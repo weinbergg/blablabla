@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     .where(eq(invites.code, inviteCode))
     .limit(1);
 
-  if (!invite || invite.usedBy) {
+  if (!invite || (invite.usedBy && !invite.multiUse)) {
     return NextResponse.json(
       { error: "Приглашение не найдено или уже использовано." },
       { status: 400 },
@@ -69,10 +69,19 @@ export async function POST(request: Request) {
     referredBy: invite.createdBy ?? null,
   });
 
-  await db
-    .update(invites)
-    .set({ usedBy: userId, usedAt: new Date().toISOString() })
-    .where(eq(invites.id, invite.id));
+  if (invite.multiUse) {
+    // Reusable link: track a running count instead of "consuming" it —
+    // `usedBy` stays null since it can't point at more than one person.
+    await db
+      .update(invites)
+      .set({ useCount: invite.useCount + 1, usedAt: new Date().toISOString() })
+      .where(eq(invites.id, invite.id));
+  } else {
+    await db
+      .update(invites)
+      .set({ usedBy: userId, usedAt: new Date().toISOString() })
+      .where(eq(invites.id, invite.id));
+  }
 
   await createSession(userId);
   return NextResponse.json({ ok: true });

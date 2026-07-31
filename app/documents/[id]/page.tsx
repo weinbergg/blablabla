@@ -5,8 +5,9 @@ import { Header } from "@/components/header";
 import { DocumentWorkspace } from "@/components/document-workspace";
 import { DocumentEditForm } from "@/components/document-edit-form";
 import { LibraryButton } from "@/components/library-button";
+import { RateReviewPanel, StarRating } from "@/components/rate-review";
 import { getCurrentUser } from "@/lib/auth";
-import { getLibraryStatusForDocument } from "@/lib/db/library";
+import { getLibraryStatusForDocument, getPublicReviews, getRatingSummary } from "@/lib/db/library";
 import {
   flattenCategoryOptions,
   getCategoryTrail,
@@ -43,13 +44,15 @@ export default async function DocumentPage({
 
   const currentUser = await getCurrentUser();
 
-  const [trail, comments, history, tree, annotations, libraryItem] = await Promise.all([
+  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews] = await Promise.all([
     getCategoryTrail(document.categoryId),
     getDocumentComments(document.id),
     getDocumentEditHistory(document.id),
     getCategoryTree(),
     getDocumentAnnotations(document.id, currentUser?.id ?? null),
     currentUser ? getLibraryStatusForDocument(currentUser.id, document.id) : Promise.resolve(null),
+    getRatingSummary(document.id),
+    getPublicReviews(document.id, currentUser?.id ?? null),
   ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -103,6 +106,15 @@ export default async function DocumentPage({
               {authorNames || "Автор не указан"}
               {document.year ? `, ${document.year}` : ""}
             </p>
+            {ratingSummary.count > 0 && (
+              <div className="mt-2 flex items-center gap-2">
+                <StarRating value={ratingSummary.average} />
+                <span className="text-xs text-muted">
+                  {ratingSummary.average.toFixed(1)} · {ratingSummary.count}{" "}
+                  {ratingSummary.count === 1 ? "оценка" : "оценок"}
+                </span>
+              </div>
+            )}
             {document.subjects.length > 0 && (
               <p className="mt-1 text-sm text-muted">О ком: {document.subjects.map((s) => s.name).join(", ")}</p>
             )}
@@ -159,6 +171,14 @@ export default async function DocumentPage({
             {currentUser && (
               <LibraryButton documentId={document.id} initialStatus={libraryItem?.status ?? null} />
             )}
+            {currentUser && libraryItem && (
+              <RateReviewPanel
+                documentId={document.id}
+                status={libraryItem.status}
+                initialRating={libraryItem.rating}
+                initialReview={libraryItem.reviewBody}
+              />
+            )}
             {document.fileUrl && (
               <div className="flex flex-wrap items-center gap-2">
                 <a
@@ -211,6 +231,32 @@ export default async function DocumentPage({
           annotations={annotations}
           currentUser={currentUser}
         />
+
+        {publicReviews.length > 0 && (
+          <section className="mt-12 rounded-2xl border border-ink/10 p-5">
+            <p className="mb-4 flex items-center gap-2 text-sm font-medium">
+              Отзывы читателей ({publicReviews.length})
+            </p>
+            <ul className="space-y-4">
+              {publicReviews.map((review) => (
+                <li key={review.itemId} className="border-t border-ink/10 pt-4 first:border-t-0 first:pt-0">
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <Link
+                      href={`/users/${review.userId}`}
+                      className="text-sm font-medium hover:text-rust"
+                    >
+                      {review.userName}
+                    </Link>
+                    {review.rating && <StarRating value={review.rating} size={12} />}
+                  </div>
+                  {review.reviewBody && (
+                    <p className="text-sm leading-6 text-muted">{review.reviewBody}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {history.length > 0 && (
           <details className="mt-12 rounded-2xl border border-ink/10 p-5">

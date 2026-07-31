@@ -17,7 +17,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
   }
 
-  if (user.role !== "admin") {
+  const body = (await request.json().catch(() => null)) as {
+    email?: unknown;
+    note?: unknown;
+    multiUse?: unknown;
+  } | null;
+
+  // Multi-use "drop in the group chat" links are an admin/booster privilege —
+  // they're meant for reaching many people at once, which isn't something a
+  // regular member's referral link should do.
+  const multiUse = Boolean(body?.multiUse) && (user.role === "admin" || user.role === "booster");
+
+  if (user.role !== "admin" && !multiUse) {
     const unused = await db
       .select({ id: invites.id })
       .from(invites)
@@ -32,12 +43,11 @@ export async function POST(request: Request) {
     }
   }
 
-  const body = (await request.json().catch(() => null)) as {
-    email?: unknown;
-    note?: unknown;
-  } | null;
-
-  const email = typeof body?.email === "string" && body.email.trim() ? body.email.trim().toLowerCase() : null;
+  const email = multiUse
+    ? null
+    : typeof body?.email === "string" && body.email.trim()
+      ? body.email.trim().toLowerCase()
+      : null;
   const note = typeof body?.note === "string" && body.note.trim() ? body.note.trim() : null;
   const code = randomBytes(5).toString("hex");
 
@@ -47,9 +57,10 @@ export async function POST(request: Request) {
     email,
     note,
     createdBy: user.id,
+    multiUse: multiUse ? 1 : 0,
   });
 
   revalidatePath("/admin");
   revalidatePath("/invite");
-  return NextResponse.json({ code }, { status: 201 });
+  return NextResponse.json({ code, multiUse }, { status: 201 });
 }
