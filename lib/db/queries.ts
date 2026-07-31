@@ -495,6 +495,8 @@ export type GraphNode = {
   href?: string;
   /** Only set for category nodes — lets client layouts (e.g. circle packing) rebuild the tree. */
   parentId?: string;
+  /** Depth in the category tree (0 = root). Authors omit this. */
+  depth?: number;
   /** True for authors we consider well-known enough to label by name (has a curated relation, or several works here). */
   notable?: boolean;
 };
@@ -565,8 +567,21 @@ export async function getGraphData() {
       .map((c) => c.id),
   );
 
+  function categoryDepth(id: string): number {
+    let depth = 0;
+    let current = categoryById.get(id);
+    while (current?.parentId && visibleCategoryIds.has(current.parentId)) {
+      depth += 1;
+      current = categoryById.get(current.parentId);
+    }
+    return depth;
+  }
+
   for (const category of categoryRows) {
     if (!visibleCategoryIds.has(category.id)) continue;
+    // If the parent was filtered out, promote this node to a visible root so
+    // clustering/tree layout still places the subsection instead of orphaning it.
+    const parentVisible = Boolean(category.parentId && visibleCategoryIds.has(category.parentId));
     nodes.push({
       id: `category:${category.id}`,
       label: category.name,
@@ -574,9 +589,10 @@ export async function getGraphData() {
       documentCount: cumulativeCounts.get(category.id) ?? 0,
       directDocumentCount: directCounts.get(category.id) ?? 0,
       href: categoryHref(category.id),
-      parentId: category.parentId ? `category:${category.parentId}` : undefined,
+      parentId: parentVisible ? `category:${category.parentId}` : undefined,
+      depth: categoryDepth(category.id),
     });
-    if (category.parentId && visibleCategoryIds.has(category.parentId)) {
+    if (parentVisible && category.parentId) {
       edges.push({
         source: `category:${category.parentId}`,
         target: `category:${category.id}`,
@@ -588,17 +604,16 @@ export async function getGraphData() {
   const authorCategoryPairs = new Set<string>();
   const authorDocCount = new Map<string, number>();
   const authorFirstDocId = new Map<string, string>();
+  // Primary category only — secondary listings used to fan every author into
+  // N sections and made the map unreadable.
+  const primaryCategoryByDoc = new Map(docRows.map((d) => [d.id, d.categoryId]));
   for (const link of docAuthorRows) {
-    const categoryIds = (allCategoryIdsByDoc.get(link.documentId) ?? []).filter((id) =>
-      visibleCategoryIds.has(id),
-    );
-    if (categoryIds.length === 0) continue;
-    for (const categoryId of categoryIds) {
-      const key = `${link.authorId}:${categoryId}`;
-      if (!authorCategoryPairs.has(key)) {
-        authorCategoryPairs.add(key);
-        categoryHasContent.add(categoryId);
-      }
+    const categoryId = primaryCategoryByDoc.get(link.documentId);
+    if (!categoryId || !visibleCategoryIds.has(categoryId)) continue;
+    const key = `${link.authorId}:${categoryId}`;
+    if (!authorCategoryPairs.has(key)) {
+      authorCategoryPairs.add(key);
+      categoryHasContent.add(categoryId);
     }
     authorDocCount.set(link.authorId, (authorDocCount.get(link.authorId) ?? 0) + 1);
     if (!authorFirstDocId.has(link.authorId)) authorFirstDocId.set(link.authorId, link.documentId);
@@ -656,17 +671,15 @@ export async function getGraphData() {
     });
   }
 
-  // Documents cross-listed into more than one section connect those
-  // sections directly — same "relation" styling as an editorial cross-link,
-  // since that's exactly what it is, just derived from shared content
-  // instead of curated by hand. Pairs are aggregated so ten shared texts
-  // between two sections still draw one edge, not ten.
+  // Cross-listed documents connect sections — but only when they share at
+  // least two works. A single accidental dual-tag used to draw a dense web
+  // that drowned the real hierarchy.
   const existingCategoryPairs = new Set(
     edges
       .filter((edge) => edge.kind === "relation" && edge.source.startsWith("category:"))
       .map((edge) => [edge.source, edge.target].sort().join("|")),
   );
-  const crossListPairs = new Map<string, { titles: string[]; a: string; b: string }>();
+  const crossListPairs = new Map<string, { titles: string[]; a: string; b: string; count: number }>();
   for (const [documentId, categoryIds] of allCategoryIdsByDoc) {
     const visible = [...new Set(categoryIds)].filter((id) => visibleCategoryIds.has(id));
     if (visible.length < 2) continue;
@@ -675,13 +688,15 @@ export async function getGraphData() {
         const [a, b] = [visible[i], visible[j]].sort();
         const key = `category:${a}|category:${b}`;
         if (existingCategoryPairs.has(key)) continue;
-        const entry = crossListPairs.get(key) ?? { titles: [], a, b };
+        const entry = crossListPairs.get(key) ?? { titles: [], a, b, count: 0 };
+        entry.count += 1;
         if (entry.titles.length < 3) entry.titles.push(docTitleById.get(documentId) ?? "");
         crossListPairs.set(key, entry);
       }
     }
   }
-  for (const { a, b, titles } of crossListPairs.values()) {
+  for (const { a, b, titles, count } of crossListPairs.values()) {
+    if (count < 2) continue;
     edges.push({
       source: `category:${a}`,
       target: `category:${b}`,

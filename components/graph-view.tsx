@@ -38,7 +38,10 @@ function linkEndId(end: string | SimNode) {
 }
 
 function nodeRadius(node: SimNode) {
-  return node.type === "author" ? 6 : 9 + Math.min(11, (node.documentCount ?? 0) / 2);
+  if (node.type === "author") return 5;
+  const depth = node.depth ?? 0;
+  const base = depth === 0 ? 12 : depth === 1 ? 9 : 7;
+  return base + Math.min(8, (node.documentCount ?? 0) / 3);
 }
 
 /**
@@ -142,6 +145,8 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
+  /** Authors crowd the map — off by default; auto-on when zoomed in, or via toggle. */
+  const [showAuthors, setShowAuthors] = useState(false);
 
   const dragNode = useRef<{ id: string; moved: boolean; startX: number; startY: number } | null>(null);
   const dragPan = useRef<{
@@ -190,17 +195,31 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         "link",
         forceLink(simLinks as never[])
           .id((d) => (d as SimNode).id)
-          .distance((d) => ((d as unknown as GraphEdge).kind === "relation" ? 110 : 74))
-          .strength(0.7),
+          .distance((d) => {
+            const edge = d as unknown as GraphEdge & { source: SimNode | string; target: SimNode | string };
+            if (edge.kind === "relation") return 140;
+            if (edge.kind === "authorship") return 48;
+            const src = typeof edge.source === "object" ? edge.source : index.get(edge.source);
+            const depth = src?.depth ?? 0;
+            // Parent→child: deeper levels sit closer to their parent, so
+            // subsections read as a tree rather than an equal mesh.
+            return 70 + depth * 36;
+          })
+          .strength((d) => {
+            const edge = d as unknown as GraphEdge;
+            if (edge.kind === "hierarchy") return 0.95;
+            if (edge.kind === "authorship") return 0.55;
+            return 0.25;
+          }),
       )
-      .force("charge", forceManyBody().strength(-140))
+      .force("charge", forceManyBody().strength((d) => ((d as SimNode).type === "author" ? -40 : -260)))
       .force("center", forceCenter(WIDTH / 2, HEIGHT / 2))
-      .force("cluster", forceClusterSector(rootOf, angleOf, WIDTH / 2, HEIGHT / 2, Math.min(WIDTH, HEIGHT) * 0.42))
+      .force("cluster", forceClusterSector(rootOf, angleOf, WIDTH / 2, HEIGHT / 2, Math.min(WIDTH, HEIGHT) * 0.44))
       .force(
         "collide",
-        forceCollide<SimNode>().radius((d) => (d.type === "author" ? 26 : 40)),
+        forceCollide<SimNode>().radius((d) => nodeRadius(d) + (d.type === "author" ? 14 : 22)),
       )
-      .alphaDecay(0.03)
+      .alphaDecay(0.028)
       .stop();
 
     // Settle the layout silently before it ever hits the screen — running the
@@ -270,6 +289,12 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     return () => clearTimeout(id);
   }, [view.k]);
 
+  // Auto-reveal authors when the user zooms in enough to have room for them.
+  useEffect(() => {
+    if (view.k >= 1.15) setShowAuthors(true);
+  }, [view.k]);
+
+  const authorsVisible = showAuthors || Boolean(pinnedId?.startsWith("author:"));
   const positioned = nodesRef.current;
   const links = linksRef.current;
   const nodeById = useMemo(() => new Map(positioned.map((n) => [n.id, n])), [positioned]);
@@ -289,6 +314,19 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     }
     return set;
   }, [activeId, links]);
+
+  const visibleNodeIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of positioned) {
+      if (n.type === "author" && !authorsVisible) {
+        // Still show an author if it's pinned or a neighbour of the pin.
+        if (pinnedId === n.id || (pinnedId && neighborIds?.has(n.id))) set.add(n.id);
+        continue;
+      }
+      set.add(n.id);
+    }
+    return set;
+  }, [positioned, authorsVisible, pinnedId, neighborIds]);
 
   const labelPlacements = useMemo(() => {
     // Node circles and label text are rendered at `baseSize * elementScale(k)`
@@ -331,12 +369,14 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
 
     const candidates = positioned
       .filter((node) => {
+        if (!visibleNodeIds.has(node.id)) return false;
         const isAuthor = node.type === "author";
         return !isAuthor || Boolean(activeId && neighborIds?.has(node.id));
       })
       .map((node) => {
         const isAuthor = node.type === "author";
-        const fontSize = isAuthor ? 11 : 13;
+        const depth = node.depth ?? 0;
+        const fontSize = isAuthor ? 11 : depth === 0 ? 14 : 12;
         return {
           id: node.id,
           anchorX: node.x ?? 0,
@@ -347,23 +387,26 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
           priority:
             node.id === activeId
               ? Number.POSITIVE_INFINITY
-              : (isAuthor ? 0 : 1000) + (node.documentCount ?? 0),
+              : (isAuthor ? 0 : 2000 - depth * 200) + (node.documentCount ?? 0),
         };
       });
     return pickLabelPlacements(candidates, nodeObstacles, edgeSegments, 4 / k);
-  }, [positioned, links, nodeById, activeId, neighborIds, labelK]);
+  }, [positioned, links, nodeById, activeId, neighborIds, labelK, visibleNodeIds]);
 
   // Precomputed once per node so the two render passes below (circles, then
   // labels — see the SVG markup) don't duplicate this arithmetic or drift
   // out of sync with each other.
   const renderNodes = useMemo(() => {
     const scale = elementScale(view.k);
-    return positioned.map((node) => {
+    return positioned
+      .filter((node) => visibleNodeIds.has(node.id))
+      .map((node) => {
       const dimmed = neighborIds ? !neighborIds.has(node.id) : false;
       const isAuthor = node.type === "author";
+      const depth = node.depth ?? 0;
       const radius = nodeRadius(node) * scale;
       const placement = labelPlacements.get(node.id);
-      const fontSize = (isAuthor ? 11 : 13) * scale;
+      const fontSize = (isAuthor ? 11 : depth === 0 ? 14 : 12) * scale;
       const textWidth = estimateTextWidth(node.label, fontSize);
       return {
         node,
@@ -378,7 +421,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         gap: radius + 6,
       };
     });
-  }, [positioned, neighborIds, pinnedId, hoverId, labelPlacements, view.k]);
+  }, [positioned, neighborIds, pinnedId, hoverId, labelPlacements, view.k, visibleNodeIds]);
 
   function zoomBy(factor: number) {
     setView((v) => {
@@ -486,7 +529,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
         <div className="flex flex-wrap items-center gap-4 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2.5 rounded-full" style={{ backgroundColor: CATEGORY_COLOR }} />
-            раздел каталога
+            раздел / подраздел
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2.5 rounded-full" style={{ backgroundColor: AUTHOR_COLOR }} />
@@ -496,6 +539,15 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
             <span className="h-px w-4 border-t border-dashed border-rust" />
             смысловая связь
           </span>
+          <button
+            type="button"
+            onClick={() => setShowAuthors((v) => !v)}
+            className={`rounded-full border px-2.5 py-1 transition-colors ${
+              authorsVisible ? "border-rust/40 text-rust" : "border-ink/15 text-muted hover:text-ink"
+            }`}
+          >
+            {authorsVisible ? "Авторы: вкл" : "Авторы: выкл"}
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => zoomBy(1.35)} className="icon-button" aria-label="Приблизить">
@@ -579,7 +631,10 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
               const source = nodeById.get(linkEndId(link.source));
               const target = nodeById.get(linkEndId(link.target));
               if (!source || !target) return null;
+              if (!visibleNodeIds.has(source.id) || !visibleNodeIds.has(target.id)) return null;
               const dimmed = neighborIds && !(neighborIds.has(source.id) && neighborIds.has(target.id));
+              const isHierarchy = link.kind === "hierarchy";
+              const isRelation = link.kind === "relation";
 
               return (
                 <line
@@ -588,10 +643,10 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   y1={toScreenY(source.y ?? 0, view)}
                   x2={toScreenX(target.x ?? 0, view)}
                   y2={toScreenY(target.y ?? 0, view)}
-                  stroke={link.kind === "relation" ? CATEGORY_COLOR : "#191f28"}
-                  strokeOpacity={dimmed ? 0.04 : link.kind === "relation" ? 0.6 : 0.16}
-                  strokeDasharray={link.kind === "relation" ? "4 3" : undefined}
-                  strokeWidth={link.kind === "authorship" ? 1 : 1.4}
+                  stroke={isRelation ? CATEGORY_COLOR : isHierarchy ? "#191f28" : AUTHOR_COLOR}
+                  strokeOpacity={dimmed ? 0.03 : isRelation ? 0.45 : isHierarchy ? 0.28 : 0.14}
+                  strokeDasharray={isRelation ? "4 3" : undefined}
+                  strokeWidth={isHierarchy ? 2 : link.kind === "authorship" ? 1 : 1.3}
                   className="transition-[stroke-opacity] duration-300 ease-out"
                 />
               );

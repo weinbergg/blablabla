@@ -264,6 +264,7 @@ const ITEMS: Item[] = [
   },
 
   // —— Homer: Greek (Perseus TEI → plain text) + English ——
+  // —— Homer: Greek continuous text only (Butler EPUB is a TOC of hyperlinks) ——
   {
     folder: "Литература/Античная литература",
     fileName: "Homer - Iliad (Greek).txt",
@@ -285,28 +286,6 @@ const ITEMS: Item[] = [
     language: "grc",
     description: "Древнегреческий текст Одиссеи (PerseusDL / public domain).",
     url: "perseus-xml:https://raw.githubusercontent.com/PerseusDL/canonical-greekLit/master/data/tlg0012/tlg002/tlg0012.tlg002.perseus-grc2.xml",
-  },
-  {
-    folder: "Литература/Античная литература",
-    fileName: "Homer - The Iliad of Homer (Butler).epub",
-    title: "The Iliad of Homer",
-    alternateTitle: "Илиада (перевод Butler)",
-    authors: ["Homer"],
-    year: "1898",
-    categorySlug: "antichnaya-literatura",
-    language: "en",
-    gutenbergId: 2199,
-  },
-  {
-    folder: "Литература/Античная литература",
-    fileName: "Homer - The Odyssey of Homer (Butler).epub",
-    title: "The Odyssey of Homer",
-    alternateTitle: "Одиссея (перевод Butler)",
-    authors: ["Homer"],
-    year: "1900",
-    categorySlug: "antichnaya-literatura",
-    language: "en",
-    gutenbergId: 1727,
   },
 
   // —— Ancient philosophy (English PD translations) ——

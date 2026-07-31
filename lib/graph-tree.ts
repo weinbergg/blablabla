@@ -29,7 +29,12 @@ export function buildCategoryAuthorTree(nodes: GraphNode[], edges: GraphEdge[]):
     attached.add(edge.source);
     parent.children.push({ id: author.id, node: author, children: [] });
   }
-  return [...catById.values()].filter((t) => !t.node.parentId);
+  return [...catById.values()].filter((t) => {
+    // Treat as root when parent is missing from the visible set (orphaned
+    // subsection after an empty/hidden parent was filtered out).
+    if (!t.node.parentId) return true;
+    return !catById.has(t.node.parentId);
+  });
 }
 
 export function countLeaves(t: GraphTreeNode): number {

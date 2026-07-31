@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, MapPin, PenTool } from "lucide-react";
+import { ChevronLeft, ChevronRight, List, Loader2, MapPin, PenTool } from "lucide-react";
 import {
   AnnotationLayer,
   COLOR_PRESETS,
@@ -17,6 +17,7 @@ import {
 } from "./annotation-layer";
 import { SelectionLookup } from "./selection-lookup";
 
+type TocItem = { label: string; href: string };
 /**
  * EPUB annotations are keyed by spine section index rather than a PDF-style
  * pixel-accurate page, since reflowable content has no such stable concept
@@ -89,6 +90,8 @@ export function EpubReader({
   const [drawStrokeWidth, setDrawStrokeWidth] = useState<StrokeWidthPreset>("medium");
   const [drawVisibility, setDrawVisibility] = useState<AnnotationVisibility>("public");
   const [drawSaving, setDrawSaving] = useState(false);
+  const [toc, setToc] = useState<TocItem[]>([]);
+  const [tocOpen, setTocOpen] = useState(false);
 
   useEffect(() => setAnnotations(initialAnnotations), [initialAnnotations]);
 
@@ -144,8 +147,37 @@ export function EpubReader({
           syncSelectionDoc();
         });
 
+        // Keep in-book TOC / chapter hyperlinks inside the reader and sync the
+        // section counter (epub.js already calls display(); we just mirror state).
+        rendition.on("rendered", syncSelectionDoc);
+
         await book.ready;
-        await rendition.display();
+        try {
+          const nav = await book.loaded.navigation;
+          const flat: TocItem[] = [];
+          function walk(items: { label?: string; href?: string; subitems?: unknown[] }[]) {
+            for (const item of items ?? []) {
+              if (item.label && item.href) flat.push({ label: item.label.trim(), href: item.href });
+              if (item.subitems?.length) walk(item.subitems as typeof items);
+            }
+          }
+          walk((nav?.toc ?? []) as { label?: string; href?: string; subitems?: unknown[] }[]);
+          if (!cancelled) setToc(flat);
+
+          // Prefer landing on the first real chapter: Gutenberg EPUBs often open
+          // on a Contents HTML page of blue links (the screenshot complaint).
+          const firstChapter =
+            flat.find((t) => /book\s|canto|chapter|глава|песн|часть/i.test(t.label)) ??
+            flat[1] ??
+            flat[0];
+          if (firstChapter?.href) {
+            await rendition.display(firstChapter.href);
+          } else {
+            await rendition.display();
+          }
+        } catch {
+          await rendition.display();
+        }
         syncSelectionDoc();
         if (!cancelled) setLoading(false);
       } catch {
@@ -297,6 +329,17 @@ export function EpubReader({
           <button type="button" onClick={() => renditionRef.current?.next()} className="icon-button" aria-label="Следующая страница">
             <ChevronRight size={16} />
           </button>
+          {toc.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTocOpen((o) => !o)}
+              className={`icon-button ${tocOpen ? "border-rust text-rust" : ""}`}
+              aria-label="Оглавление"
+              title="Оглавление"
+            >
+              <List size={14} />
+            </button>
+          )}
         </div>
         {documentId && currentUserId && canAnnotate && (
           <div className="flex items-center gap-2">
@@ -324,6 +367,30 @@ export function EpubReader({
           </div>
         )}
       </div>
+
+      {tocOpen && toc.length > 0 && (
+        <div className="mb-3 max-h-48 overflow-y-auto rounded-xl border border-ink/10 bg-paper p-2">
+          <p className="mb-1 px-2 font-mono text-[10px] uppercase tracking-widest text-muted">
+            Оглавление — выберите главу
+          </p>
+          <ul className="columns-1 gap-x-4 sm:columns-2">
+            {toc.map((item, i) => (
+              <li key={`${item.href}-${i}`} className="break-inside-avoid">
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-ink/[0.04]"
+                  onClick={() => {
+                    renditionRef.current?.display(item.href);
+                    setTocOpen(false);
+                  }}
+                >
+                  {item.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {placing && (
         <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">
