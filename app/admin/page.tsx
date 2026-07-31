@@ -83,6 +83,7 @@ export default async function AdminPage() {
         createdAt: invite.createdAt,
         multiUse: Boolean(invite.multiUse),
         useCount: invite.useCount,
+        grantRole: invite.grantRole,
       }))}
       moderationFeed={moderationFeed}
       openReports={openReports}

@@ -61,6 +61,12 @@ export const invites = sqliteTable("invites", {
    * have joined through it instead. */
   multiUse: integer("multi_use").notNull().default(0),
   useCount: integer("use_count").notNull().default(0),
+  /** Admin-only: whoever registers through this code gets this role instead
+   * of the default "member" — used to onboard a batch of boosters, who then
+   * hand out their own regular (member-granting) invites. */
+  grantRole: text("grant_role", { enum: ["member", "booster"] })
+    .notNull()
+    .default("member"),
   ...timestamps,
 }, (table) => ({
   codeIdx: uniqueIndex("invites_code_idx").on(table.code),

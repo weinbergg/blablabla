@@ -157,7 +157,10 @@ button:disabled {
   color: var(--muted);
 }
 
-.field input,
+/* Excludes checkboxes/radios — those live inside .field too (e.g. the
+   "Дополнительные разделы" multi-select list) but must keep their native
+   tiny box size instead of stretching to the field's full width. */
+.field input:not([type="checkbox"]):not([type="radio"]),
 .field select,
 .field textarea {
   width: 100%;
@@ -173,17 +176,25 @@ button:disabled {
     box-shadow 150ms ease;
 }
 
-.dark .field input,
+.dark .field input:not([type="checkbox"]):not([type="radio"]),
 .dark .field select,
 .dark .field textarea {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.field input:focus,
+.field input:not([type="checkbox"]):not([type="radio"]):focus,
 .field select:focus,
 .field textarea:focus {
   border-color: rgba(var(--ink-rgb), 0.5);
   box-shadow: 0 0 0 3px rgba(var(--ink-rgb), 0.05);
+}
+
+.field input[type="checkbox"],
+.field input[type="radio"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--ink);
+  flex: none;
 }
 
 .field textarea {

@@ -353,6 +353,33 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     return pickLabelPlacements(candidates, nodeObstacles, edgeSegments, 4 / k);
   }, [positioned, links, nodeById, activeId, neighborIds, labelK]);
 
+  // Precomputed once per node so the two render passes below (circles, then
+  // labels — see the SVG markup) don't duplicate this arithmetic or drift
+  // out of sync with each other.
+  const renderNodes = useMemo(() => {
+    const scale = elementScale(view.k);
+    return positioned.map((node) => {
+      const dimmed = neighborIds ? !neighborIds.has(node.id) : false;
+      const isAuthor = node.type === "author";
+      const radius = nodeRadius(node) * scale;
+      const placement = labelPlacements.get(node.id);
+      const fontSize = (isAuthor ? 11 : 13) * scale;
+      const textWidth = estimateTextWidth(node.label, fontSize);
+      return {
+        node,
+        dimmed,
+        isPinned: pinnedId === node.id,
+        isHoverOnly: !pinnedId && hoverId === node.id,
+        isAuthor,
+        radius,
+        placement,
+        fontSize,
+        textWidth,
+        gap: radius + 6,
+      };
+    });
+  }, [positioned, neighborIds, pinnedId, hoverId, labelPlacements, view.k]);
+
   function zoomBy(factor: number) {
     setView((v) => {
       const k = clamp(v.k * factor, MIN_ZOOM, MAX_ZOOM);
@@ -571,18 +598,55 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
             })}
           </g>
           <g>
-            {positioned.map((node) => {
-              const dimmed = neighborIds ? !neighborIds.has(node.id) : false;
-              const isPinned = pinnedId === node.id;
-              const isHoverOnly = !pinnedId && hoverId === node.id;
-              const isAuthor = node.type === "author";
-              const scale = elementScale(view.k);
-              const radius = nodeRadius(node) * scale;
-              const placement = labelPlacements.get(node.id);
-              const fontSize = (isAuthor ? 11 : 13) * scale;
-              const textWidth = estimateTextWidth(node.label, fontSize);
-              const gap = radius + 6;
-
+            {/* Pass 1: every node's circle(s), no labels — so a later node's
+                circle never paints over an earlier node's text (that was the
+                cause of labels looking "eaten" by neighbouring dots). */}
+            {renderNodes.map(({ node, dimmed, isPinned, isHoverOnly, isAuthor, radius }) => (
+              <g
+                key={node.id}
+                transform={`translate(${toScreenX(node.x ?? 0, view)}, ${toScreenY(node.y ?? 0, view)})`}
+                onPointerEnter={() => setHoverId(node.id)}
+                onPointerLeave={() => setHoverId(null)}
+                onPointerDown={(event) => handleNodePointerDown(event, node)}
+                onPointerMove={(event) => handleNodePointerMove(event, node)}
+                onPointerUp={(event) => handleNodePointerUp(event, node)}
+                className="cursor-pointer"
+              >
+                {isPinned && (
+                  <circle
+                    r={radius + 6}
+                    fill="none"
+                    stroke={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
+                    strokeOpacity={0.35}
+                    strokeWidth={2}
+                  >
+                    <animate attributeName="r" values={`${radius + 5};${radius + 8};${radius + 5}`} dur="2.6s" repeatCount="indefinite" />
+                    <animate attributeName="stroke-opacity" values="0.35;0.15;0.35" dur="2.6s" repeatCount="indefinite" />
+                  </circle>
+                )}
+                {isHoverOnly && (
+                  <circle
+                    r={radius + 5}
+                    fill="none"
+                    stroke={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
+                    strokeOpacity={0.3}
+                    strokeWidth={1.5}
+                  />
+                )}
+                <circle
+                  r={radius}
+                  fill={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
+                  opacity={dimmed ? 0.25 : 1}
+                  className="transition-opacity duration-500 ease-out"
+                />
+              </g>
+            ))}
+          </g>
+          <g>
+            {/* Pass 2: all labels, drawn after every circle above so text is
+                always on top — never clipped by a neighbouring node's dot. */}
+            {renderNodes.map(({ node, dimmed, isAuthor, placement, fontSize, textWidth, gap }) => {
+              if (!placement) return null;
               return (
                 <g
                   key={node.id}
@@ -594,87 +658,50 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   onPointerUp={(event) => handleNodePointerUp(event, node)}
                   className="cursor-pointer"
                 >
-                  {isPinned && (
-                    <circle
-                      r={radius + 6}
-                      fill="none"
-                      stroke={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
-                      strokeOpacity={0.35}
-                      strokeWidth={2}
-                    >
-                      <animate attributeName="r" values={`${radius + 5};${radius + 8};${radius + 5}`} dur="2.6s" repeatCount="indefinite" />
-                      <animate attributeName="stroke-opacity" values="0.35;0.15;0.35" dur="2.6s" repeatCount="indefinite" />
-                    </circle>
-                  )}
-                  {isHoverOnly && (
-                    <circle
-                      r={radius + 5}
-                      fill="none"
-                      stroke={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
-                      strokeOpacity={0.3}
-                      strokeWidth={1.5}
-                    />
-                  )}
-                  <circle
-                    r={radius}
-                    fill={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
-                    opacity={dimmed ? 0.25 : 1}
-                    className="transition-opacity duration-500 ease-out"
+                  <rect
+                    x={
+                      placement.side === "right"
+                        ? gap
+                        : placement.side === "left"
+                          ? -(gap + textWidth + 8)
+                          : -(textWidth + 8) / 2
+                    }
+                    y={
+                      placement.side === "top"
+                        ? -(gap + fontSize + 4)
+                        : placement.side === "bottom"
+                          ? gap
+                          : -fontSize
+                    }
+                    width={textWidth + 8}
+                    height={fontSize + 8}
+                    fill="transparent"
                   />
-                  {placement && (
-                    <>
-                      <rect
-                        x={
-                          placement.side === "right"
-                            ? gap
-                            : placement.side === "left"
-                              ? -(gap + textWidth + 8)
-                              : -(textWidth + 8) / 2
-                        }
-                        y={
-                          placement.side === "top"
-                            ? -(gap + fontSize + 4)
-                            : placement.side === "bottom"
-                              ? gap
-                              : -fontSize
-                        }
-                        width={textWidth + 8}
-                        height={fontSize + 8}
-                        fill="transparent"
-                      />
-                      <text
-                        x={
-                          placement.side === "right"
-                            ? gap
-                            : placement.side === "left"
-                              ? -gap
-                              : 0
-                        }
-                        y={
-                          placement.side === "top"
-                            ? -gap
-                            : placement.side === "bottom"
-                              ? gap + fontSize
-                              : 4
-                        }
-                        textAnchor={
-                          placement.side === "right" ? "start" : placement.side === "left" ? "end" : "middle"
-                        }
-                        fontSize={fontSize}
-                        fontWeight={isAuthor ? 500 : 600}
-                        fontFamily={isAuthor ? "inherit" : "var(--font-serif, serif)"}
-                        fill="#191f28"
-                        opacity={dimmed ? 0.2 : 1}
-                        stroke={HALO}
-                        strokeWidth={4}
-                        paintOrder="stroke"
-                        strokeLinejoin="round"
-                        className="pointer-events-none transition-opacity duration-500 ease-out"
-                      >
-                        {node.label}
-                      </text>
-                    </>
-                  )}
+                  <text
+                    x={placement.side === "right" ? gap : placement.side === "left" ? -gap : 0}
+                    y={
+                      placement.side === "top"
+                        ? -gap
+                        : placement.side === "bottom"
+                          ? gap + fontSize
+                          : 4
+                    }
+                    textAnchor={
+                      placement.side === "right" ? "start" : placement.side === "left" ? "end" : "middle"
+                    }
+                    fontSize={fontSize}
+                    fontWeight={isAuthor ? 500 : 600}
+                    fontFamily={isAuthor ? "inherit" : "var(--font-serif, serif)"}
+                    fill="#191f28"
+                    opacity={dimmed ? 0.2 : 1}
+                    stroke={HALO}
+                    strokeWidth={4}
+                    paintOrder="stroke"
+                    strokeLinejoin="round"
+                    className="pointer-events-none transition-opacity duration-500 ease-out"
+                  >
+                    {node.label}
+                  </text>
                 </g>
               );
             })}

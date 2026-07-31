@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     email,
     name,
     passwordHash: await hashPassword(password),
-    role: "member",
+    role: invite.grantRole,
     referredBy: invite.createdBy ?? null,
   });
 

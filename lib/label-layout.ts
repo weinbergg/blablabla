@@ -84,8 +84,8 @@ function segmentCrossesBox(seg: Segment, box: Box) {
   );
 }
 
-function makeBox(c: LabelCandidate, side: LabelSide): Box {
-  const gap = c.radius + 2;
+function makeBox(c: LabelCandidate, side: LabelSide, extraGap = 0): Box {
+  const gap = c.radius + 2 + extraGap;
   const width = c.textWidth + 8;
   if (side === "right") {
     const y1 = c.anchorY - c.fontSize;
@@ -173,16 +173,28 @@ export function pickLabelPlacements(
     return count;
   }
 
+  // A forced label (the one node the user actually selected) still has to
+  // land *somewhere* even inside a hub with hundreds of tightly-packed
+  // children, where the base gap never clears anything on any side. Rather
+  // than accept the "least-bad" (but still overlapping) spot right next to
+  // the circle, keep pushing the label further out — same four sides, just
+  // progressively more distant — until it actually clears the crowd or we
+  // give up after a handful of tries and fall back to the closest attempt.
+  const EXTRA_GAP_STEPS = [0, 24, 56, 108, 190, 320];
+
   for (const c of sorted) {
     let best: { side: LabelSide; box: Box; violations: number } | null = null;
-    for (const side of SIDES) {
-      const box = makeBox(c, side);
-      const violations = countViolations(box, c.id);
-      if (violations === 0) {
-        best = { side, box, violations };
-        break;
+    const gapSteps = c.priority >= FORCE_PLACEMENT_PRIORITY ? EXTRA_GAP_STEPS : [0];
+    outer: for (const extraGap of gapSteps) {
+      for (const side of SIDES) {
+        const box = makeBox(c, side, extraGap);
+        const violations = countViolations(box, c.id);
+        if (violations === 0) {
+          best = { side, box, violations };
+          break outer;
+        }
+        if (!best || violations < best.violations) best = { side, box, violations };
       }
-      if (!best || violations < best.violations) best = { side, box, violations };
     }
     if (!best) continue;
     if (best.violations > 0 && c.priority < FORCE_PLACEMENT_PRIORITY) continue;

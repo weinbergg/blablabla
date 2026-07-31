@@ -21,12 +21,18 @@ export async function POST(request: Request) {
     email?: unknown;
     note?: unknown;
     multiUse?: unknown;
+    grantRole?: unknown;
   } | null;
 
   // Multi-use "drop in the group chat" links are an admin/booster privilege —
   // they're meant for reaching many people at once, which isn't something a
   // regular member's referral link should do.
   const multiUse = Boolean(body?.multiUse) && (user.role === "admin" || user.role === "booster");
+
+  // Granting the "booster" role on signup is an admin-only privilege — it's
+  // meant for onboarding a batch of trusted people at once, who then invite
+  // regular members through their own (member-granting) referral links.
+  const grantRole = body?.grantRole === "booster" && user.role === "admin" ? "booster" : "member";
 
   if (user.role !== "admin" && !multiUse) {
     const unused = await db
@@ -58,9 +64,10 @@ export async function POST(request: Request) {
     note,
     createdBy: user.id,
     multiUse: multiUse ? 1 : 0,
+    grantRole,
   });
 
   revalidatePath("/admin");
   revalidatePath("/invite");
-  return NextResponse.json({ code, multiUse }, { status: 201 });
+  return NextResponse.json({ code, multiUse, grantRole }, { status: 201 });
 }

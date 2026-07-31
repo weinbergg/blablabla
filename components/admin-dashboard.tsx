@@ -59,6 +59,7 @@ export type AdminInvite = {
   createdAt: string;
   multiUse: boolean;
   useCount: number;
+  grantRole: "member" | "booster";
 };
 
 export type AdminFeedbackItem = {
@@ -393,12 +394,12 @@ function DocumentsTab({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Поиск по названию, автору, метке…"
-            className="min-w-[200px] flex-1 rounded-full border border-ink/15 bg-white px-4 py-1.5 text-sm"
+            className="min-w-[200px] flex-1 rounded-full border border-ink/15 bg-white px-4 py-1.5 text-sm dark:bg-white/5"
           />
           <select
             value={categoryFilter}
             onChange={(event) => setCategoryFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
           >
             <option value="">Все разделы</option>
             {categoryOptions.map((option) => (
@@ -410,7 +411,7 @@ function DocumentsTab({
           <select
             value={languageFilter}
             onChange={(event) => setLanguageFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
           >
             <option value="">Все языки</option>
             {usedLanguages.map((lang) => (
@@ -422,7 +423,7 @@ function DocumentsTab({
           <select
             value={formatFilter}
             onChange={(event) => setFormatFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
           >
             <option value="">Все форматы</option>
             {fileTypes.map((type) => (
@@ -434,7 +435,7 @@ function DocumentsTab({
           <select
             value={confidenceFilter}
             onChange={(event) => setConfidenceFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm"
+            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
           >
             <option value="">Любая уверенность</option>
             <option value="low">Только «уточнить»</option>
@@ -689,6 +690,7 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
   const [message, setMessage] = useState("");
   const [lastCode, setLastCode] = useState("");
   const [massMode, setMassMode] = useState(false);
+  const [grantBooster, setGrantBooster] = useState(false);
 
   async function createInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -699,7 +701,12 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
     const response = await fetch("/api/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: formData.get("email"), note: formData.get("note"), multiUse: massMode }),
+      body: JSON.stringify({
+        email: formData.get("email"),
+        note: formData.get("note"),
+        multiUse: massMode,
+        grantRole: grantBooster ? "booster" : "member",
+      }),
     });
     const result = (await response.json().catch(() => ({}))) as { code?: string; error?: string };
     setBusy(false);
@@ -748,6 +755,20 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
             <span>Заметка (необязательно)</span>
             <input name="note" placeholder={massMode ? "например: общий чат в Telegram" : "Для кого приглашение"} />
           </label>
+          <label className="flex items-center gap-2.5 rounded-xl border border-ink/10 bg-ink/[0.03] px-3.5 py-3 text-sm">
+            <input
+              type="checkbox"
+              checked={grantBooster}
+              onChange={(event) => setGrantBooster(event.target.checked)}
+            />
+            <span>
+              Выдать роль «бустер» при регистрации
+              <span className="mt-0.5 block text-xs text-muted">
+                Зарегистрировавшийся сразу сможет ставить пометки в файлах и приглашать
+                обычных участников.
+              </span>
+            </span>
+          </label>
           <button className="button-primary w-full" disabled={busy}>
             {busy ? "Создаю…" : "Сгенерировать код"}
           </button>
@@ -770,6 +791,11 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
                   {invite.multiUse && (
                     <span className="ml-2 rounded-full bg-rust/10 px-2 py-0.5 text-[10px] font-sans text-rust">
                       массовая
+                    </span>
+                  )}
+                  {invite.grantRole === "booster" && (
+                    <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-[10px] font-sans">
+                      выдаёт бустера
                     </span>
                   )}
                 </p>
@@ -873,7 +899,7 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
           </div>
           <div className="space-y-3">
             {reports.map((report) => (
-              <div key={report.id} className="rounded-xl border border-ink/10 bg-white p-4 text-sm">
+              <div key={report.id} className="rounded-xl border border-ink/10 bg-white p-4 text-sm dark:bg-white/5">
                 <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                   <span className="font-medium text-ink">{report.reporterName}</span>
                   пожаловался на {report.targetType === "annotation" ? "пометку" : "комментарий"} в
