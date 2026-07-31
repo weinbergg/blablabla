@@ -18,7 +18,7 @@ export async function Header() {
     <header className="relative border-b border-ink/10">
       <div className="shell flex h-20 items-center justify-between">
         <Link href="/" className="group flex items-center gap-3">
-          <AntoineMark className="size-9 shrink-0 transition-transform group-hover:-rotate-6" />
+          <AntoineMark className="size-9 shrink-0" />
           <span className="leading-tight">
             <span className="block text-sm font-semibold tracking-tight">
               blablablarden
