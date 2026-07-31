@@ -44,6 +44,7 @@ export function EpubReader({
   onReplyToAnnotation,
   onReport,
   canAnnotate = false,
+  language,
 }: {
   url: string;
   page: number;
@@ -56,6 +57,7 @@ export function EpubReader({
   onReplyToAnnotation?: (annotationId: string, body: string) => Promise<void> | void;
   onReport?: (targetType: "annotation" | "comment", targetId: string) => void;
   canAnnotate?: boolean;
+  language?: string | null;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -358,7 +360,12 @@ export function EpubReader({
             pageDraw={pageDrawSession}
           />
         )}
-        <SelectionLookup containerRef={wrapRef} doc={selectionDoc} suppressed={placing || drawMode} />
+        <SelectionLookup
+          containerRef={wrapRef}
+          doc={selectionDoc}
+          suppressed={placing || drawMode}
+          language={language}
+        />
       </div>
     </div>
   );

@@ -97,6 +97,7 @@ export function PdfReader({
   onReport,
   fullscreen = false,
   canAnnotate = false,
+  language,
 }: {
   url: string;
   page: number;
@@ -111,6 +112,7 @@ export function PdfReader({
   /** Only admins/boosters may drop new stickers on a page — everyone else can
    * still read every existing one and take part in the discussion below. */
   canAnnotate?: boolean;
+  language?: string | null;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -605,7 +607,11 @@ export function PdfReader({
                   pageDraw={pageDrawSessionFor(leftPageNumber)}
                   {...annotationHandlers}
                 />
-                <SelectionLookup containerRef={leftPageWrapRef} suppressed={placing || drawMode} />
+                <SelectionLookup
+                  containerRef={leftPageWrapRef}
+                  suppressed={placing || drawMode}
+                  language={language}
+                />
               </div>
               {isDouble && (
                 <div ref={rightPageWrapRef} className="relative">
@@ -618,7 +624,11 @@ export function PdfReader({
                     pageDraw={rightPageNumber ? pageDrawSessionFor(rightPageNumber) : undefined}
                     {...annotationHandlers}
                   />
-                  <SelectionLookup containerRef={rightPageWrapRef} suppressed={placing || drawMode} />
+                  <SelectionLookup
+                    containerRef={rightPageWrapRef}
+                    suppressed={placing || drawMode}
+                    language={language}
+                  />
                 </div>
               )}
             </div>

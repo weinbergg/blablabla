@@ -1,40 +1,35 @@
 "use client";
 
 import { RefObject, useEffect, useState } from "react";
-import { BookOpenText, Languages, MessagesSquare } from "lucide-react";
+import { BookOpenText, Languages, MessagesSquare, ScrollText } from "lucide-react";
+import type { LookupResult } from "@/lib/lookup";
 
 /**
- * A small floating toolbar that appears above any text the reader selects
- * inside a book, offering one-click lookups in a dictionary, a translator,
- * and a bilingual phrase/context tool — without leaving the page or
- * committing to placing a sticker. Deliberately separate from the
- * annotation "anchor to this text" flow: this is a quick reference lookup,
- * not something that gets saved.
+ * Floating toolbar above a text selection: morphologically-aware dictionary
+ * (lemma before Wiktionary), translator, context examples, and Logeion/Perseus
+ * for Classical texts. Separate from the annotation flow.
  */
 export function SelectionLookup({
   containerRef,
   suppressed = false,
   doc,
+  language,
 }: {
   containerRef: RefObject<HTMLElement | null>;
-  /** Hidden while the reader is actively placing a sticker or drawing, so the two selection-driven affordances don't compete for the same gesture. */
   suppressed?: boolean;
-  /**
-   * The document whose selection to watch — defaults to the page's own
-   * document (works for the PDF reader, whose text layer lives inline).
-   * The EPUB reader renders book content inside an iframe with its own
-   * separate document/selection, so it passes that iframe's document
-   * here instead; positions are then translated from the iframe's
-   * viewport into the outer one via `frameElement`.
-   */
   doc?: Document | null;
+  /** Document language code (la/grc/ru/…) — biases lemmatisation. */
+  language?: string | null;
 }) {
   const [state, setState] = useState<{ text: string; top: number; left: number } | null>(null);
+  const [lookup, setLookup] = useState<LookupResult | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const targetDoc = doc ?? document;
     if (suppressed) {
       setState(null);
+      setLookup(null);
       return;
     }
 
@@ -62,10 +57,6 @@ export function SelectionLookup({
         setState(null);
         return;
       }
-      // A selection inside the EPUB iframe reports coordinates relative to
-      // that iframe's own viewport — offsetting by the iframe element's own
-      // position (in the outer document) brings it back into the same
-      // coordinate space the popover itself renders in.
       const frameElement = isIframeDoc ? targetWindow?.frameElement : null;
       const frameOffset = frameElement?.getBoundingClientRect() ?? { top: 0, left: 0 };
       const containerRect = container.getBoundingClientRect();
@@ -80,52 +71,126 @@ export function SelectionLookup({
     return () => targetDoc.removeEventListener("selectionchange", handle);
   }, [containerRef, suppressed, doc]);
 
+  useEffect(() => {
+    if (!state?.text) {
+      setLookup(null);
+      return;
+    }
+    // Only lemmatise single tokens / short phrases — long selections go straight to translate.
+    const wordish = state.text.trim().split(/\s+/).length <= 3;
+    if (!wordish) {
+      setLookup(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ q: state.text });
+        if (language) params.set("lang", language);
+        const res = await fetch(`/api/lookup?${params}`);
+        if (!res.ok) throw new Error("lookup failed");
+        const data = (await res.json()) as LookupResult;
+        if (!cancelled) setLookup(data);
+      } catch {
+        if (!cancelled) setLookup(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [state?.text, language]);
+
   if (!state) return null;
 
   const isCyrillic = /[\u0400-\u04FF]/.test(state.text);
-  const targetLang = isCyrillic ? "en" : "ru";
+  const fallbackTarget = isCyrillic ? "en" : "ru";
   const query = encodeURIComponent(state.text);
-  const wiktionaryHost = isCyrillic ? "ru.wiktionary.org" : "en.wiktionary.org";
-  const reversoPair = isCyrillic ? "russian-english" : "english-russian";
+  const wikiTitle = encodeURIComponent(lookup?.wiktionaryTitle ?? state.text);
+  const wikiHost = lookup?.wiktionaryHost ?? (isCyrillic ? "ru.wiktionary.org" : "en.wiktionary.org");
+  const translateTl = lookup?.translateTarget ?? fallbackTarget;
+  const reversoPair = lookup?.reversoPair ?? (isCyrillic ? "russian-english" : "english-russian");
+  const translateText = encodeURIComponent(state.text);
+  const parseLine = lookup?.parses[0]?.summary;
+  const lemma = lookup?.lemma;
 
   return (
     <div
-      className="absolute z-30 flex -translate-x-1/2 -translate-y-full items-center gap-1 rounded-full border border-ink/10 bg-paper px-1.5 py-1 shadow-lg"
+      className="absolute z-30 flex w-max max-w-[min(22rem,90vw)] -translate-x-1/2 -translate-y-full flex-col gap-1.5 rounded-2xl border border-ink/10 bg-paper px-2 py-2 shadow-lg"
       style={{ top: Math.max(0, state.top - 8), left: state.left }}
-      // Selecting text again to click this shouldn't collapse the very
-      // selection it's meant to act on.
       onMouseDown={(event) => event.preventDefault()}
     >
-      <a
-        href={`https://${wiktionaryHost}/wiki/${query}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="icon-button size-8"
-        title="Открыть в словаре (Wiktionary)"
-        aria-label="Словарь"
-      >
-        <BookOpenText size={13} />
-      </a>
-      <a
-        href={`https://translate.google.com/?sl=auto&tl=${targetLang}&text=${query}&op=translate`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="icon-button size-8"
-        title="Перевести (Google Translate)"
-        aria-label="Перевести"
-      >
-        <Languages size={13} />
-      </a>
-      <a
-        href={`https://context.reverso.net/translation/${reversoPair}/${query}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="icon-button size-8"
-        title="Примеры перевода в контексте (Reverso)"
-        aria-label="Контекст"
-      >
-        <MessagesSquare size={13} />
-      </a>
+      {(loading || lemma || parseLine) && (
+        <div className="px-1.5 pt-0.5 text-[11px] leading-snug text-muted">
+          {loading && !lemma ? (
+            <span>разбор…</span>
+          ) : (
+            <>
+              {lemma && lemma !== state.text.trim() && (
+                <span className="font-medium text-ink">
+                  → {lemma}
+                  {parseLine ? " · " : ""}
+                </span>
+              )}
+              {parseLine && <span>{parseLine}</span>}
+              {!lemma && !parseLine && lookup && <span>словарь: {lookup.wiktionaryTitle}</span>}
+            </>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-1">
+        <a
+          href={`https://${wikiHost}/wiki/${wikiTitle}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="icon-button size-8"
+          title={
+            lemma
+              ? `Словарь: открыть лемму «${lemma}» (Wiktionary)`
+              : "Открыть в словаре (Wiktionary)"
+          }
+          aria-label="Словарь"
+        >
+          <BookOpenText size={13} />
+        </a>
+        <a
+          href={`https://translate.google.com/?sl=auto&tl=${translateTl}&text=${translateText}&op=translate`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="icon-button size-8"
+          title="Перевести (Google Translate)"
+          aria-label="Перевести"
+        >
+          <Languages size={13} />
+        </a>
+        <a
+          href={`https://context.reverso.net/translation/${reversoPair}/${query}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="icon-button size-8"
+          title="Примеры перевода в контексте (Reverso)"
+          aria-label="Контекст"
+        >
+          <MessagesSquare size={13} />
+        </a>
+        {lookup?.logeionUrl && (
+          <a
+            href={lookup.logeionUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="icon-button size-8"
+            title="Logeion — словари греческого и латыни"
+            aria-label="Logeion"
+          >
+            <ScrollText size={13} />
+          </a>
+        )}
+      </div>
     </div>
   );
 }

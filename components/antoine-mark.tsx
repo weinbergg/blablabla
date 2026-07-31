@@ -1,42 +1,49 @@
 /**
- * Site mark: a draped bead necklace with a diamond pendant inside a disc.
- * Kept as a clear silhouette on purpose — stroked “interlocking rings”
- * looked broken at header/favicon size (overlapping outlines don’t read as
- * linked chain). The Antoine’s-necklace idea stays in the name and in the
- * draped-chain shape.
+ * Antoine's necklace mark: a closed chain of six open rings (tori), one of
+ * which nests a smaller accent ring — the recursive idea at favicon scale.
+ * Earlier draped stroke-ellipses looked broken where outlines crossed; this
+ * circular chain reads cleanly at header size and matches the earlier neat mark.
  */
 
-const BEADS: { x: number; y: number }[] = [
-  { x: 13, y: 23 },
-  { x: 17.5, y: 28 },
-  { x: 22.5, y: 32.5 },
-  { x: 27.5, y: 35.5 },
-  { x: 32, y: 36.5 },
-  { x: 36.5, y: 35.5 },
-  { x: 41.5, y: 32.5 },
-  { x: 46.5, y: 28 },
-  { x: 51, y: 23 },
-];
+const TAU = Math.PI * 2;
+
+function ringCenters(count: number, radius: number, cx: number, cy: number, startDeg: number) {
+  const start = (startDeg * Math.PI) / 180;
+  return Array.from({ length: count }, (_, i) => {
+    const angle = start + (i / count) * TAU;
+    return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
+  });
+}
+
+const LINKS = ringCenters(6, 16, 32, 32, -90);
+const LINK_RADIUS = 11;
+const LINK_STROKE = 5;
+const NESTED_RADIUS = 4.5;
+const NESTED_STROKE = 2.2;
 
 export function AntoineMark({ className }: { className?: string }) {
-  const cord = BEADS.map((b, i) => `${i === 0 ? "M" : "L"} ${b.x} ${b.y}`).join(" ");
-
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
       <circle cx={32} cy={32} r={32} className="fill-ink" />
-      <path
-        d={cord}
-        fill="none"
-        className="stroke-paper"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {BEADS.map((b, i) => (
-        <circle key={i} cx={b.x} cy={b.y} r={2.75} className="fill-paper" />
+      {LINKS.map((p, i) => (
+        <circle
+          key={`link-${i}`}
+          cx={p.x}
+          cy={p.y}
+          r={LINK_RADIUS}
+          fill="none"
+          className="stroke-paper"
+          strokeWidth={LINK_STROKE}
+        />
       ))}
-      <line x1={32} y1={39.2} x2={32} y2={42.8} className="stroke-paper" strokeWidth={1.4} />
-      <path d="M32 41.5 L35.5 46.2 L32 51.2 L28.5 46.2 Z" className="fill-paper" />
+      <circle
+        cx={LINKS[0].x}
+        cy={LINKS[0].y}
+        r={NESTED_RADIUS}
+        fill="none"
+        className="stroke-rust"
+        strokeWidth={NESTED_STROKE}
+      />
     </svg>
   );
 }

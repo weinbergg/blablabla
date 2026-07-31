@@ -230,6 +230,7 @@ export default async function DocumentPage({
           comments={comments}
           annotations={annotations}
           currentUser={currentUser}
+          language={document.language}
         />
 
         {publicReviews.length > 0 && (

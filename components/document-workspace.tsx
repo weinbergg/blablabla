@@ -57,6 +57,7 @@ export function DocumentWorkspace({
   comments,
   annotations,
   currentUser,
+  language,
 }: {
   documentId: string;
   fileUrl: string | null;
@@ -64,6 +65,8 @@ export function DocumentWorkspace({
   comments: CommentItem[];
   annotations: AnnotationItem[];
   currentUser: CurrentUser;
+  /** Primary language of the book — used by the selection dictionary. */
+  language?: string | null;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
@@ -155,6 +158,7 @@ export function DocumentWorkspace({
               onReport={submitReport}
               fullscreen={fullscreen}
               canAnnotate={canAnnotate}
+              language={language}
             />
           )}
           {fileUrl && isEpub && (
@@ -173,6 +177,7 @@ export function DocumentWorkspace({
               onReport={submitReport}
               fullscreen={fullscreen}
               canAnnotate={canAnnotate}
+              language={language}
             />
           )}
           {fileUrl && !isPdf && !isEpub && (
