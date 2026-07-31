@@ -1,43 +1,42 @@
 /**
- * Site mark: a small draped necklace — seven interlocking oval links and a
- * diamond pendant. Composition is deliberately centred in the 64×64 circle
- * (previous version sat too high and looked "crooked" at header size).
- * Monochrome: circle uses `ink`, the chain uses `paper`, so it flips cleanly
- * with the theme.
+ * Site mark: a draped bead necklace with a diamond pendant inside a disc.
+ * Kept as a clear silhouette on purpose — stroked “interlocking rings”
+ * looked broken at header/favicon size (overlapping outlines don’t read as
+ * linked chain). The Antoine’s-necklace idea stays in the name and in the
+ * draped-chain shape.
  */
 
-/** Vertically centred around cy≈32: chain arc ~24→36, pendant tip ~49. */
-const LINKS: { x: number; y: number; rotate: number }[] = [
-  { x: 14, y: 24, rotate: 28 },
-  { x: 20, y: 30.5, rotate: -28 },
-  { x: 26, y: 34.5, rotate: 28 },
-  { x: 32, y: 36, rotate: -28 },
-  { x: 38, y: 34.5, rotate: 28 },
-  { x: 44, y: 30.5, rotate: -28 },
-  { x: 50, y: 24, rotate: 28 },
+const BEADS: { x: number; y: number }[] = [
+  { x: 13, y: 23 },
+  { x: 17.5, y: 28 },
+  { x: 22.5, y: 32.5 },
+  { x: 27.5, y: 35.5 },
+  { x: 32, y: 36.5 },
+  { x: 36.5, y: 35.5 },
+  { x: 41.5, y: 32.5 },
+  { x: 46.5, y: 28 },
+  { x: 51, y: 23 },
 ];
 
-const LINK_RX = 5.8;
-const LINK_RY = 3.6;
-
 export function AntoineMark({ className }: { className?: string }) {
+  const cord = BEADS.map((b, i) => `${i === 0 ? "M" : "L"} ${b.x} ${b.y}`).join(" ");
+
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
       <circle cx={32} cy={32} r={32} className="fill-ink" />
-      <g fill="none" className="stroke-paper" strokeWidth={2.2} strokeLinecap="round">
-        {LINKS.map((link, i) => (
-          <ellipse
-            key={i}
-            cx={link.x}
-            cy={link.y}
-            rx={LINK_RX}
-            ry={LINK_RY}
-            transform={`rotate(${link.rotate} ${link.x} ${link.y})`}
-          />
-        ))}
-      </g>
-      <line x1={32} y1={39.5} x2={32} y2={43} className="stroke-paper" strokeWidth={1.4} />
-      <path d="M32 42 L35.2 46.2 L32 50.8 L28.8 46.2 Z" className="fill-paper" />
+      <path
+        d={cord}
+        fill="none"
+        className="stroke-paper"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {BEADS.map((b, i) => (
+        <circle key={i} cx={b.x} cy={b.y} r={2.75} className="fill-paper" />
+      ))}
+      <line x1={32} y1={39.2} x2={32} y2={42.8} className="stroke-paper" strokeWidth={1.4} />
+      <path d="M32 41.5 L35.5 46.2 L32 51.2 L28.5 46.2 Z" className="fill-paper" />
     </svg>
   );
 }
