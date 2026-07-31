@@ -24,3 +24,15 @@ export function canAnnotateFiles(role: string | null | undefined) {
 export function isAdminRole(role: string | null | undefined) {
   return role === "admin";
 }
+
+/** Display name of the site owner who alone may grant/revoke admin. */
+export const SUPER_ADMIN_NAME = "Georg";
+
+/** Only Georg can make or revoke admins; other admins must ask him. */
+export function canManageAdmins(name: string | null | undefined) {
+  return (name ?? "").trim() === SUPER_ADMIN_NAME;
+}
+
+export function isSuperAdminName(name: string | null | undefined) {
+  return canManageAdmins(name);
+}

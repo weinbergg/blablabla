@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import katex from "katex";
+import { MathText } from "@/components/math-text";
 import {
   Check,
   Eraser,
@@ -982,7 +983,7 @@ function AnnotationDiscussion({
                   </button>
                 )}
               </div>
-              <p className="mt-0.5 whitespace-pre-wrap leading-5 text-ink/80">{comment.body}</p>
+              <MathText source={comment.body} className="mt-0.5 text-ink/80 leading-5" />
             </div>
           ))}
         </div>
@@ -1002,7 +1003,7 @@ function AnnotationDiscussion({
           <input
             value={body}
             onChange={(event) => setBody(event.target.value)}
-            placeholder="Ответить…"
+            placeholder="Ответить… $формула$"
             className="flex-1 rounded-full border border-ink/15 px-3 py-1.5 text-xs outline-none focus:border-ink/40"
           />
           <button type="submit" disabled={busy} className="icon-button" aria-label="Отправить">

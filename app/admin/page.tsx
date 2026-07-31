@@ -93,6 +93,8 @@ export default async function AdminPage() {
         ...item,
         authorName: item.authorName ?? item.name ?? "Аноним",
       }))}
+      currentUserId={user.id}
+      currentUserName={user.name}
     />
   );
 }

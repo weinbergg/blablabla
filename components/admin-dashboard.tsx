@@ -7,6 +7,7 @@ import {
   Ban,
   Check,
   Copy,
+  Crown,
   FilePlus2,
   FolderPlus,
   Home,
@@ -31,7 +32,7 @@ import type {
   ReportRow,
 } from "@/lib/db/queries";
 import { countLabel } from "@/lib/pluralize";
-import { ROLE_LABELS } from "@/lib/roles";
+import { ROLE_LABELS, SUPER_ADMIN_NAME, canManageAdmins } from "@/lib/roles";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { BulkImportTab } from "@/components/admin-bulk-import-tab";
 
@@ -81,6 +82,8 @@ type Props = {
   referralStats: ReferralRow[];
   growthSummary: GrowthSummary;
   feedbackList: AdminFeedbackItem[];
+  currentUserId: string;
+  currentUserName: string;
 };
 
 const TABS = [
@@ -103,6 +106,8 @@ export function AdminDashboard({
   referralStats,
   growthSummary,
   feedbackList,
+  currentUserId,
+  currentUserName,
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Материалы");
@@ -168,7 +173,14 @@ export function AdminDashboard({
         {tab === "Разделы" && <CategoriesTab tree={categoryTree} />}
         {tab === "Приглашения" && <InvitesTab invites={invites} />}
         {tab === "Модерация" && <ModerationTab feed={moderationFeed} reports={openReports} />}
-        {tab === "Рефералы" && <ReferralsTab stats={referralStats} growth={growthSummary} />}
+        {tab === "Рефералы" && (
+          <ReferralsTab
+            stats={referralStats}
+            growth={growthSummary}
+            currentUserId={currentUserId}
+            currentUserName={currentUserName}
+          />
+        )}
         {tab === "Обратная связь" && <FeedbackTab items={feedbackList} />}
       </div>
     </main>
@@ -1003,33 +1015,73 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
   );
 }
 
-function ReferralsTab({ stats, growth }: { stats: ReferralRow[]; growth: GrowthSummary }) {
+function ReferralsTab({
+  stats,
+  growth,
+  currentUserId,
+  currentUserName,
+}: {
+  stats: ReferralRow[];
+  growth: GrowthSummary;
+  currentUserId: string;
+  currentUserName: string;
+}) {
+  const mayManageAdmins = canManageAdmins(currentUserName);
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function toggleBan(userId: string, status: "active" | "banned") {
-    const action = status === "banned" ? "unban" : "ban";
-    if (!window.confirm(action === "ban" ? "Заблокировать пользователя?" : "Снять блокировку?")) return;
+  async function moderate(userId: string, action: string, confirmMessage: string) {
+    if (!window.confirm(confirmMessage)) return;
     setBusyId(userId);
-    await fetch(`/api/users/${userId}/moderate`, {
+    const response = await fetch(`/api/users/${userId}/moderate`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     });
     setBusyId(null);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      window.alert(result.error || "Не удалось выполнить действие.");
+      return;
+    }
     router.refresh();
   }
 
+  async function toggleBan(userId: string, status: "active" | "banned") {
+    const action = status === "banned" ? "unban" : "ban";
+    await moderate(
+      userId,
+      action,
+      action === "ban" ? "Заблокировать пользователя?" : "Снять блокировку?",
+    );
+  }
+
   async function toggleBooster(userId: string, role: "admin" | "booster" | "member") {
+    if (role === "admin") return;
     const action = role === "booster" ? "demote" : "promote";
-    setBusyId(userId);
-    await fetch(`/api/users/${userId}/moderate`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    setBusyId(null);
-    router.refresh();
+    await moderate(
+      userId,
+      action,
+      action === "promote"
+        ? "Сделать бустером? Сможет ставить пометки в файлах."
+        : "Снять роль бустера?",
+    );
+  }
+
+  async function toggleAdmin(userId: string, role: "admin" | "booster" | "member") {
+    if (role === "admin") {
+      await moderate(
+        userId,
+        "revoke_admin",
+        "Снять статус администратора? Останется бустером.",
+      );
+    } else {
+      await moderate(
+        userId,
+        "make_admin",
+        "Сделать администратором? Получит полный доступ, включая выдачу и отзыв админов.",
+      );
+    }
   }
 
   const totalReferred = stats.reduce((sum, row) => sum + row.referredCount, 0);
@@ -1092,10 +1144,12 @@ function ReferralsTab({ stats, growth }: { stats: ReferralRow[]; growth: GrowthS
             </tr>
           </thead>
           <tbody>
-            {stats.map((row) => (
+            {stats.map((row) => {
+              const isSelf = row.id === currentUserId;
+              return (
               <tr key={row.id} className="border-b border-ink/5">
                 <td className="py-2.5 pr-3">
-                  <p className="font-medium">{row.name}</p>
+                  <p className="font-medium">{row.name}{isSelf ? " (вы)" : ""}</p>
                   <p className="text-xs text-muted">{row.email}</p>
                 </td>
                 <td className="py-2.5 pr-3 text-xs text-muted">
@@ -1133,18 +1187,36 @@ function ReferralsTab({ stats, growth }: { stats: ReferralRow[]; growth: GrowthS
                   </span>
                 </td>
                 <td className="py-2.5 text-right">
-                  {row.role !== "admin" && (
+                  {!isSelf && (
                     <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => toggleBooster(row.id, row.role)}
-                        disabled={busyId === row.id}
-                        className={`icon-button ${row.role === "booster" ? "border-rust bg-rust text-white" : ""}`}
-                        aria-label={row.role === "booster" ? "Снять роль бустера" : "Сделать бустером"}
-                        title={row.role === "booster" ? "Снять роль бустера" : "Сделать бустером — сможет ставить пометки в файлах"}
-                      >
-                        <Sparkles size={13} />
-                      </button>
+                      {mayManageAdmins && row.name.trim() !== SUPER_ADMIN_NAME && (
+                        <button
+                          type="button"
+                          onClick={() => toggleAdmin(row.id, row.role)}
+                          disabled={busyId === row.id}
+                          className={`icon-button ${row.role === "admin" ? "border-ink bg-ink text-paper" : ""}`}
+                          aria-label={row.role === "admin" ? "Снять админа" : "Сделать админом"}
+                          title={
+                            row.role === "admin"
+                              ? "Снять статус администратора"
+                              : "Сделать администратором"
+                          }
+                        >
+                          <Crown size={13} />
+                        </button>
+                      )}
+                      {row.role !== "admin" && (
+                        <button
+                          type="button"
+                          onClick={() => toggleBooster(row.id, row.role)}
+                          disabled={busyId === row.id}
+                          className={`icon-button ${row.role === "booster" ? "border-rust bg-rust text-white" : ""}`}
+                          aria-label={row.role === "booster" ? "Снять роль бустера" : "Сделать бустером"}
+                          title={row.role === "booster" ? "Снять роль бустера" : "Сделать бустером — сможет ставить пометки в файлах"}
+                        >
+                          <Sparkles size={13} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => toggleBan(row.id, row.status)}
@@ -1159,7 +1231,8 @@ function ReferralsTab({ stats, growth }: { stats: ReferralRow[]; growth: GrowthS
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

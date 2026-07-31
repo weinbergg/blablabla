@@ -15,6 +15,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import type { AnnotationItem } from "@/components/readers/annotation-layer";
+import { MathText } from "@/components/math-text";
 import { countLabel } from "@/lib/pluralize";
 import { canAnnotateFiles } from "@/lib/roles";
 
@@ -297,7 +298,7 @@ function CommentThread({
           <textarea
             value={body}
             onChange={(event) => setBody(event.target.value)}
-            placeholder="Поделитесь мыслью об этом тексте…"
+            placeholder="Поделитесь мыслью… Можно формулы: $E=mc^2$ или $$\\int f$$"
             rows={3}
             className="w-full rounded-xl border border-ink/15 bg-white/60 p-3 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
           />
@@ -407,7 +408,7 @@ function CommentBubble({ comment, currentUserId }: { comment: CommentItem; curre
           </button>
         )}
       </div>
-      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6">{comment.body}</p>
+      <MathText source={comment.body} className="mt-1.5 text-sm leading-6" />
     </div>
   );
 }

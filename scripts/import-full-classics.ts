@@ -15,6 +15,7 @@ import { db } from "../lib/db/client";
 import { authors, categories, documentAuthors, documents } from "../lib/db/schema";
 import { normalizeForSearch, slugify } from "../lib/transliterate";
 import { buildDisplayFileName } from "../lib/filenames";
+import { assessEpubQuality } from "../lib/epub-quality";
 
 const WORK_DIR = process.env.FULL_CLASSICS_DIR || "/tmp/full-classics";
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
@@ -513,6 +514,146 @@ const ITEMS: Item[] = [
     language: "en",
     minBytes: 500_000,
   },
+
+  // —— Extra philosophy / logic / foundations ——
+  {
+    gutenbergId: 28233,
+    title: "Critique of Practical Reason (full text)",
+    alternateTitle: "Критика практического разума",
+    authors: ["Immanuel Kant"],
+    categorySlug: "filosofiya",
+    language: "en",
+  },
+  {
+    gutenbergId: 48433,
+    title: "Critique of Judgement (full text)",
+    alternateTitle: "Критика способности суждения",
+    authors: ["Immanuel Kant"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 300_000,
+  },
+  {
+    gutenbergId: 6698,
+    title: "Phänomenologie des Geistes (German full text)",
+    alternateTitle: "Феноменология духа",
+    authors: ["Georg Wilhelm Friedrich Hegel"],
+    categorySlug: "filosofiya",
+    language: "de",
+    minBytes: 400_000,
+  },
+  {
+    gutenbergId: 39064,
+    title: "Hegel's Philosophy of Mind (full text)",
+    alternateTitle: "Философия духа (Гегель)",
+    authors: ["Georg Wilhelm Friedrich Hegel"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 400_000,
+  },
+  {
+    gutenbergId: 16526,
+    title: "Metaphysics (Aristotle, full text)",
+    alternateTitle: "Метафизика",
+    authors: ["Aristotle"],
+    categorySlug: "antichnaya-filosofiya-teksty",
+    language: "en",
+    minBytes: 300_000,
+  },
+  {
+    gutenbergId: 1974,
+    title: "The Poetics of Aristotle (full text)",
+    alternateTitle: "Поэтика",
+    authors: ["Aristotle"],
+    categorySlug: "antichnaya-filosofiya-teksty",
+    language: "en",
+  },
+  {
+    gutenbergId: 21396,
+    title: "An Essay on the Principle of Population (full text)",
+    alternateTitle: "Опыт о законе народонаселения",
+    authors: ["Thomas Malthus"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 300_000,
+  },
+  {
+    gutenbergId: 26145,
+    title: "A System of Logic (Mill, full text)",
+    alternateTitle: "Система логики",
+    authors: ["John Stuart Mill"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 500_000,
+  },
+  {
+    gutenbergId: 7370,
+    title: "The City of God, Vol. 1 (full text)",
+    alternateTitle: "О граде Божием I",
+    authors: ["Augustine of Hippo"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 400_000,
+  },
+  {
+    gutenbergId: 7373,
+    title: "The City of God, Vol. 2 (full text)",
+    alternateTitle: "О граде Божием II",
+    authors: ["Augustine of Hippo"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 400_000,
+  },
+  {
+    gutenbergId: 3296,
+    title: "The Confessions of St. Augustine (full text)",
+    alternateTitle: "Исповедь",
+    authors: ["Augustine of Hippo"],
+    categorySlug: "filosofiya",
+    language: "en",
+  },
+  {
+    gutenbergId: 17651,
+    title: "Summa Theologica, Part I (full text)",
+    alternateTitle: "Сумма теологии I",
+    authors: ["Thomas Aquinas"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 500_000,
+  },
+  {
+    gutenbergId: 9662,
+    title: "Enquiries Concerning Human Understanding and Principles of Morals (full text)",
+    alternateTitle: "Исследования о человеческом познании и принципах морали",
+    authors: ["David Hume"],
+    categorySlug: "filosofiya",
+    language: "en",
+    minBytes: 300_000,
+  },
+  {
+    gutenbergId: 4320,
+    title: "An Enquiry Concerning the Principles of Morals (full text)",
+    alternateTitle: "Исследование о принципах морали",
+    authors: ["David Hume"],
+    categorySlug: "filosofiya",
+    language: "en",
+  },
+  {
+    gutenbergId: 41568,
+    title: "An Introduction to Mathematics (Whitehead, full text)",
+    alternateTitle: "Введение в математику",
+    authors: ["Alfred North Whitehead"],
+    categorySlug: "filosofiya-matematiki",
+    language: "en",
+  },
+  {
+    gutenbergId: 26541,
+    title: "A Letter Concerning Toleration (full text)",
+    alternateTitle: "Послание о веротерпимости",
+    authors: ["John Locke"],
+    categorySlug: "filosofiya",
+    language: "en",
+  },
 ];
 
 const ENSURE_CATEGORIES: { slug: string; name: string; description?: string; parentSlug?: string }[] = [
@@ -640,6 +781,55 @@ async function downloadGutenberg(id: number, dest: string, minBytes: number): Pr
   return true;
 }
 
+async function tryDownloadText(url: string, dest: string): Promise<number | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "blablablarden-library-import/1.0 (personal; open-domain corpus)" },
+      redirect: "follow",
+    });
+    if (!res.ok || !res.body) return null;
+    const ctype = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (ctype.includes("html") && !ctype.includes("text/plain")) return null;
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    const nodeStream = Readable.fromWeb(res.body as import("stream/web").ReadableStream);
+    await pipeline(nodeStream, createWriteStream(dest));
+    const stat = await fs.stat(dest);
+    const head = await fs.readFile(dest, { encoding: "utf8" });
+    const sample = head.slice(0, 800).toLowerCase();
+    if (sample.includes("<!doctype html") || sample.includes("<html")) {
+      await fs.unlink(dest).catch(() => undefined);
+      return null;
+    }
+    if (stat.size < 20_000) {
+      await fs.unlink(dest).catch(() => undefined);
+      return null;
+    }
+    return stat.size;
+  } catch {
+    await fs.unlink(dest).catch(() => undefined);
+    return null;
+  }
+}
+
+/** Continuous prose fallback when the EPUB is a TOC-of-links shell. */
+async function downloadGutenbergTxt(id: number, dest: string): Promise<boolean> {
+  const candidates = [
+    `https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`,
+    `https://www.gutenberg.org/files/${id}/${id}-0.txt`,
+    `https://www.gutenberg.org/files/${id}/${id}.txt`,
+    `https://www.gutenberg.org/ebooks/${id}.txt.utf-8`,
+  ];
+  for (const url of candidates) {
+    const size = await tryDownloadText(url, dest);
+    if (size != null) {
+      console.log(`  → TXT fallback ${(size / 1024).toFixed(0)} KB`);
+      return true;
+    }
+  }
+  console.log(`  ! no TXT fallback`);
+  return false;
+}
+
 async function getOrCreateAuthor(name: string): Promise<string> {
   const slug = slugify(name);
   const [existing] = await db.select({ id: authors.id }).from(authors).where(eq(authors.slug, slug)).limit(1);
@@ -685,30 +875,58 @@ async function main() {
     }
 
     console.log(`→ ${item.title}`);
-    const dest = path.join(WORK_DIR, `pg${item.gutenbergId}.epub`);
-    const ok = await downloadGutenberg(item.gutenbergId, dest, item.minBytes ?? 50_000);
-    if (!ok) {
-      failed++;
-      continue;
+    const epubDest = path.join(WORK_DIR, `pg${item.gutenbergId}.epub`);
+    const txtDest = path.join(WORK_DIR, `pg${item.gutenbergId}.txt`);
+    let fileType: "EPUB" | "TXT" = "EPUB";
+    let sourcePath = epubDest;
+    let ext = ".epub";
+
+    const okEpub = await downloadGutenberg(item.gutenbergId, epubDest, item.minBytes ?? 50_000);
+    if (okEpub) {
+      const quality = assessEpubQuality(epubDest);
+      if (!quality.ok) {
+        console.log(`  ! EPUB rejected: ${quality.reason}`);
+        await fs.unlink(epubDest).catch(() => undefined);
+        const okTxt = await downloadGutenbergTxt(item.gutenbergId, txtDest);
+        if (!okTxt) {
+          failed++;
+          continue;
+        }
+        fileType = "TXT";
+        sourcePath = txtDest;
+        ext = ".txt";
+      }
+    } else {
+      const okTxt = await downloadGutenbergTxt(item.gutenbergId, txtDest);
+      if (!okTxt) {
+        failed++;
+        continue;
+      }
+      fileType = "TXT";
+      sourcePath = txtDest;
+      ext = ".txt";
     }
 
     const storedId = randomUUID();
-    const storedName = `${storedId}.epub`;
-    await fs.copyFile(dest, path.join(UPLOAD_DIR, storedName));
-    const displayName = buildDisplayFileName(item.title, item.authors, ".epub");
+    const storedName = `${storedId}${ext}`;
+    await fs.copyFile(sourcePath, path.join(UPLOAD_DIR, storedName));
+    const displayName = buildDisplayFileName(item.title, item.authors, ext);
     const docId = randomUUID();
-    const size = (await fs.stat(dest)).size;
+    const size = (await fs.stat(sourcePath)).size;
 
     await db.insert(documents).values({
       id: docId,
       title: item.title,
       alternateTitle: item.alternateTitle ?? null,
       year: item.year ?? null,
-      description: `Полный текст Project Gutenberg (№${item.gutenbergId}). В читалке «глава N / M» — разделы EPUB, не бумажные страницы.`,
+      description:
+        fileType === "TXT"
+          ? `Полный текст Project Gutenberg (№${item.gutenbergId}), plain text — EPUB был оболочкой из ссылок или недоступен.`
+          : `Полный текст Project Gutenberg (№${item.gutenbergId}). В читалке «глава N / M» — разделы EPUB, не бумажные страницы.`,
       categoryId,
       fileUrl: `/uploads/${storedName}`,
       fileName: displayName,
-      fileType: "EPUB",
+      fileType,
       language: item.language ?? "en",
       confidence: "confirmed",
       sourceNote: `Project Gutenberg #${item.gutenbergId}`,
@@ -722,7 +940,7 @@ async function main() {
 
     byTitle.add(normalizeTitle(item.title));
     imported++;
-    console.log(`  ✓ ${(size / 1024).toFixed(0)} KB`);
+    console.log(`  ✓ ${fileType} ${(size / 1024).toFixed(0)} KB`);
   }
 
   console.log(`\nDone. imported=${imported} skipped=${skipped} failed=${failed}`);

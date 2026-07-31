@@ -1,49 +1,58 @@
 /**
- * Soft-remove known bad "TOC-of-hyperlinks" Gutenberg EPUBs (e.g. Butler Iliad)
- * that open as a page of blue links rather than continuous prose. Files on disk
- * are deleted; DB rows are removed. Safe to re-run.
+ * Remove TOC-of-hyperlinks EPUBs (Butler-style shells and any other link stubs).
+ * Prefer continuous Gutenberg TXT / Greek editions instead.
  *
- *   npx tsx scripts/purge-toc-epubs.ts
+ *   npm run purge:toc-epubs
  */
 import { promises as fs } from "fs";
 import path from "path";
-import { eq, inArray, like, or } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db } from "../lib/db/client";
 import { documentAuthors, documentCategories, documentSubjects, documentTags, documents } from "../lib/db/schema";
-
-const TITLE_PATTERNS = [
-  "The Iliad of Homer",
-  "The Odyssey of Homer",
-  "The Iliad (Butler",
-  "The Odyssey (Butler",
-];
+import { assessEpubFile } from "../lib/epub-quality";
 
 async function main() {
   const rows = await db
-    .select({ id: documents.id, title: documents.title, fileUrl: documents.fileUrl, fileType: documents.fileType })
-    .from(documents)
-    .where(
-      or(
-        ...TITLE_PATTERNS.map((t) => like(documents.title, `%${t}%`)),
-        eq(documents.title, "The Iliad of Homer"),
-        eq(documents.title, "The Odyssey of Homer"),
-      ),
-    );
+    .select({
+      id: documents.id,
+      title: documents.title,
+      fileUrl: documents.fileUrl,
+      fileType: documents.fileType,
+    })
+    .from(documents);
 
-  // Prefer English Butler EPUBs; keep Greek TXT.
-  const doomed = rows.filter(
-    (r) =>
-      r.fileType === "EPUB" &&
-      (/iliad of homer/i.test(r.title) || /odyssey of homer/i.test(r.title) || /butler/i.test(r.title)),
-  );
+  const doomed: typeof rows = [];
+
+  for (const row of rows) {
+    if (row.fileType !== "EPUB") continue;
+    if (!row.fileUrl?.startsWith("/uploads/")) continue;
+    const disk = path.join(process.cwd(), "public", row.fileUrl.replace(/^\//, ""));
+    const quality = await assessEpubFile(disk);
+    if (!quality.ok) {
+      doomed.push(row);
+      console.log(`  ? ${row.title} — ${quality.reason}`);
+    }
+  }
+
+  // Always include known Butler Homer titles even if unzip fails on the VPS
+  for (const row of rows) {
+    if (row.fileType !== "EPUB") continue;
+    if (
+      /iliad of homer/i.test(row.title) ||
+      /odyssey of homer/i.test(row.title) ||
+      /\(Butler/i.test(row.title)
+    ) {
+      if (!doomed.some((d) => d.id === row.id)) doomed.push(row);
+    }
+  }
 
   if (!doomed.length) {
-    console.log("Nothing to purge.");
+    console.log("Nothing to purge — all EPUBs look like continuous prose.");
     return;
   }
 
   const ids = doomed.map((d) => d.id);
-  console.log(`Purging ${ids.length} TOC-style EPUB(s):`);
+  console.log(`\nPurging ${ids.length} TOC-style / stub EPUB(s):`);
   for (const d of doomed) console.log(`  - ${d.title}`);
 
   await db.delete(documentAuthors).where(inArray(documentAuthors.documentId, ids));
@@ -58,7 +67,7 @@ async function main() {
     await fs.unlink(disk).catch(() => undefined);
   }
 
-  console.log("Done. Prefer the Greek TXT editions + reader TOC for continuous reading.");
+  console.log("Done. Re-run import:fullclassics — bad EPUBs will fall back to Gutenberg TXT.");
 }
 
 main().catch((e) => {

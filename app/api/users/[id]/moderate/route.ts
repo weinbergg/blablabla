@@ -1,11 +1,20 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
 import { sessions, users } from "@/lib/db/schema";
+import { canManageAdmins, isSuperAdminName } from "@/lib/roles";
 
-const ACTIONS = new Set(["strike", "ban", "unban", "promote", "demote"]);
+const ACTIONS = new Set([
+  "strike",
+  "ban",
+  "unban",
+  "promote",
+  "demote",
+  "make_admin",
+  "revoke_admin",
+]);
 
 export async function PATCH(
   request: Request,
@@ -17,14 +26,18 @@ export async function PATCH(
   }
 
   const { id } = await context.params;
-  if (id === admin.id) {
-    return NextResponse.json({ error: "Нельзя применить это к своему аккаунту." }, { status: 400 });
-  }
 
   const body = (await request.json().catch(() => null)) as { action?: unknown } | null;
   const action = typeof body?.action === "string" && ACTIONS.has(body.action) ? body.action : null;
   if (!action) {
     return NextResponse.json({ error: "Некорректное действие." }, { status: 400 });
+  }
+
+  if (
+    id === admin.id &&
+    ["strike", "ban", "demote", "revoke_admin", "promote", "make_admin"].includes(action)
+  ) {
+    return NextResponse.json({ error: "Нельзя применить это к своему аккаунту." }, { status: 400 });
   }
 
   const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1);
@@ -39,14 +52,10 @@ export async function PATCH(
       .where(eq(users.id, id));
   } else if (action === "ban") {
     await db.update(users).set({ status: "banned" }).where(eq(users.id, id));
-    // Kick every active session immediately rather than waiting for it to expire.
     await db.delete(sessions).where(eq(sessions.userId, id));
   } else if (action === "unban") {
     await db.update(users).set({ status: "active" }).where(eq(users.id, id));
   } else if (action === "promote") {
-    // Booster is as far as this endpoint goes — granting admin itself stays a
-    // deliberate, out-of-band action (see scripts/create-admin.ts) rather
-    // than a button any existing admin could click by mistake.
     if (target.role === "member") {
       await db.update(users).set({ role: "booster" }).where(eq(users.id, id));
     }
@@ -54,6 +63,42 @@ export async function PATCH(
     if (target.role === "booster") {
       await db.update(users).set({ role: "member" }).where(eq(users.id, id));
     }
+  } else if (action === "make_admin") {
+    if (!canManageAdmins(admin.name)) {
+      return NextResponse.json(
+        { error: "Выдавать статус админа может только Georg. Согласуйте с ним." },
+        { status: 403 },
+      );
+    }
+    await db.update(users).set({ role: "admin" }).where(eq(users.id, id));
+  } else if (action === "revoke_admin") {
+    if (!canManageAdmins(admin.name)) {
+      return NextResponse.json(
+        { error: "Снимать статус админа может только Georg. Согласуйте с ним." },
+        { status: 403 },
+      );
+    }
+    if (target.role !== "admin") {
+      return NextResponse.json({ error: "Пользователь не администратор." }, { status: 400 });
+    }
+    if (isSuperAdminName(target.name)) {
+      return NextResponse.json(
+        { error: "Нельзя снять статус у Georg." },
+        { status: 403 },
+      );
+    }
+    const [row] = await db
+      .select({ n: count() })
+      .from(users)
+      .where(and(eq(users.role, "admin"), eq(users.status, "active")));
+    if ((row?.n ?? 0) <= 1) {
+      return NextResponse.json(
+        { error: "Нельзя снять последнего активного администратора." },
+        { status: 400 },
+      );
+    }
+    // Land on booster so they keep sticker rights unless demoted further.
+    await db.update(users).set({ role: "booster" }).where(eq(users.id, id));
   }
 
   revalidatePath("/admin");
