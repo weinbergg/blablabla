@@ -19,6 +19,10 @@ export type LookupResult = {
   detectedLang: string;
   lemma: string | null;
   parses: MorphParse[];
+  /** Short plain-text glosses from Wiktionary (shown in-panel). */
+  definitions: string[];
+  /** Inline machine translation (MyMemory), when available. */
+  translation: string | null;
   wiktionaryHost: string;
   /** Best title to open on Wiktionary (lemma or resolved redirect). */
   wiktionaryTitle: string;
@@ -264,6 +268,85 @@ function reversoPairFor(lang: string): string {
   return "english-russian";
 }
 
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchWiktionaryDefinitions(
+  title: string,
+  host: string,
+): Promise<string[]> {
+  try {
+    const url = `https://${host}/api/rest_v1/page/definition/${encodeURIComponent(title)}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "blablablarden-library/1.0", Accept: "application/json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as Record<string, { definitions?: { definition?: string }[] }[]>;
+    const out: string[] = [];
+    for (const entries of Object.values(data)) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        for (const def of entry.definitions ?? []) {
+          const plain = stripHtml(def.definition ?? "");
+          if (plain && plain.length > 2 && plain.length < 400) out.push(plain);
+          if (out.length >= 4) return out;
+        }
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function mymemorySource(lang: string): string {
+  if (lang === "grc" || lang === "el") return "el";
+  if (lang === "la") return "la";
+  if (lang === "ru") return "ru";
+  if (lang === "de") return "de";
+  if (lang === "fr") return "fr";
+  return "en";
+}
+
+async function fetchInlineTranslation(
+  text: string,
+  fromLang: string,
+  toLang: string,
+): Promise<string | null> {
+  try {
+    const source = mymemorySource(fromLang);
+    const target = toLang === "ru" ? "ru" : toLang === "en" ? "en" : "ru";
+    if (source === target) return null;
+    const url = new URL("https://api.mymemory.translated.net/get");
+    url.searchParams.set("q", text.slice(0, 500));
+    url.searchParams.set("langpair", `${source}|${target}`);
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      responseData?: { translatedText?: string };
+      responseStatus?: number;
+    };
+    if (data.responseStatus !== 200) return null;
+    const t = data.responseData?.translatedText?.trim();
+    if (!t || t.toLowerCase() === text.toLowerCase()) return null;
+    // MyMemory sometimes echoes INVALID SOURCE LANGUAGE etc.
+    if (/invalid|error|please select/i.test(t)) return null;
+    return t;
+  } catch {
+    return null;
+  }
+}
+
 export async function lookupWord(raw: string, bookLang?: string | null): Promise<LookupResult> {
   const query = normalizeLookupQuery(raw);
   const detectedLang = detectLookupLang(query, bookLang);
@@ -283,15 +366,23 @@ export async function lookupWord(raw: string, bookLang?: string | null): Promise
 
   const head = lemma ?? wiki.title;
   const isClassical = detectedLang === "la" || detectedLang === "grc" || detectedLang === "el";
+  const translateTarget = translateTargetFor(detectedLang);
+
+  const [definitions, translation] = await Promise.all([
+    fetchWiktionaryDefinitions(head, wiki.host),
+    fetchInlineTranslation(query, detectedLang, translateTarget),
+  ]);
 
   return {
     query,
     detectedLang,
     lemma,
     parses: parses.slice(0, 6),
+    definitions,
+    translation,
     wiktionaryHost: wiki.host,
     wiktionaryTitle: head,
-    translateTarget: translateTargetFor(detectedLang),
+    translateTarget,
     reversoPair: reversoPairFor(detectedLang),
     logeionUrl: isClassical
       ? `https://logeion.uchicago.edu/${encodeURIComponent(lemma ?? query)}`

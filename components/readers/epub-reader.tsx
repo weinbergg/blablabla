@@ -291,8 +291,8 @@ export function EpubReader({
           <button type="button" onClick={() => renditionRef.current?.prev()} className="icon-button" aria-label="Предыдущая страница">
             <ChevronLeft size={16} />
           </button>
-          <span className="min-w-[7rem] text-center font-mono text-xs text-muted">
-            {totalSections ? `раздел ${section} из ${totalSections}` : "EPUB"}
+          <span className="min-w-[9rem] text-center font-mono text-xs text-muted" title="У EPUB считаются разделы оглавления (главы), а не бумажные страницы — книга обычно полная">
+            {totalSections ? `глава ${section} / ${totalSections}` : "EPUB"}
           </span>
           <button type="button" onClick={() => renditionRef.current?.next()} className="icon-button" aria-label="Следующая страница">
             <ChevronRight size={16} />

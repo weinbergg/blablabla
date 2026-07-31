@@ -439,3 +439,49 @@ export const feedback = sqliteTable("feedback", {
 }, (table) => ({
   statusIdx: index("feedback_status_idx").on(table.status),
 }));
+
+/** User-built glossaries for learning: Greek notions, math definitions, formulas… */
+export const glossaries = sqliteTable("glossaries", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  /** Optional bias for lookup (grc / la / ru / math / …). */
+  language: text("language"),
+  visibility: text("visibility", { enum: ["private", "public"] })
+    .notNull()
+    .default("private"),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+  ...timestamps,
+}, (table) => ({
+  ownerIdx: index("glossaries_owner_idx").on(table.ownerId),
+  visibilityIdx: index("glossaries_visibility_idx").on(table.visibility),
+}));
+
+export const glossaryEntries = sqliteTable("glossary_entries", {
+  id: text("id").primaryKey(),
+  glossaryId: text("glossary_id")
+    .notNull()
+    .references(() => glossaries.id, { onDelete: "cascade" }),
+  /** Headword as the author wrote it. */
+  term: text("term").notNull(),
+  /** Lowercased / stripped form for matching selections. */
+  normalizedTerm: text("normalized_term").notNull(),
+  definition: text("definition").notNull(),
+  /** Optional examples, formulas, or notes (plain text / light markdown). */
+  notes: text("notes"),
+  /** Comma-separated alternate forms (declined, synonyms) for matching. */
+  aliases: text("aliases"),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+  ...timestamps,
+}, (table) => ({
+  glossaryIdx: index("glossary_entries_glossary_idx").on(table.glossaryId),
+  termIdx: index("glossary_entries_term_idx").on(table.normalizedTerm),
+}));

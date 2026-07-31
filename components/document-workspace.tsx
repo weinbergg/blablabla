@@ -26,6 +26,10 @@ const EpubReader = dynamic(
   () => import("@/components/readers/epub-reader").then((m) => m.EpubReader),
   { ssr: false },
 );
+const TxtReader = dynamic(
+  () => import("@/components/readers/txt-reader").then((m) => m.TxtReader),
+  { ssr: false },
+);
 
 export type CommentItem = {
   id: string;
@@ -74,7 +78,8 @@ export function DocumentWorkspace({
   const [fullscreen, setFullscreen] = useState(false);
   const isPdf = fileType === "PDF";
   const isEpub = fileType === "EPUB";
-  const canFullscreen = Boolean(fileUrl) && (isPdf || isEpub);
+  const isTxt = fileType === "TXT";
+  const canFullscreen = Boolean(fileUrl) && (isPdf || isEpub || isTxt);
   const canAnnotate = canAnnotateFiles(currentUser?.role);
 
   useEffect(() => {
@@ -180,7 +185,10 @@ export function DocumentWorkspace({
               language={language}
             />
           )}
-          {fileUrl && !isPdf && !isEpub && (
+          {fileUrl && isTxt && (
+            <TxtReader url={fileUrl} language={language} fullscreen={fullscreen} />
+          )}
+          {fileUrl && !isPdf && !isEpub && !isTxt && (
             <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
               Формат {fileType} пока не открывается прямо в браузере —
               скачайте файл, чтобы прочитать.

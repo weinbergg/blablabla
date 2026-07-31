@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
 import { lookupWord } from "@/lib/lookup";
+import { lookupInGlossaries } from "@/lib/db/glossaries";
 
 export const runtime = "nodejs";
 
 /**
  * GET /api/lookup?q=amabat&lang=la
- * Lemmatises Classical forms (Morpheus) and resolves Wiktionary titles so
- * declined Greek/Latin/Russian words open the dictionary on the lemma.
+ * Lemmatises Classical forms, resolves Wiktionary, returns inline gloss +
+ * translation, and matches the selection against community/own glossaries.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -18,13 +20,19 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await lookupWord(q, lang);
-    return NextResponse.json(result, {
-      headers: {
-        // Morph analyses are stable; cache briefly at the edge/browser.
-        "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+    const user = await getCurrentUser();
+    const [result, glossaryHits] = await Promise.all([
+      lookupWord(q, lang),
+      lookupInGlossaries(q, user?.id ?? null),
+    ]);
+    return NextResponse.json(
+      { ...result, glossaryHits },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=60, stale-while-revalidate=600",
+        },
       },
-    });
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Не удалось разобрать слово." },

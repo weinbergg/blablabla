@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageCircleQuestion, Network, Tag } from "lucide-react";
+import { BookOpen, MessageCircleQuestion, Network, Tag } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { AntoineMark } from "@/components/antoine-mark";
 import { HeaderAccount } from "@/components/header-account";
@@ -42,6 +42,13 @@ export async function Header() {
           >
             <Network size={14} />
             Связи
+          </Link>
+          <Link
+            href="/glossaries"
+            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink lg:flex"
+          >
+            <BookOpen size={14} />
+            Словари
           </Link>
           <Link
             href="/tags"

@@ -16,6 +16,7 @@
     "list-users": "tsx scripts/list-users.ts",
     "delete-user": "tsx scripts/delete-user.ts",
     "import:priority": "tsx scripts/import-priority-corpus.ts",
+    "import:fullclassics": "tsx scripts/import-full-classics.ts",
     "postinstall": "node scripts/copy-pdf-worker.mjs"
   },
   "dependencies": {

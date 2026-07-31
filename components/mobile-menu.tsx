@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   BookMarked,
+  BookOpen,
   Menu,
   MessageCircleQuestion,
   Network,
@@ -50,6 +51,14 @@ export function MobileMenu({
             >
               <Network size={14} />
               Связи
+            </Link>
+            <Link
+              href="/glossaries"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-1.5 text-ink"
+            >
+              <BookOpen size={14} />
+              Словари
             </Link>
             <Link
               href="/tags"

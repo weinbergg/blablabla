@@ -1,13 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { RefObject, useEffect, useState } from "react";
-import { BookOpenText, Languages, MessagesSquare, ScrollText } from "lucide-react";
+import { BookMarked, BookOpenText, ExternalLink, Languages, Plus } from "lucide-react";
 import type { LookupResult } from "@/lib/lookup";
+import type { GlossaryHit } from "@/lib/db/glossaries";
+
+type LookupPayload = LookupResult & { glossaryHits?: GlossaryHit[] };
 
 /**
- * Floating toolbar above a text selection: morphologically-aware dictionary
- * (lemma before Wiktionary), translator, context examples, and Logeion/Perseus
- * for Classical texts. Separate from the annotation flow.
+ * In-page lookup panel: morphology, definitions, translation, and matches
+ * from community / personal glossaries — without leaving the reader.
  */
 export function SelectionLookup({
   containerRef,
@@ -18,18 +21,22 @@ export function SelectionLookup({
   containerRef: RefObject<HTMLElement | null>;
   suppressed?: boolean;
   doc?: Document | null;
-  /** Document language code (la/grc/ru/…) — biases lemmatisation. */
   language?: string | null;
 }) {
   const [state, setState] = useState<{ text: string; top: number; left: number } | null>(null);
-  const [lookup, setLookup] = useState<LookupResult | null>(null);
+  const [lookup, setLookup] = useState<LookupPayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [myGlossaries, setMyGlossaries] = useState<{ id: string; title: string }[]>([]);
+  const [pickOpen, setPickOpen] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const targetDoc = doc ?? document;
     if (suppressed) {
       setState(null);
       setLookup(null);
+      setPickOpen(false);
       return;
     }
 
@@ -74,10 +81,11 @@ export function SelectionLookup({
   useEffect(() => {
     if (!state?.text) {
       setLookup(null);
+      setPickOpen(false);
+      setSaveMsg(null);
       return;
     }
-    // Only lemmatise single tokens / short phrases — long selections go straight to translate.
-    const wordish = state.text.trim().split(/\s+/).length <= 3;
+    const wordish = state.text.trim().split(/\s+/).length <= 8;
     if (!wordish) {
       setLookup(null);
       return;
@@ -91,14 +99,14 @@ export function SelectionLookup({
         if (language) params.set("lang", language);
         const res = await fetch(`/api/lookup?${params}`);
         if (!res.ok) throw new Error("lookup failed");
-        const data = (await res.json()) as LookupResult;
+        const data = (await res.json()) as LookupPayload;
         if (!cancelled) setLookup(data);
       } catch {
         if (!cancelled) setLookup(null);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }, 220);
+    }, 200);
 
     return () => {
       cancelled = true;
@@ -106,91 +114,197 @@ export function SelectionLookup({
     };
   }, [state?.text, language]);
 
+  async function openAddPicker() {
+    setPickOpen(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch("/api/glossaries");
+      if (!res.ok) {
+        setSaveMsg("Войдите, чтобы сохранять в свой словарь.");
+        return;
+      }
+      const data = (await res.json()) as {
+        glossaries: { id: string; title: string; mine?: boolean }[];
+      };
+      setMyGlossaries(
+        data.glossaries.filter((g) => g.mine).map((g) => ({ id: g.id, title: g.title })),
+      );
+    } catch {
+      setSaveMsg("Не удалось загрузить словари.");
+    }
+  }
+
+  async function saveToGlossary(glossaryId: string) {
+    if (!state?.text || !lookup) return;
+    setAdding(true);
+    setSaveMsg(null);
+    try {
+      const term = lookup.lemma ?? state.text;
+      const definition =
+        lookup.definitions[0] ??
+        lookup.translation ??
+        lookup.parses[0]?.summary ??
+        "—";
+      const res = await fetch(`/api/glossaries/${glossaryId}/entries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          term,
+          definition,
+          aliases: state.text !== term ? state.text : undefined,
+          notes: lookup.parses[0]?.summary ?? undefined,
+        }),
+      });
+      if (res.status === 401) {
+        setSaveMsg("Войдите, чтобы сохранять.");
+        return;
+      }
+      if (res.status === 403) {
+        setSaveMsg("Это чужой словарь — создайте свой на /glossaries.");
+        return;
+      }
+      if (!res.ok) {
+        setSaveMsg("Не удалось сохранить.");
+        return;
+      }
+      setSaveMsg("Сохранено в словарь.");
+      setPickOpen(false);
+    } finally {
+      setAdding(false);
+    }
+  }
+
   if (!state) return null;
 
-  const isCyrillic = /[\u0400-\u04FF]/.test(state.text);
-  const fallbackTarget = isCyrillic ? "en" : "ru";
-  const query = encodeURIComponent(state.text);
-  const wikiTitle = encodeURIComponent(lookup?.wiktionaryTitle ?? state.text);
-  const wikiHost = lookup?.wiktionaryHost ?? (isCyrillic ? "ru.wiktionary.org" : "en.wiktionary.org");
-  const translateTl = lookup?.translateTarget ?? fallbackTarget;
-  const reversoPair = lookup?.reversoPair ?? (isCyrillic ? "russian-english" : "english-russian");
-  const translateText = encodeURIComponent(state.text);
-  const parseLine = lookup?.parses[0]?.summary;
   const lemma = lookup?.lemma;
+  const parseLine = lookup?.parses[0]?.summary;
+  const hits = lookup?.glossaryHits ?? [];
 
   return (
     <div
-      className="absolute z-30 flex w-max max-w-[min(22rem,90vw)] -translate-x-1/2 -translate-y-full flex-col gap-1.5 rounded-2xl border border-ink/10 bg-paper px-2 py-2 shadow-lg"
-      style={{ top: Math.max(0, state.top - 8), left: state.left }}
+      className="absolute z-30 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-full rounded-2xl border border-ink/10 bg-paper p-3 shadow-lg"
+      style={{ top: Math.max(0, state.top - 10), left: state.left }}
       onMouseDown={(event) => event.preventDefault()}
     >
-      {(loading || lemma || parseLine) && (
-        <div className="px-1.5 pt-0.5 text-[11px] leading-snug text-muted">
-          {loading && !lemma ? (
-            <span>разбор…</span>
-          ) : (
-            <>
+      <p className="mb-1.5 truncate font-mono text-[10px] uppercase tracking-widest text-muted">
+        {state.text}
+      </p>
+
+      {loading && !lookup && <p className="mb-2 text-xs text-muted">разбор…</p>}
+
+      {lookup && (
+        <div className="mb-2 space-y-1.5 text-sm leading-snug">
+          {(lemma || parseLine) && (
+            <p>
               {lemma && lemma !== state.text.trim() && (
-                <span className="font-medium text-ink">
-                  → {lemma}
-                  {parseLine ? " · " : ""}
+                <span className="font-medium text-ink">→ {lemma}</span>
+              )}
+              {parseLine && (
+                <span className="text-muted">
+                  {lemma && lemma !== state.text.trim() ? " · " : ""}
+                  {parseLine}
                 </span>
               )}
-              {parseLine && <span>{parseLine}</span>}
-              {!lemma && !parseLine && lookup && <span>словарь: {lookup.wiktionaryTitle}</span>}
-            </>
+            </p>
+          )}
+          {lookup.translation && (
+            <p className="rounded-lg bg-ink/[0.04] px-2 py-1.5 text-[13px]">
+              <Languages size={12} className="mr-1 inline opacity-60" />
+              {lookup.translation}
+            </p>
+          )}
+          {lookup.definitions.slice(0, 2).map((d, i) => (
+            <p key={i} className="text-[13px] text-ink/90">
+              {d}
+            </p>
+          ))}
+          {hits.length > 0 && (
+            <div className="space-y-1 border-t border-ink/10 pt-1.5">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
+                Наши словари
+              </p>
+              {hits.map((h) => (
+                <div key={h.entryId} className="rounded-lg bg-rust/[0.06] px-2 py-1.5 text-[13px]">
+                  <Link
+                    href={`/glossaries/${h.glossaryId}`}
+                    className="font-medium text-rust hover:underline"
+                  >
+                    {h.term}
+                  </Link>
+                  <span className="text-muted"> · {h.glossaryTitle}</span>
+                  <p className="mt-0.5 text-ink/90">{h.definition}</p>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
-      <div className="flex items-center gap-1">
-        <a
-          href={`https://${wikiHost}/wiki/${wikiTitle}`}
-          target="_blank"
-          rel="noopener noreferrer"
+
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          onClick={openAddPicker}
           className="icon-button size-8"
-          title={
-            lemma
-              ? `Словарь: открыть лемму «${lemma}» (Wiktionary)`
-              : "Открыть в словаре (Wiktionary)"
-          }
-          aria-label="Словарь"
+          title="Сохранить в свой словарь"
+          aria-label="В словарь"
         >
-          <BookOpenText size={13} />
-        </a>
-        <a
-          href={`https://translate.google.com/?sl=auto&tl=${translateTl}&text=${translateText}&op=translate`}
-          target="_blank"
-          rel="noopener noreferrer"
+          <Plus size={13} />
+        </button>
+        <Link
+          href="/glossaries"
           className="icon-button size-8"
-          title="Перевести (Google Translate)"
-          aria-label="Перевести"
+          title="Все словари"
+          aria-label="Словари"
         >
-          <Languages size={13} />
-        </a>
-        <a
-          href={`https://context.reverso.net/translation/${reversoPair}/${query}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="icon-button size-8"
-          title="Примеры перевода в контексте (Reverso)"
-          aria-label="Контекст"
-        >
-          <MessagesSquare size={13} />
-        </a>
+          <BookMarked size={13} />
+        </Link>
+        {lookup && (
+          <a
+            href={`https://${lookup.wiktionaryHost}/wiki/${encodeURIComponent(lookup.wiktionaryTitle)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="icon-button size-8"
+            title="Wiktionary (лемма)"
+          >
+            <BookOpenText size={13} />
+          </a>
+        )}
         {lookup?.logeionUrl && (
           <a
             href={lookup.logeionUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="icon-button size-8"
-            title="Logeion — словари греческого и латыни"
-            aria-label="Logeion"
+            title="Logeion"
           >
-            <ScrollText size={13} />
+            <ExternalLink size={13} />
           </a>
         )}
       </div>
+
+      {pickOpen && (
+        <div className="mt-2 space-y-1 border-t border-ink/10 pt-2">
+          <p className="text-[11px] text-muted">Куда сохранить?</p>
+          {myGlossaries.length === 0 ? (
+            <Link href="/glossaries" className="block text-xs text-rust underline">
+              Создать словарь
+            </Link>
+          ) : (
+            myGlossaries.slice(0, 6).map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                disabled={adding}
+                onClick={() => saveToGlossary(g.id)}
+                className="block w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-ink/[0.04]"
+              >
+                {g.title}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      {saveMsg && <p className="mt-1.5 text-[11px] text-muted">{saveMsg}</p>}
     </div>
   );
 }
