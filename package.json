@@ -13,6 +13,7 @@
     "bulk-import": "tsx scripts/bulk-import.ts",
     "consolidate-categories": "tsx scripts/consolidate-small-categories.ts",
     "create-admin": "tsx scripts/create-admin.ts",
+    "set-admin": "tsx scripts/set-admin.ts",
     "list-users": "tsx scripts/list-users.ts",
     "delete-user": "tsx scripts/delete-user.ts",
     "import:priority": "tsx scripts/import-priority-corpus.ts",
