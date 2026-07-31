@@ -32,7 +32,7 @@ import type {
   ReportRow,
 } from "@/lib/db/queries";
 import { countLabel } from "@/lib/pluralize";
-import { ROLE_LABELS, SUPER_ADMIN_NAME, canManageAdmins } from "@/lib/roles";
+import { ROLE_LABELS, canManageAdmins, isSuperAdminUser } from "@/lib/roles";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { BulkImportTab } from "@/components/admin-bulk-import-tab";
 
@@ -84,6 +84,7 @@ type Props = {
   feedbackList: AdminFeedbackItem[];
   currentUserId: string;
   currentUserName: string;
+  currentUserEmail: string;
 };
 
 const TABS = [
@@ -108,6 +109,7 @@ export function AdminDashboard({
   feedbackList,
   currentUserId,
   currentUserName,
+  currentUserEmail,
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Материалы");
@@ -179,6 +181,7 @@ export function AdminDashboard({
             growth={growthSummary}
             currentUserId={currentUserId}
             currentUserName={currentUserName}
+            currentUserEmail={currentUserEmail}
           />
         )}
         {tab === "Обратная связь" && <FeedbackTab items={feedbackList} />}
@@ -1020,13 +1023,15 @@ function ReferralsTab({
   growth,
   currentUserId,
   currentUserName,
+  currentUserEmail,
 }: {
   stats: ReferralRow[];
   growth: GrowthSummary;
   currentUserId: string;
   currentUserName: string;
+  currentUserEmail: string;
 }) {
-  const mayManageAdmins = canManageAdmins(currentUserName);
+  const mayManageAdmins = canManageAdmins({ name: currentUserName, email: currentUserEmail });
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -1096,6 +1101,15 @@ function ReferralsTab({
           <h2 className="font-serif text-3xl">
             {countLabel(totalReferred, ["человек пришёл", "человека пришло", "человек пришло"])} по приглашениям
           </h2>
+          {mayManageAdmins ? (
+            <p className="mt-1 text-xs text-muted">
+              Корона / кнопка «Админ» — выдать или снять статус администратора.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted">
+              Выдавать админов может только Georg — согласуйте с ним.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1189,12 +1203,16 @@ function ReferralsTab({
                 <td className="py-2.5 text-right">
                   {!isSelf && (
                     <div className="flex items-center justify-end gap-1.5">
-                      {mayManageAdmins && row.name.trim() !== SUPER_ADMIN_NAME && (
+                      {mayManageAdmins && !isSuperAdminUser(row) && (
                         <button
                           type="button"
                           onClick={() => toggleAdmin(row.id, row.role)}
                           disabled={busyId === row.id}
-                          className={`icon-button ${row.role === "admin" ? "border-ink bg-ink text-paper" : ""}`}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                            row.role === "admin"
+                              ? "border-ink bg-ink text-paper"
+                              : "border-ink/20 text-ink hover:border-ink hover:bg-ink hover:text-paper"
+                          }`}
                           aria-label={row.role === "admin" ? "Снять админа" : "Сделать админом"}
                           title={
                             row.role === "admin"
@@ -1202,7 +1220,8 @@ function ReferralsTab({
                               : "Сделать администратором"
                           }
                         >
-                          <Crown size={13} />
+                          <Crown size={12} />
+                          {row.role === "admin" ? "Снять" : "Админ"}
                         </button>
                       )}
                       {row.role !== "admin" && (

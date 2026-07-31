@@ -4,7 +4,7 @@ import { and, count, eq, sql } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
 import { sessions, users } from "@/lib/db/schema";
-import { canManageAdmins, isSuperAdminName } from "@/lib/roles";
+import { canManageAdmins, isSuperAdminUser } from "@/lib/roles";
 
 const ACTIONS = new Set([
   "strike",
@@ -64,7 +64,7 @@ export async function PATCH(
       await db.update(users).set({ role: "member" }).where(eq(users.id, id));
     }
   } else if (action === "make_admin") {
-    if (!canManageAdmins(admin.name)) {
+    if (!canManageAdmins(admin)) {
       return NextResponse.json(
         { error: "Выдавать статус админа может только Georg. Согласуйте с ним." },
         { status: 403 },
@@ -72,7 +72,7 @@ export async function PATCH(
     }
     await db.update(users).set({ role: "admin" }).where(eq(users.id, id));
   } else if (action === "revoke_admin") {
-    if (!canManageAdmins(admin.name)) {
+    if (!canManageAdmins(admin)) {
       return NextResponse.json(
         { error: "Снимать статус админа может только Georg. Согласуйте с ним." },
         { status: 403 },
@@ -81,7 +81,7 @@ export async function PATCH(
     if (target.role !== "admin") {
       return NextResponse.json({ error: "Пользователь не администратор." }, { status: 400 });
     }
-    if (isSuperAdminName(target.name)) {
+    if (isSuperAdminUser(target)) {
       return NextResponse.json(
         { error: "Нельзя снять статус у Georg." },
         { status: 403 },

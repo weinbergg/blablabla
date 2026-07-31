@@ -95,6 +95,7 @@ export default async function AdminPage() {
       }))}
       currentUserId={user.id}
       currentUserName={user.name}
+      currentUserEmail={user.email}
     />
   );
 }
