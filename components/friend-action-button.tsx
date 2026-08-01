@@ -37,12 +37,19 @@ export function FriendActionButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "accept" }),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        status?: string;
+      };
       if (!response.ok) {
         window.alert(result.error || "Не получилось принять заявку. Обновите страницу (Ctrl+Shift+R).");
         return;
       }
-      setState((prev) => ({ ...prev, status: "accepted" }));
+      setState((prev) => ({
+        ...prev,
+        status: "accepted",
+        friendshipId: prev.friendshipId,
+      }));
       router.refresh();
     } finally {
       setBusy(false);

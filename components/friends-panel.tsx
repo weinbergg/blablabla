@@ -14,39 +14,61 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
   const [incoming, setIncoming] = useState(data.incoming);
   const [outgoing, setOutgoing] = useState(data.outgoing);
   const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Server data is source of truth after refresh / navigation. Without this,
+  // accept could succeed in DB while the list stayed stuck on stale client state.
+  useEffect(() => {
+    setFriends(data.friends);
+    setIncoming(data.incoming);
+    setOutgoing(data.outgoing);
+  }, [data.friends, data.incoming, data.outgoing]);
 
   async function respond(friendshipId: string, action: "accept" | "decline") {
     setError("");
-    const response = await fetch(`/api/friends/${friendshipId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      setError(
-        result.error ||
-          "Не получилось принять заявку. Если сайт без стилей — обновите страницу (Ctrl+Shift+R) после починки статики.",
-      );
-      return;
+    setBusyId(friendshipId);
+    try {
+      const response = await fetch(`/api/friends/${friendshipId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const result = (await response.json().catch(() => ({}))) as FriendsData & {
+        error?: string;
+        status?: string;
+      };
+      if (!response.ok) {
+        setError(result.error || "Не получилось обработать заявку.");
+        return;
+      }
+      if (Array.isArray(result.friends)) setFriends(result.friends);
+      if (Array.isArray(result.incoming)) setIncoming(result.incoming);
+      if (Array.isArray(result.outgoing)) setOutgoing(result.outgoing);
+      router.refresh();
+    } finally {
+      setBusyId(null);
     }
-    const request = incoming.find((r) => r.friendshipId === friendshipId);
-    setIncoming((prev) => prev.filter((r) => r.friendshipId !== friendshipId));
-    if (action === "accept" && request) {
-      setFriends((prev) => [...prev, { ...request, friendshipId }]);
-    }
-    router.refresh();
   }
 
   async function cancelOutgoing(friendshipId: string) {
-    await fetch(`/api/friends/${friendshipId}`, { method: "DELETE" });
     setOutgoing((prev) => prev.filter((r) => r.friendshipId !== friendshipId));
+    const response = await fetch(`/api/friends/${friendshipId}`, { method: "DELETE" });
+    if (!response.ok) {
+      setError("Не получилось отменить заявку.");
+      router.refresh();
+      return;
+    }
     router.refresh();
   }
 
   async function removeFriend(friendshipId: string, userId: string) {
     setFriends((prev) => prev.filter((f) => f.id !== userId));
-    await fetch(`/api/friends/${friendshipId}`, { method: "DELETE" });
+    const response = await fetch(`/api/friends/${friendshipId}`, { method: "DELETE" });
+    if (!response.ok) {
+      setError("Не получилось удалить из друзей.");
+      router.refresh();
+      return;
+    }
     router.refresh();
   }
 
@@ -55,10 +77,10 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
       <AddFriendBox
         currentUserId={currentUserId}
         existingIds={[...friends.map((f) => f.id), ...outgoing.map((o) => o.id), ...incoming.map((i) => i.id)]}
-        onSent={(user, friendshipId) => {
-          // Role isn't in the search-result payload and isn't shown for a
-          // pending outgoing request anyway — a placeholder is fine here.
-          setOutgoing((prev) => [...prev, { ...user, role: "member", friendshipId }]);
+        onResult={(next) => {
+          if (next.friends) setFriends(next.friends);
+          if (next.incoming) setIncoming(next.incoming);
+          if (next.outgoing) setOutgoing(next.outgoing);
           router.refresh();
         }}
       />
@@ -77,14 +99,20 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    disabled={busyId === request.friendshipId}
                     onClick={() => respond(request.friendshipId, "accept")}
                     className="button-primary !px-3 !py-1.5 text-xs"
                   >
-                    <Check size={13} />
+                    {busyId === request.friendshipId ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Check size={13} />
+                    )}
                     Принять
                   </button>
                   <button
                     type="button"
+                    disabled={busyId === request.friendshipId}
                     onClick={() => respond(request.friendshipId, "decline")}
                     className="button-secondary !px-3 !py-1.5 text-xs"
                   >
@@ -162,16 +190,15 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
 function AddFriendBox({
   currentUserId,
   existingIds,
-  onSent,
+  onResult,
 }: {
   currentUserId: string;
   existingIds: string[];
-  onSent: (user: UserOption, friendshipId: string) => void;
+  onResult: (data: Partial<FriendsData> & { friendshipId?: string }) => void;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserOption[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [sentIds, setSentIds] = useState<string[]>([]);
   const [error, setError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -200,14 +227,19 @@ function AddFriendBox({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: user.id }),
     });
-    const result = await response.json().catch(() => ({}));
+    const result = (await response.json().catch(() => ({}))) as FriendsData & {
+      error?: string;
+      friendshipId?: string;
+      accepted?: boolean;
+    };
     setBusyId(null);
     if (!response.ok) {
       setError(result.error || "Не получилось отправить заявку.");
       return;
     }
-    setSentIds((prev) => [...prev, user.id]);
-    onSent(user, result.friendshipId as string);
+    setQuery("");
+    setResults([]);
+    onResult(result);
   }
 
   return (
@@ -222,12 +254,12 @@ function AddFriendBox({
         {results.length > 0 && (
           <div className="absolute inset-x-0 top-full z-10 mt-1.5 max-h-56 overflow-y-auto rounded-lg border border-ink/10 bg-paper shadow-lg">
             {results.map((user) => {
-              const alreadyLinked = existingIds.includes(user.id) || sentIds.includes(user.id);
+              const alreadyLinked = existingIds.includes(user.id);
               return (
                 <div key={user.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                   <span>{user.name}</span>
                   {alreadyLinked ? (
-                    <span className="text-xs text-muted">уже отправлено</span>
+                    <span className="text-xs text-muted">уже в списке</span>
                   ) : (
                     <button
                       type="button"

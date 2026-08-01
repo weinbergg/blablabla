@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getFriendsData, sendFriendRequest } from "@/lib/db/friends";
+import { getFriendsData, getFriendshipStatus, sendFriendRequest } from "@/lib/db/friends";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -23,5 +23,12 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, friendshipId });
+  const status = await getFriendshipStatus(user.id, addresseeId);
+  const data = await getFriendsData(user.id);
+  return NextResponse.json({
+    ok: true,
+    friendshipId,
+    accepted: status.status === "accepted",
+    ...data,
+  });
 }

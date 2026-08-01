@@ -141,7 +141,15 @@ export async function sendFriendRequest(requesterId: string, addresseeId: string
     .limit(1);
   if (existing) {
     if (existing.status === "accepted") throw new Error("Вы уже друзья.");
-    throw new Error("Заявка уже отправлена.");
+    // They already asked us — treat "add" as accept (common UX expectation).
+    if (existing.addresseeId === requesterId && existing.status === "pending") {
+      await db
+        .update(friendships)
+        .set({ status: "accepted" })
+        .where(eq(friendships.id, existing.id));
+      return existing.id;
+    }
+    throw new Error("Заявка уже отправлена — дождитесь ответа.");
   }
   const id = randomUUID();
   await db.insert(friendships).values({ id, requesterId, addresseeId, status: "pending" });
@@ -152,14 +160,32 @@ export async function sendFriendRequest(requesterId: string, addresseeId: string
  * either side may remove an accepted friendship or cancel a pending one. */
 export async function respondToFriendRequest(friendshipId: string, userId: string, action: "accept" | "decline") {
   const [row] = await db.select().from(friendships).where(eq(friendships.id, friendshipId)).limit(1);
-  if (!row || row.addresseeId !== userId || row.status !== "pending") {
+  if (!row) {
     throw new Error("Заявка не найдена.");
+  }
+  if (row.addresseeId !== userId) {
+    throw new Error("Принять может только тот, кому отправили заявку.");
+  }
+  if (row.status === "accepted") {
+    return { friendshipId: row.id, status: "accepted" as const };
+  }
+  if (row.status !== "pending") {
+    throw new Error("Заявка уже обработана.");
   }
   if (action === "accept") {
     await db.update(friendships).set({ status: "accepted" }).where(eq(friendships.id, friendshipId));
-  } else {
-    await db.delete(friendships).where(eq(friendships.id, friendshipId));
+    const [check] = await db
+      .select({ status: friendships.status })
+      .from(friendships)
+      .where(eq(friendships.id, friendshipId))
+      .limit(1);
+    if (check?.status !== "accepted") {
+      throw new Error("Не удалось сохранить принятие заявки.");
+    }
+    return { friendshipId, status: "accepted" as const };
   }
+  await db.delete(friendships).where(eq(friendships.id, friendshipId));
+  return { friendshipId, status: "declined" as const };
 }
 
 export async function removeFriendship(friendshipId: string, userId: string) {
