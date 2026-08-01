@@ -84,6 +84,12 @@ export function DocumentWorkspace({
   const canAnnotate = canAnnotateFiles(currentUser?.role);
 
   useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("page");
+    const n = raw ? Number.parseInt(raw, 10) : NaN;
+    if (Number.isFinite(n) && n >= 1) setPage(n);
+  }, []);
+
+  useEffect(() => {
     if (!fullscreen) return;
     document.body.style.overflow = "hidden";
     function handleKey(event: KeyboardEvent) {

@@ -9,6 +9,7 @@ import {
   MessageCircleQuestion,
   Network,
   Settings,
+  StickyNote,
   Tag,
   UserPlus,
   Users,
@@ -52,6 +53,16 @@ export function MobileMenu({
               <Network size={14} />
               Связи
             </Link>
+            {isLoggedIn && (
+              <Link
+                href="/notes"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-1.5 text-ink"
+              >
+                <StickyNote size={14} />
+                Мои пометки
+              </Link>
+            )}
             <Link
               href="/glossaries"
               onClick={() => setOpen(false)}

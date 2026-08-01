@@ -413,6 +413,42 @@ export async function getDocumentComments(documentId: string) {
 
 export type AnchorRect = { x: number; y: number; w: number; h: number };
 
+export type MyAnnotationRow = {
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  page: number;
+  shape: string;
+  color: string;
+  body: string;
+  visibility: "public" | "private";
+  anchorText: string | null;
+  createdAt: string;
+};
+
+/** All stickers the user left across the library, newest first. */
+export async function getMyAnnotations(userId: string): Promise<MyAnnotationRow[]> {
+  const rows = await db
+    .select({
+      id: annotations.id,
+      documentId: annotations.documentId,
+      documentTitle: documents.title,
+      page: annotations.page,
+      shape: annotations.shape,
+      color: annotations.color,
+      body: annotations.body,
+      visibility: annotations.visibility,
+      anchorText: annotations.anchorText,
+      createdAt: annotations.createdAt,
+    })
+    .from(annotations)
+    .innerJoin(documents, eq(annotations.documentId, documents.id))
+    .where(eq(annotations.authorId, userId))
+    .orderBy(desc(annotations.createdAt));
+
+  return rows;
+}
+
 /** Public annotations plus the current viewer's own private ones. */
 export async function getDocumentAnnotations(documentId: string, viewerId: string | null) {
   const visibility = viewerId

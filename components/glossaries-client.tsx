@@ -36,6 +36,20 @@ export function GlossariesClient({
   const mine = initial.filter((g) => g.ownerId === currentUserId);
   const others = initial.filter((g) => g.ownerId !== currentUserId);
 
+  function groupByLanguage(rows: GlossaryRow[]) {
+    const map = new Map<string, GlossaryRow[]>();
+    for (const g of rows) {
+      const key = (g.language || "").trim() || "без языка";
+      const list = map.get(key) ?? [];
+      list.push(g);
+      map.set(key, list);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "ru"));
+  }
+
+  const mineGrouped = groupByLanguage(mine);
+  const othersGrouped = groupByLanguage(others);
+
   async function create(e: React.FormEvent) {
     e.preventDefault();
     if (!currentUserId) {
@@ -164,26 +178,40 @@ export function GlossariesClient({
       )}
 
       {mine.length > 0 && (
-        <section>
-          <h2 className="mb-3 font-serif text-2xl">Мои</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {mine.map((g) => (
-              <Card key={g.id} g={g} />
-            ))}
-          </div>
+        <section className="space-y-6">
+          <h2 className="font-serif text-2xl">Мои словари</h2>
+          {mineGrouped.map(([lang, rows]) => (
+            <div key={`mine-${lang}`}>
+              <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted">
+                {lang} · {rows.length}
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {rows.map((g) => (
+                  <Card key={g.id} g={g} />
+                ))}
+              </div>
+            </div>
+          ))}
         </section>
       )}
 
-      <section>
-        <h2 className="mb-3 font-serif text-2xl">Общие</h2>
+      <section className="space-y-6">
+        <h2 className="font-serif text-2xl">Общие словари</h2>
         {others.length === 0 ? (
           <p className="text-sm text-muted">Пока нет публичных словарей — станьте первым.</p>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {others.map((g) => (
-              <Card key={g.id} g={g} />
-            ))}
-          </div>
+          othersGrouped.map(([lang, rows]) => (
+            <div key={`pub-${lang}`}>
+              <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted">
+                {lang} · {rows.length}
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {rows.map((g) => (
+                  <Card key={g.id} g={g} />
+                ))}
+              </div>
+            </div>
+          ))
         )}
       </section>
     </div>

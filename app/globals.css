@@ -337,6 +337,27 @@ button:disabled {
   animation: sticker-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* Sticker / formula popovers stay on a white panel even in dark mode —
+   force readable ink/muted so text-muted never becomes light-on-white. */
+.sticker-panel {
+  --ink: #17202c;
+  --ink-rgb: 23, 32, 44;
+  --muted: #5c5f5d;
+  --paper: #ffffff;
+  --rust: #c85c35;
+  color: #17202c;
+  background: #ffffff;
+  color-scheme: light;
+}
+
+.sticker-panel .text-muted {
+  color: #5c5f5d !important;
+}
+
+.sticker-panel .text-ink {
+  color: #17202c !important;
+}
+
 /* Minimal pdf.js text layer, trimmed from pdfjs-dist/web/pdf_viewer.css — just
    enough to make page text invisibly selectable so stickers can anchor to a
    passage, without pulling in the full viewer stylesheet. */

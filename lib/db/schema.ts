@@ -301,6 +301,7 @@ export const annotations = sqliteTable("annotations", {
   ...timestamps,
 }, (table) => ({
   documentIdx: index("annotations_document_idx").on(table.documentId),
+  authorIdx: index("annotations_author_idx").on(table.authorId),
 }));
 
 export const reports = sqliteTable("reports", {

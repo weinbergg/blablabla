@@ -30,6 +30,9 @@ export function SelectionLookup({
   const [myGlossaries, setMyGlossaries] = useState<{ id: string; title: string }[]>([]);
   const [pickOpen, setPickOpen] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [editTerm, setEditTerm] = useState("");
+  const [editDefinition, setEditDefinition] = useState("");
+  const [newTitle, setNewTitle] = useState("");
 
   useEffect(() => {
     const targetDoc = doc ?? document;
@@ -83,11 +86,15 @@ export function SelectionLookup({
       setLookup(null);
       setPickOpen(false);
       setSaveMsg(null);
+      setEditTerm("");
+      setEditDefinition("");
       return;
     }
+    setEditTerm(state.text);
     const wordish = state.text.trim().split(/\s+/).length <= 8;
     if (!wordish) {
       setLookup(null);
+      setEditDefinition("");
       return;
     }
 
@@ -100,7 +107,13 @@ export function SelectionLookup({
         const res = await fetch(`/api/lookup?${params}`);
         if (!res.ok) throw new Error("lookup failed");
         const data = (await res.json()) as LookupPayload;
-        if (!cancelled) setLookup(data);
+        if (!cancelled) {
+          setLookup(data);
+          setEditTerm(data.lemma ?? state.text);
+          setEditDefinition(
+            data.definitions[0] ?? data.translation ?? data.parses[0]?.summary ?? "",
+          );
+        }
       } catch {
         if (!cancelled) setLookup(null);
       } finally {
@@ -134,16 +147,52 @@ export function SelectionLookup({
     }
   }
 
-  async function saveToGlossary(glossaryId: string) {
-    if (!state?.text || !lookup) return;
+  async function createGlossaryAndSave() {
+    const title = newTitle.trim();
+    if (!title) {
+      setSaveMsg("Введите название словаря.");
+      return;
+    }
     setAdding(true);
     setSaveMsg(null);
     try {
-      const term = lookup.lemma ?? state.text;
+      const res = await fetch("/api/glossaries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          visibility: "private",
+          language: language || null,
+        }),
+      });
+      if (res.status === 401) {
+        setSaveMsg("Войдите, чтобы создавать словари.");
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok || !data.id) {
+        setSaveMsg(data.error || "Не удалось создать словарь.");
+        return;
+      }
+      setMyGlossaries((prev) => [{ id: data.id!, title }, ...prev]);
+      setNewTitle("");
+      await saveToGlossary(data.id);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function saveToGlossary(glossaryId: string) {
+    if (!state?.text) return;
+    setAdding(true);
+    setSaveMsg(null);
+    try {
+      const term = editTerm.trim() || state.text;
       const definition =
-        lookup.definitions[0] ??
-        lookup.translation ??
-        lookup.parses[0]?.summary ??
+        editDefinition.trim() ||
+        lookup?.definitions[0] ||
+        lookup?.translation ||
+        lookup?.parses[0]?.summary ||
         "—";
       const res = await fetch(`/api/glossaries/${glossaryId}/entries`, {
         method: "POST",
@@ -152,7 +201,7 @@ export function SelectionLookup({
           term,
           definition,
           aliases: state.text !== term ? state.text : undefined,
-          notes: lookup.parses[0]?.summary ?? undefined,
+          notes: lookup?.parses[0]?.summary ?? undefined,
         }),
       });
       if (res.status === 401) {
@@ -160,7 +209,7 @@ export function SelectionLookup({
         return;
       }
       if (res.status === 403) {
-        setSaveMsg("Это чужой словарь — создайте свой на /glossaries.");
+        setSaveMsg("Это чужой словарь — создайте свой ниже.");
         return;
       }
       if (!res.ok) {
@@ -182,7 +231,7 @@ export function SelectionLookup({
 
   return (
     <div
-      className="absolute z-30 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-full rounded-2xl border border-ink/10 bg-paper p-3 shadow-lg"
+      className="sticker-panel absolute z-30 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-full rounded-2xl border border-ink/10 bg-white p-3 shadow-lg"
       style={{ top: Math.max(0, state.top - 10), left: state.left }}
       onMouseDown={(event) => event.preventDefault()}
     >
@@ -244,11 +293,11 @@ export function SelectionLookup({
         <button
           type="button"
           onClick={openAddPicker}
-          className="icon-button size-8"
+          className="inline-flex items-center gap-1 rounded-full border border-ink/15 px-2.5 py-1 text-[11px] font-medium text-ink hover:border-rust hover:text-rust"
           title="Сохранить в свой словарь"
-          aria-label="В словарь"
         >
-          <Plus size={13} />
+          <Plus size={12} />
+          В словарь
         </button>
         <Link
           href="/glossaries"
@@ -283,25 +332,60 @@ export function SelectionLookup({
       </div>
 
       {pickOpen && (
-        <div className="mt-2 space-y-1 border-t border-ink/10 pt-2">
-          <p className="text-[11px] text-muted">Куда сохранить?</p>
+        <div className="mt-2 space-y-2 border-t border-ink/10 pt-2">
+          <p className="text-[11px] font-medium text-ink">Сохранить в словарь</p>
+          <label className="block text-[11px] text-muted">
+            Слово / термин
+            <input
+              value={editTerm}
+              onChange={(e) => setEditTerm(e.target.value)}
+              className="mt-0.5 w-full rounded-lg border border-ink/15 px-2 py-1.5 text-xs text-ink outline-none focus:border-ink/40"
+            />
+          </label>
+          <label className="block text-[11px] text-muted">
+            Определение
+            <textarea
+              value={editDefinition}
+              onChange={(e) => setEditDefinition(e.target.value)}
+              rows={2}
+              placeholder="Краткое значение…"
+              className="mt-0.5 w-full rounded-lg border border-ink/15 px-2 py-1.5 text-xs text-ink outline-none focus:border-ink/40"
+            />
+          </label>
+          <p className="text-[11px] text-muted">Куда:</p>
           {myGlossaries.length === 0 ? (
-            <Link href="/glossaries" className="block text-xs text-rust underline">
-              Создать словарь
-            </Link>
+            <p className="text-[11px] text-muted">Своих словарей пока нет — создайте ниже.</p>
           ) : (
-            myGlossaries.slice(0, 6).map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                disabled={adding}
-                onClick={() => saveToGlossary(g.id)}
-                className="block w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-ink/[0.04]"
-              >
-                {g.title}
-              </button>
-            ))
+            <div className="max-h-36 space-y-0.5 overflow-y-auto">
+              {myGlossaries.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  disabled={adding}
+                  onClick={() => saveToGlossary(g.id)}
+                  className="block w-full rounded-lg px-2 py-1.5 text-left text-xs text-ink hover:bg-ink/[0.05]"
+                >
+                  {g.title}
+                </button>
+              ))}
+            </div>
           )}
+          <div className="flex gap-1.5 border-t border-ink/8 pt-2">
+            <input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="Новый словарь…"
+              className="min-w-0 flex-1 rounded-lg border border-ink/15 px-2 py-1.5 text-xs outline-none focus:border-ink/40"
+            />
+            <button
+              type="button"
+              disabled={adding}
+              onClick={createGlossaryAndSave}
+              className="shrink-0 rounded-lg bg-ink px-2.5 py-1.5 text-[11px] font-medium text-paper"
+            >
+              Создать
+            </button>
+          </div>
         </div>
       )}
       {saveMsg && <p className="mt-1.5 text-[11px] text-muted">{saveMsg}</p>}

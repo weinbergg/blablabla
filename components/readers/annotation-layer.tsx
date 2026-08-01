@@ -383,7 +383,7 @@ function PageDrawingLayer({ containerRef, session }: { containerRef: React.RefOb
         <div
           data-annotation-ui
           onClick={(event) => event.stopPropagation()}
-          className="pointer-events-auto absolute inset-x-2 bottom-2 z-40 flex flex-wrap items-center gap-2 rounded-xl border border-ink/10 bg-white/95 p-2.5 shadow-lg backdrop-blur"
+          className="sticker-panel pointer-events-auto absolute inset-x-2 bottom-2 z-40 flex flex-wrap items-center gap-2 rounded-xl border border-ink/10 bg-white/95 p-2.5 shadow-lg backdrop-blur"
         >
           <div className="flex items-center gap-1.5">
             {COLOR_PRESETS.map((preset) => (
@@ -854,7 +854,7 @@ export function AnnotationLayer({
                 <div
                   data-annotation-ui
                   onClick={(event) => event.stopPropagation()}
-                  className={`absolute top-full z-20 mt-2 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl border border-ink/10 bg-white p-3.5 text-left shadow-xl ${
+                  className={`sticker-panel absolute top-full z-20 mt-2 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl border border-ink/10 bg-white p-3.5 text-left shadow-xl ${
                     flip ? "right-0" : "left-0"
                   }`}
                 >
@@ -928,7 +928,7 @@ export function AnnotationLayer({
         <div
           data-annotation-ui
           onClick={(event) => event.stopPropagation()}
-          className="sticker-pop pointer-events-auto absolute z-30 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-ink/10 bg-white p-4 text-left shadow-xl"
+          className="sticker-panel sticker-pop pointer-events-auto absolute z-30 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-ink/10 bg-white p-4 text-left shadow-xl"
           style={{
             left: `${Math.min(draft.x / 10, 72)}%`,
             top: `${Math.min(draft.y / 10, 65)}%`,
