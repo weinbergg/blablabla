@@ -64,15 +64,15 @@ export function LibrarySearch({
       </div>
 
       {normalizedQuery && (
-        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 shadow-2xl dark:bg-[#1b1e25]">
+        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 text-left shadow-2xl dark:bg-[#1b1e25]">
           {results.length ? (
             results.map((doc) => (
               <Link
                 key={doc.id}
                 href={`/documents/${doc.id}`}
-                className="group flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-colors hover:bg-ink/[0.045]"
+                className="group flex items-center justify-between gap-4 rounded-xl px-4 py-3 text-left transition-colors hover:bg-ink/[0.045]"
               >
-                <span className="min-w-0">
+                <span className="min-w-0 flex-1 text-left">
                   <span className="block truncate font-medium">{doc.title}</span>
                   <span className="mt-0.5 block truncate text-xs text-muted">
                     {doc.authorNames || "Автор не указан"} · {doc.categoryName}
