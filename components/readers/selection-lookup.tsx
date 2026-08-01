@@ -110,8 +110,10 @@ export function SelectionLookup({
         if (!cancelled) {
           setLookup(data);
           setEditTerm(data.lemma ?? state.text);
+          // Prefer a real definition / morph summary — never auto-fill with
+          // machine translation (especially RU→EN), which was polluting glossaries.
           setEditDefinition(
-            data.definitions[0] ?? data.translation ?? data.parses[0]?.summary ?? "",
+            data.definitions[0] ?? data.parses[0]?.summary ?? "",
           );
         }
       } catch {
@@ -191,7 +193,6 @@ export function SelectionLookup({
       const definition =
         editDefinition.trim() ||
         lookup?.definitions[0] ||
-        lookup?.translation ||
         lookup?.parses[0]?.summary ||
         "—";
       const res = await fetch(`/api/glossaries/${glossaryId}/entries`, {

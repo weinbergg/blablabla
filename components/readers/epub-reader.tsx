@@ -11,6 +11,7 @@ import {
   type AnnotationCommentItem,
   type AnnotationDraft,
   type AnnotationItem,
+  type AnnotationUpdate,
   type AnnotationVisibility,
   type PageDrawSession,
   type StrokeWidthPreset,
@@ -243,6 +244,29 @@ export function EpubReader({
     await fetch(`/api/annotations/${id}`, { method: "DELETE" });
   }
 
+  async function updateAnnotation(id: string, patch: AnnotationUpdate) {
+    setAnnotations((current) =>
+      current.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              ...patch,
+              allowDiscussion:
+                patch.allowDiscussion !== undefined
+                  ? patch.allowDiscussion &&
+                    (patch.visibility ?? item.visibility) === "public"
+                  : item.allowDiscussion,
+            }
+          : item,
+      ),
+    );
+    await fetch(`/api/annotations/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+  }
+
   function toggleDrawMode() {
     setDrawMode((current) => !current);
     setDrawPaths([]);
@@ -410,6 +434,30 @@ export function EpubReader({
           </div>
         )}
         <div ref={containerRef} className="h-full" />
+        {!placing && !drawMode && (
+          <>
+            <button
+              type="button"
+              onClick={() => renditionRef.current?.prev()}
+              aria-label="Предыдущая страница"
+              className="group absolute inset-y-0 left-0 z-30 hidden w-14 items-center justify-start md:flex"
+            >
+              <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-hover:border-ink/20 group-hover:text-ink">
+                <ChevronLeft size={20} />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => renditionRef.current?.next()}
+              aria-label="Следующая страница"
+              className="group absolute inset-y-0 right-0 z-30 hidden w-14 items-center justify-end md:flex"
+            >
+              <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-hover:border-ink/20 group-hover:text-ink">
+                <ChevronRight size={20} />
+              </span>
+            </button>
+          </>
+        )}
         {placing && !drawMode && <div className="absolute inset-0 z-20 cursor-crosshair" />}
         {documentId && (
           <AnnotationLayer
@@ -421,6 +469,7 @@ export function EpubReader({
             comments={comments}
             onCreate={createAnnotation}
             onDelete={deleteAnnotation}
+            onUpdate={updateAnnotation}
             onReply={onReplyToAnnotation ?? (() => {})}
             onReport={onReport ?? (() => {})}
             onPlaced={() => setPlacing(false)}

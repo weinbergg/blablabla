@@ -21,6 +21,7 @@ import {
   type AnnotationCommentItem,
   type AnnotationDraft,
   type AnnotationItem,
+  type AnnotationUpdate,
   type AnnotationVisibility,
   type PageDrawSession,
   type StrokeWidthPreset,
@@ -359,6 +360,29 @@ export function PdfReader({
     await fetch(`/api/annotations/${id}`, { method: "DELETE" });
   }
 
+  async function updateAnnotation(id: string, patch: AnnotationUpdate) {
+    setAnnotations((current) =>
+      current.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              ...patch,
+              allowDiscussion:
+                patch.allowDiscussion !== undefined
+                  ? patch.allowDiscussion &&
+                    (patch.visibility ?? item.visibility) === "public"
+                  : item.allowDiscussion,
+            }
+          : item,
+      ),
+    );
+    await fetch(`/api/annotations/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+  }
+
   function toggleDrawMode() {
     setDrawMode((current) => !current);
     setDrawTargetPage(null);
@@ -441,6 +465,7 @@ export function PdfReader({
     comments,
     onCreate: createAnnotation,
     onDelete: deleteAnnotation,
+    onUpdate: updateAnnotation,
     onReply: onReplyToAnnotation ?? (() => {}),
     onReport: onReport ?? (() => {}),
     onPlaced: () => setPlacing(false),

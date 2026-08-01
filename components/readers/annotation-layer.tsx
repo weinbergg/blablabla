@@ -64,6 +64,14 @@ export type AnnotationDraft = {
   anchorRects: AnchorRect[] | null;
 };
 
+export type AnnotationUpdate = {
+  shape?: AnnotationShape;
+  color?: string;
+  body?: string;
+  visibility?: AnnotationVisibility;
+  allowDiscussion?: boolean;
+};
+
 export type AnnotationCommentItem = {
   id: string;
   annotationId: string | null;
@@ -633,6 +641,7 @@ export function AnnotationLayer({
   comments,
   onCreate,
   onDelete,
+  onUpdate,
   onReply,
   onReport,
   onPlaced,
@@ -646,6 +655,7 @@ export function AnnotationLayer({
   comments: AnnotationCommentItem[];
   onCreate: (draft: AnnotationDraft) => Promise<void> | void;
   onDelete: (id: string) => void;
+  onUpdate?: (id: string, patch: AnnotationUpdate) => Promise<void> | void;
   onReply: (annotationId: string, body: string) => Promise<void> | void;
   onReport: (targetType: "annotation" | "comment", targetId: string) => void;
   onPlaced: () => void;
@@ -654,6 +664,13 @@ export function AnnotationLayer({
   pageDraw?: PageDrawSession;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editShape, setEditShape] = useState<AnnotationShape>("note");
+  const [editColor, setEditColor] = useState(COLOR_PRESETS[0]);
+  const [editText, setEditText] = useState("");
+  const [editVisibility, setEditVisibility] = useState<AnnotationVisibility>("public");
+  const [editAllowDiscussion, setEditAllowDiscussion] = useState(false);
   const [draft, setDraft] = useState<{ x: number; y: number; anchorText: string | null; anchorRects: AnchorRect[] | null } | null>(null);
   const [shape, setShape] = useState<AnnotationShape>("note");
   const [color, setColor] = useState(COLOR_PRESETS[0]);
@@ -841,6 +858,7 @@ export function AnnotationLayer({
                 onClick={(event) => {
                   event.stopPropagation();
                   setDraft(null);
+                  setEditingId(null);
                   setOpenId((current) => (current === item.id ? null : item.id));
                 }}
                 className="sticker-pop grid size-8 place-items-center rounded-full border-2 border-white shadow-md transition-transform hover:scale-110"
@@ -867,21 +885,149 @@ export function AnnotationLayer({
                       «{item.anchorText}»
                     </p>
                   )}
-                  {item.shape === "formula" ? (
-                    item.body ? (
-                      <FormulaBody source={item.body} color={item.color} />
-                    ) : (
-                      <p className="text-sm italic text-muted">Формула не введена</p>
-                    )
-                  ) : item.shape === "drawing" ? (
-                    <DrawingBody source={item.body} color={item.color} />
-                  ) : item.body ? (
-                    <p className="whitespace-pre-wrap text-sm leading-6">{item.body}</p>
+                  {editingId === item.id ? (
+                    <div className="space-y-2">
+                      {item.shape !== "drawing" && (
+                        <>
+                          <div className="flex flex-wrap gap-1">
+                            {(Object.keys(SHAPE_ICONS) as AnnotationShape[])
+                              .filter((key) => key !== "drawing")
+                              .map((key) => {
+                                const Icon = SHAPE_ICONS[key];
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setEditShape(key)}
+                                    className={`grid size-7 place-items-center rounded-lg border ${
+                                      editShape === key
+                                        ? "border-ink bg-ink text-paper"
+                                        : "border-ink/15 text-muted"
+                                    }`}
+                                  >
+                                    <Icon size={12} />
+                                  </button>
+                                );
+                              })}
+                          </div>
+                          <div className="flex gap-1.5">
+                            {COLOR_PRESETS.map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => setEditColor(preset)}
+                                className="size-5 rounded-full border border-black/10"
+                                style={{
+                                  backgroundColor: preset,
+                                  boxShadow:
+                                    editColor === preset
+                                      ? `0 0 0 2px #fff, 0 0 0 3.5px ${preset}`
+                                      : undefined,
+                                }}
+                              />
+                            ))}
+                          </div>
+                          <textarea
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            rows={editShape === "formula" ? 4 : 3}
+                            className={`w-full rounded-lg border border-ink/15 p-2 text-sm outline-none focus:border-ink/40 ${
+                              editShape === "formula" ? "font-mono" : ""
+                            }`}
+                            style={editShape === "formula" ? { color: editColor } : undefined}
+                          />
+                          {editShape === "formula" && editText.trim() && (
+                            <FormulaBody source={editText.trim()} color={editColor} />
+                          )}
+                        </>
+                      )}
+                      {item.shape === "drawing" && (
+                        <p className="text-xs text-muted">
+                          Рисунок нельзя править здесь — можно сменить видимость или удалить.
+                        </p>
+                      )}
+                      <div className="flex items-center rounded-full border border-ink/10 p-0.5 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setEditVisibility("public")}
+                          className={`flex-1 rounded-full px-2 py-1 ${
+                            editVisibility === "public" ? "bg-ink text-paper" : "text-muted"
+                          }`}
+                        >
+                          Публично
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditVisibility("private");
+                            setEditAllowDiscussion(false);
+                          }}
+                          className={`flex-1 rounded-full px-2 py-1 ${
+                            editVisibility === "private" ? "bg-ink text-paper" : "text-muted"
+                          }`}
+                        >
+                          Лично
+                        </button>
+                      </div>
+                      {editVisibility === "public" && (
+                        <label className="flex items-center gap-2 text-[11px] text-muted">
+                          <input
+                            type="checkbox"
+                            checked={editAllowDiscussion}
+                            onChange={(e) => setEditAllowDiscussion(e.target.checked)}
+                          />
+                          Разрешить обсуждение
+                        </label>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={editSaving || !onUpdate}
+                          onClick={async () => {
+                            if (!onUpdate) return;
+                            setEditSaving(true);
+                            await onUpdate(item.id, {
+                              shape: item.shape === "drawing" ? undefined : editShape,
+                              color: editColor,
+                              body: item.shape === "drawing" ? undefined : editText,
+                              visibility: editVisibility,
+                              allowDiscussion: editAllowDiscussion,
+                            });
+                            setEditSaving(false);
+                            setEditingId(null);
+                          }}
+                          className="button-primary flex-1 !min-h-9 !text-xs"
+                        >
+                          {editSaving ? "…" : "Сохранить"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(null)}
+                          className="button-secondary !min-h-9 !text-xs"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <p className="text-sm italic text-muted">Без текста</p>
+                    <>
+                      {item.shape === "formula" ? (
+                        item.body ? (
+                          <FormulaBody source={item.body} color={item.color} />
+                        ) : (
+                          <p className="text-sm italic text-muted">Формула не введена</p>
+                        )
+                      ) : item.shape === "drawing" ? (
+                        <DrawingBody source={item.body} color={item.color} />
+                      ) : item.body ? (
+                        <p className="whitespace-pre-wrap text-sm leading-6">{item.body}</p>
+                      ) : (
+                        <p className="text-sm italic text-muted">Без текста</p>
+                      )}
+                    </>
                   )}
 
-                  <div className="mt-2 flex items-center justify-between border-t border-ink/10 pt-2">
+                  <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-ink/10 pt-2">
                     {!isOwn && (
                       <button
                         type="button"
@@ -892,22 +1038,40 @@ export function AnnotationLayer({
                         Пожаловаться
                       </button>
                     )}
-                    {isOwn && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onDelete(item.id);
-                          setOpenId(null);
-                        }}
-                        className="flex items-center gap-1 text-xs text-muted hover:text-rust"
-                      >
-                        <Trash2 size={12} />
-                        Удалить
-                      </button>
+                    {isOwn && editingId !== item.id && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingId(item.id);
+                            setEditShape(item.shape);
+                            setEditColor(item.color);
+                            setEditText(item.body);
+                            setEditVisibility(item.visibility);
+                            setEditAllowDiscussion(item.allowDiscussion);
+                          }}
+                          className="flex items-center gap-1 text-xs text-muted hover:text-ink"
+                        >
+                          <Pencil size={12} />
+                          Изменить
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDelete(item.id);
+                            setOpenId(null);
+                            setEditingId(null);
+                          }}
+                          className="flex items-center gap-1 text-xs text-muted hover:text-rust"
+                        >
+                          <Trash2 size={12} />
+                          Удалить
+                        </button>
+                      </>
                     )}
                   </div>
 
-                  {item.visibility === "public" && item.allowDiscussion && (
+                  {item.visibility === "public" && item.allowDiscussion && editingId !== item.id && (
                     <AnnotationDiscussion
                       annotationId={item.id}
                       thread={thread}
@@ -917,6 +1081,22 @@ export function AnnotationLayer({
                       onReport={onReport}
                     />
                   )}
+                  {isOwn &&
+                    item.visibility === "public" &&
+                    !item.allowDiscussion &&
+                    editingId !== item.id &&
+                    onUpdate && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await onUpdate(item.id, { allowDiscussion: true });
+                        }}
+                        className="mt-2 flex items-center gap-1 text-[11px] text-muted hover:text-ink"
+                      >
+                        <MessageCircle size={11} />
+                        Открыть обсуждение
+                      </button>
+                    )}
                 </div>
               )}
             </div>

@@ -26,7 +26,7 @@ export type LookupResult = {
   wiktionaryHost: string;
   /** Best title to open on Wiktionary (lemma or resolved redirect). */
   wiktionaryTitle: string;
-  translateTarget: string;
+  translateTarget: string | null;
   reversoPair: string;
   logeionUrl: string | null;
   perseusUrl: string | null;
@@ -255,8 +255,10 @@ function extractLemmaFromSnippet(snippet: string): string | undefined {
   return undefined;
 }
 
-function translateTargetFor(lang: string): string {
-  if (lang === "ru") return "en";
+/** Machine-translate into Russian for foreign words. Skip RU→EN — that was
+ * polluting glossary saves with English glosses instead of definitions. */
+function translateTargetFor(lang: string): string | null {
+  if (lang === "ru") return null;
   return "ru";
 }
 
@@ -370,7 +372,9 @@ export async function lookupWord(raw: string, bookLang?: string | null): Promise
 
   const [definitions, translation] = await Promise.all([
     fetchWiktionaryDefinitions(head, wiki.host),
-    fetchInlineTranslation(query, detectedLang, translateTarget),
+    translateTarget
+      ? fetchInlineTranslation(query, detectedLang, translateTarget)
+      : Promise.resolve(null),
   ]);
 
   return {
