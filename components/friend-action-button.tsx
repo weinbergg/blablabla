@@ -31,14 +31,22 @@ export function FriendActionButton({
   async function accept() {
     if (!state.friendshipId) return;
     setBusy(true);
-    await fetch(`/api/friends/${state.friendshipId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "accept" }),
-    });
-    setBusy(false);
-    setState((prev) => ({ ...prev, status: "accepted" }));
-    router.refresh();
+    try {
+      const response = await fetch(`/api/friends/${state.friendshipId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept" }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        window.alert(result.error || "Не получилось принять заявку. Обновите страницу (Ctrl+Shift+R).");
+        return;
+      }
+      setState((prev) => ({ ...prev, status: "accepted" }));
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (state.status === "accepted") {

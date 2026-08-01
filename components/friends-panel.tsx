@@ -24,7 +24,10 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
     });
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
-      setError(result.error || "Не получилось.");
+      setError(
+        result.error ||
+          "Не получилось принять заявку. Если сайт без стилей — обновите страницу (Ctrl+Shift+R) после починки статики.",
+      );
       return;
     }
     const request = incoming.find((r) => r.friendshipId === friendshipId);
