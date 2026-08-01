@@ -19,6 +19,7 @@ import {
   getDocumentEditHistory,
 } from "@/lib/db/queries";
 import { languageLabel } from "@/lib/languages";
+import { isAdminRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -163,8 +164,10 @@ export default async function DocumentPage({
                   }`
                 : ""}
             </p>
-            {document.sourceNote && (
-              <p className="mt-2 text-xs text-muted">Примечание: {document.sourceNote}</p>
+            {document.sourceNote && isAdminRole(currentUser?.role) && (
+              <p className="mt-2 text-xs text-muted">
+                Примечание (только админам): {document.sourceNote}
+              </p>
             )}
           </div>
 
