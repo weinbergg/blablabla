@@ -39,52 +39,88 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-async function renderPageSurface(
+type PageRenderHandle = {
+  promise: Promise<void>;
+  cancel: () => void;
+};
+
+function renderPageSurface(
   canvas: HTMLCanvasElement,
   textLayerContainer: HTMLDivElement | null,
   pdfPage: PDFPageProxy,
   targetWidth: number,
   maxHeight?: number,
-) {
+): PageRenderHandle {
   const baseViewport = pdfPage.getViewport({ scale: 1 });
   // Fitting the page purely to the available width leaves nothing stopping a
   // tall page on a wide screen from spilling past the bottom of the viewport
   // in fullscreen mode — cap the scale by the available height too, the same
   // way `object-fit: contain` would, so the whole spread always lands inside
   // the screen instead of needing a scroll to see the rest of it.
-  const widthScale = targetWidth / baseViewport.width;
-  const heightScale = maxHeight ? maxHeight / baseViewport.height : Infinity;
+  const widthScale = targetWidth / Math.max(baseViewport.width, 1);
+  const heightScale = maxHeight ? maxHeight / Math.max(baseViewport.height, 1) : Infinity;
   const scale = clamp(Math.min(widthScale, heightScale), 0.35, 3.5);
   const viewport = pdfPage.getViewport({ scale });
 
-  const context = canvas.getContext("2d");
-  if (context) {
+  let cancelled = false;
+  let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
+
+  const promise = (async () => {
+    const context = canvas.getContext("2d");
+    if (!context || targetWidth < 40) return;
+
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
     canvas.width = Math.floor(viewport.width * dpr);
     canvas.height = Math.floor(viewport.height * dpr);
     canvas.style.width = `${viewport.width}px`;
     canvas.style.height = `${viewport.height}px`;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    await pdfPage.render({ canvasContext: context, viewport }).promise;
-  }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, viewport.width, viewport.height);
 
-  // The text layer is invisible (transparent, selectable) — it exists only so
-  // a reader can select a passage and anchor a sticker to it. If it fails to
-  // build for any reason, reading and stickers-by-click still work fine.
-  if (textLayerContainer) {
-    textLayerContainer.replaceChildren();
-    textLayerContainer.style.setProperty("--scale-factor", String(scale));
-    textLayerContainer.style.width = `${viewport.width}px`;
-    textLayerContainer.style.height = `${viewport.height}px`;
+    renderTask = pdfPage.render({ canvasContext: context, viewport });
     try {
-      const { TextLayer } = await import("pdfjs-dist");
-      const textContent = await pdfPage.getTextContent();
-      const layer = new TextLayer({ textContentSource: textContent, container: textLayerContainer, viewport });
-      await layer.render();
-    } catch {
-      // ignore — see comment above
+      await renderTask.promise;
+    } catch (error) {
+      // pdf.js rejects with RenderingCancelledException when we cancel — ignore.
+      if (cancelled) return;
+      const name = error && typeof error === "object" && "name" in error ? String((error as { name: string }).name) : "";
+      if (name === "RenderingCancelledException") return;
+      throw error;
     }
-  }
+    if (cancelled) return;
+
+    // The text layer is invisible (transparent, selectable) — it exists only so
+    // a reader can select a passage and anchor a sticker to it. If it fails to
+    // build for any reason, reading and stickers-by-click still work fine.
+    if (textLayerContainer) {
+      textLayerContainer.replaceChildren();
+      textLayerContainer.style.setProperty("--scale-factor", String(scale));
+      textLayerContainer.style.width = `${viewport.width}px`;
+      textLayerContainer.style.height = `${viewport.height}px`;
+      try {
+        const { TextLayer } = await import("pdfjs-dist");
+        const textContent = await pdfPage.getTextContent();
+        if (cancelled) return;
+        const layer = new TextLayer({ textContentSource: textContent, container: textLayerContainer, viewport });
+        await layer.render();
+      } catch {
+        // ignore — see comment above
+      }
+    }
+  })();
+
+  return {
+    promise,
+    cancel: () => {
+      cancelled = true;
+      try {
+        renderTask?.cancel();
+      } catch {
+        /* already finished */
+      }
+    },
+  };
 }
 
 export function PdfReader({
@@ -252,15 +288,20 @@ export function PdfReader({
     // page container, is what catches that and is the actual fix for the
     // page occasionally rendering taller than the visible screen.
     function update() {
-      const width = el!.getBoundingClientRect().width;
-      if (width) setContainerWidth(width);
+      const width = Math.round(el!.getBoundingClientRect().width);
+      // Ignore sub-pixel / canvas-driven jitter — each width change restarts
+      // pdf.js paints, and a mid-paint cancel was blanking the first spread.
+      if (width >= 80) {
+        setContainerWidth((prev) => (Math.abs(prev - width) < 2 ? prev : width));
+      }
       if (!fullscreen) {
         setMaxPageHeight(undefined);
         return;
       }
       const top = el!.getBoundingClientRect().top;
       const bottomBreathingRoom = 12;
-      setMaxPageHeight(Math.max(240, window.innerHeight - top - bottomBreathingRoom));
+      const nextHeight = Math.max(240, Math.round(window.innerHeight - top - bottomBreathingRoom));
+      setMaxPageHeight((prev) => (prev !== undefined && Math.abs(prev - nextHeight) < 2 ? prev : nextHeight));
     }
 
     const observer = new ResizeObserver(update);
@@ -304,32 +345,91 @@ export function PdfReader({
   const rightPageNumber = isDouble && leftPageNumber + 1 <= numPages ? leftPageNumber + 1 : null;
 
   useEffect(() => {
-    if (!docRef.current || !numPages) return;
+    // Wait until layout + spread preference are settled. Rendering into a
+    // guessed width (or before the right-hand canvas mounts) was leaving the
+    // first spread blank until the reader flipped a page and back.
+    if (!docRef.current || !numPages || loading || !preferencesReady) return;
+    if (containerWidth < 80) return;
+
     let cancelled = false;
+    const handles: PageRenderHandle[] = [];
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    (async () => {
+    async function paint(attempt = 0) {
+      if (cancelled || !docRef.current) return;
       const gap = isDouble ? 28 : 0;
-      const perPageWidth = isDouble ? (containerWidth - gap) / 2 : containerWidth;
+      const perPageWidth = Math.max(40, isDouble ? (containerWidth - gap) / 2 : containerWidth);
 
-      const leftPage = await docRef.current!.getPage(leftPageNumber);
+      // One rAF so the conditional right-page canvas is in the DOM after mode
+      // flips double↔single / loading→ready.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (cancelled) return;
-      if (leftCanvasRef.current) {
-        await renderPageSurface(leftCanvasRef.current, leftTextLayerRef.current, leftPage, perPageWidth, maxPageHeight);
+
+      const leftCanvas = leftCanvasRef.current;
+      if (!leftCanvas) {
+        if (attempt < 8) {
+          retryTimer = setTimeout(() => void paint(attempt + 1), 50);
+        }
+        return;
+      }
+      if (rightPageNumber && !rightCanvasRef.current) {
+        if (attempt < 8) {
+          retryTimer = setTimeout(() => void paint(attempt + 1), 50);
+        }
+        return;
       }
 
-      if (rightPageNumber) {
-        const rightPage = await docRef.current!.getPage(rightPageNumber);
+      try {
+        const leftPage = await docRef.current.getPage(leftPageNumber);
         if (cancelled) return;
-        if (rightCanvasRef.current) {
-          await renderPageSurface(rightCanvasRef.current, rightTextLayerRef.current, rightPage, perPageWidth, maxPageHeight);
+        const left = renderPageSurface(
+          leftCanvas,
+          leftTextLayerRef.current,
+          leftPage,
+          perPageWidth,
+          maxPageHeight,
+        );
+        handles.push(left);
+        await left.promise;
+        if (cancelled) return;
+
+        if (rightPageNumber && rightCanvasRef.current) {
+          const rightPage = await docRef.current.getPage(rightPageNumber);
+          if (cancelled) return;
+          const right = renderPageSurface(
+            rightCanvasRef.current,
+            rightTextLayerRef.current,
+            rightPage,
+            perPageWidth,
+            maxPageHeight,
+          );
+          handles.push(right);
+          await right.promise;
+        }
+      } catch {
+        if (!cancelled && attempt < 3) {
+          retryTimer = setTimeout(() => void paint(attempt + 1), 80);
         }
       }
-    })();
+    }
+
+    void paint();
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      for (const handle of handles) handle.cancel();
     };
-  }, [leftPageNumber, rightPageNumber, isDouble, numPages, containerWidth, maxPageHeight]);
+  }, [
+    leftPageNumber,
+    rightPageNumber,
+    isDouble,
+    numPages,
+    containerWidth,
+    maxPageHeight,
+    loading,
+    preferencesReady,
+  ]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
