@@ -40,7 +40,8 @@ const SKIP_DIR_NAMES = new Set(["__macosx", ".git", "node_modules", ".ds_store",
  * uploads named in a different language/script than the catalog itself. Not
  * meant to be exhaustive — anything not covered here still safely lands in
  * `defaultCategoryId` rather than being mis-filed. */
-const CATEGORY_ALIASES: Record<string, string> = {
+/** Raw aliases — looked up after normalizeForSearch so "Худ.Лит" → "hud lit". */
+const CATEGORY_ALIASES_RAW: Record<string, string> = {
   math: "matematika",
   maths: "matematika",
   mathematics: "matematika",
@@ -60,15 +61,22 @@ const CATEGORY_ALIASES: Record<string, string> = {
   lit: "literatura",
   "худ.лит": "literatura",
   "худ лит": "literatura",
+  hudlit: "literatura",
+  "hud lit": "literatura",
   "худож.лит": "literatura",
   "художественная литература": "literatura",
   religion: "religiya",
   религиоведение: "religiya",
+  religiovedenie: "religiya",
   programming: "programmirovanie",
   antiquity: "antichnaya-filosofiya",
   ancient: "antichnaya-filosofiya",
   medieval: "srednevekovaya-filosofiya",
 };
+
+const CATEGORY_ALIASES: Record<string, string> = Object.fromEntries(
+  Object.entries(CATEGORY_ALIASES_RAW).map(([key, slug]) => [normalizeForSearch(key), slug]),
+);
 
 export type BulkImportOptions = {
   defaultCategoryId: string;
@@ -122,6 +130,32 @@ async function pdfPageCount(filePath: string): Promise<number | null> {
     return match ? Number(match[1]) : null;
   } catch {
     return null;
+  }
+}
+
+function pdfInfoField(stdout: string, key: string): string | null {
+  const re = new RegExp(`^${key}:\\s*(.+)$`, "m");
+  const match = stdout.match(re);
+  const value = match?.[1]?.trim();
+  if (!value || value === "-" || /^unknown$/i.test(value)) return null;
+  return value;
+}
+
+/** Author/title from PDF Info dict — fills gaps when filenames are bare titles. */
+async function pdfMeta(filePath: string): Promise<{ authorNames: string[]; title: string | null; pages: number | null }> {
+  try {
+    const { stdout } = await execFileAsync("pdfinfo", [filePath], { maxBuffer: 1024 * 1024 * 8 });
+    const pagesMatch = stdout.match(/^Pages:\s+(\d+)/m);
+    const title = pdfInfoField(stdout, "Title");
+    const authorRaw = pdfInfoField(stdout, "Author");
+    const authorNames = authorRaw ? splitAuthors(authorRaw) : [];
+    return {
+      authorNames,
+      title: title && title.length >= 2 ? title : null,
+      pages: pagesMatch ? Number(pagesMatch[1]) : null,
+    };
+  } catch {
+    return { authorNames: [], title: null, pages: null };
   }
 }
 
@@ -432,7 +466,19 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
 
     try {
       const baseName = path.basename(filePath, extension);
-      const { authorNames, title } = parseAuthorTitle(baseName);
+      let { authorNames, title } = parseAuthorTitle(baseName);
+      // Bare titles like "Котлован.pdf" have no author segment — try PDF Info.
+      let metaPages: number | null = null;
+      if (extension === ".pdf" && (authorNames.length === 0 || !title)) {
+        const meta = await pdfMeta(filePath);
+        metaPages = meta.pages;
+        if (authorNames.length === 0 && meta.authorNames.length) authorNames = meta.authorNames;
+        if (meta.title && (authorNames.length === 0 || title === baseName.replace(/_/g, " ").trim())) {
+          // Prefer a real Info title when the filename was just a slug/title stub.
+          if (meta.title.length >= 3 && meta.title.length <= 200) title = meta.title;
+        }
+      }
+      title = title.trim();
       const normTitle = normalizeTitleForDedup(title);
       if (existingTitles.has(normTitle)) {
         result.skippedDuplicate += 1;
@@ -455,7 +501,8 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
       }
 
       const { fileUrl, fileType, originalFormat, storedPath } = await storeFileFromPath(filePath, extension);
-      const pages = fileType === "PDF" ? await pdfPageCount(storedPath) : null;
+      const pages =
+        fileType === "PDF" ? (metaPages ?? (await pdfPageCount(storedPath))) : null;
       const fileName = buildDisplayFileName(title, authorNames, `.${fileType.toLowerCase()}`);
 
       const documentId = randomUUID();

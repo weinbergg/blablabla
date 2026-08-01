@@ -12,6 +12,7 @@
     "import:repo": "tsx scripts/import-github-repo.ts",
     "bulk-import": "tsx scripts/bulk-import.ts",
     "import:library": "tsx scripts/bulk-import.ts литература/Библиотека --create-top-level --label Библиотека",
+    "repair:biblioteka": "tsx scripts/repair-biblioteka-import.ts",
     "consolidate-categories": "tsx scripts/consolidate-small-categories.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "set-admin": "tsx scripts/set-admin.ts",

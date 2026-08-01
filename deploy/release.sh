@@ -112,6 +112,39 @@ else:
     print(f"OK: inserted /_next/static/ → {alias}")
 conf.write_text(text)
 PY
+
+python3 - "$CONF" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+conf = Path(sys.argv[1])
+text = conf.read_text()
+block = """    location /uploads/ {
+        root /var/www/blabla/public;
+        access_log off;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800";
+    }
+"""
+pat = re.compile(
+    r"[ \t]*location\s+/uploads/\s*\{(?:[^{}]|\{[^{}]*\})*\}[ \t]*\n?",
+    re.MULTILINE,
+)
+if pat.search(text):
+    text, n = pat.subn(block + "\n", text, count=1)
+    print("OK: rewrote /uploads/ → root public (no alias+try_files)")
+else:
+    idx = text.find("location / {")
+    if idx < 0:
+        idx = text.find("location /{")
+    if idx < 0:
+        raise SystemExit("location / not found for uploads insert")
+    text = text[:idx] + block + "\n" + text[idx:]
+    print("OK: inserted /uploads/ location")
+conf.write_text(text)
+PY
+
 nginx -t
 systemctl reload nginx
 
