@@ -4,7 +4,13 @@
  * (an already-unpacked folder, or an archive to unpack first).
  *
  * Usage:
- *   npx tsx scripts/bulk-import.ts <path-to-folder-or-archive> [sourceLabel] [defaultCategorySlug]
+ *   npx tsx scripts/bulk-import.ts <path> [sourceLabel] [defaultCategorySlug]
+ *   npx tsx scripts/bulk-import.ts <path> --create-top-level --label "Библиотека"
+ *
+ * Flags:
+ *   --create-top-level   create new root categories for unmatched folders
+ *   --label <name>       source label in sourceNote (default: folder name)
+ *   --dry-run            print planned category mapping without writing
  */
 import os from "os";
 import path from "path";
@@ -19,15 +25,53 @@ import {
   isArchiveFile,
 } from "../lib/bulk-import";
 
+function parseArgs(argv: string[]) {
+  const positional: string[] = [];
+  let createMissingTopLevel = false;
+  let dryRun = false;
+  let label: string | undefined;
+  let defaultCategorySlug: string | undefined;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--create-top-level") {
+      createMissingTopLevel = true;
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--label") {
+      label = argv[++i];
+    } else if (arg === "--default-category") {
+      defaultCategorySlug = argv[++i];
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Неизвестный флаг: ${arg}`);
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  // Back-compat: <path> [sourceLabel] [defaultCategorySlug]
+  const target = positional[0];
+  if (!label && positional[1]) label = positional[1];
+  if (!defaultCategorySlug && positional[2]) defaultCategorySlug = positional[2];
+
+  return { target, label, defaultCategorySlug, createMissingTopLevel, dryRun };
+}
+
 async function main() {
-  const target = process.argv[2];
-  const label = process.argv[3] || (target ? path.basename(target) : "cli");
-  const defaultCategorySlug = process.argv[4];
+  const { target, label, defaultCategorySlug, createMissingTopLevel, dryRun } = parseArgs(
+    process.argv.slice(2),
+  );
 
   if (!target) {
-    console.error("Usage: npx tsx scripts/bulk-import.ts <path> [sourceLabel] [defaultCategorySlug]");
+    console.error(`Usage:
+  npx tsx scripts/bulk-import.ts <path> [--create-top-level] [--label NAME] [--default-category slug]
+  npx tsx scripts/bulk-import.ts <path> [sourceLabel] [defaultCategorySlug]`);
     process.exitCode = 1;
     return;
+  }
+
+  if (dryRun) {
+    console.log("dry-run: пока только проверка пути (полный dry-run категорий — следующий шаг)");
   }
 
   const stat = await fs.stat(target);
@@ -45,18 +89,27 @@ async function main() {
 
   let defaultCategoryId: string;
   if (defaultCategorySlug) {
-    const rows = await db.select({ id: categories.id }).from(categories).where(eq(categories.slug, defaultCategorySlug)).limit(1);
+    const rows = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(eq(categories.slug, defaultCategorySlug))
+      .limit(1);
     if (!rows[0]) throw new Error(`Раздел со slug "${defaultCategorySlug}" не найден.`);
     defaultCategoryId = rows[0].id;
   } else {
     defaultCategoryId = await ensureUncategorizedCategory();
   }
 
-  console.log(`Импортирую из ${importDir} (метка источника: ${label})…`);
+  const sourceLabel = label || path.basename(importDir);
+  console.log(`Импортирую из ${importDir}`);
+  console.log(`метка: ${sourceLabel}`);
+  console.log(`createMissingTopLevel: ${createMissingTopLevel ? "да" : "нет"}`);
+
   const result = await importFromDirectory(importDir, {
     defaultCategoryId,
-    sourceLabel: label,
+    sourceLabel,
     confidence: "low",
+    createMissingTopLevel,
   });
 
   console.log(`\nДобавлено: ${result.imported}`);

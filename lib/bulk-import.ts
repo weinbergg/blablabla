@@ -11,11 +11,11 @@
  *   (or, for a folder name that isn't yet a category, at most one new
  *   subcategory under a folder that *does* match). Safe to re-run on the
  *   same source after adding more files to it.
- * - A folder whose name doesn't match anything in the catalog does NOT get
- *   silently dropped or invented as a wild new top-level category — files in
- *   it land in `defaultCategoryId` (normally "Без категории") so an admin
- *   can review and re-file them from the full document list instead of the
- *   tree quietly growing junk categories from e.g. "downloads (3)/pdf/".
+ * - By default a folder whose name doesn't match anything in the catalog does
+ *   NOT invent a wild new top-level category — files land in
+ *   `defaultCategoryId` ("Без категории"). Pass `createMissingTopLevel: true`
+ *   for curated trees (e.g. literature/Библиотека) where root folders are
+ *   intentional new sections.
  */
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
@@ -54,8 +54,16 @@ const CATEGORY_ALIASES: Record<string, string> = {
   history: "istoriya",
   languages: "yazyki",
   language: "yazyki",
+  linguistics: "yazyki",
+  лингвистика: "yazyki",
   literature: "literatura",
   lit: "literatura",
+  "худ.лит": "literatura",
+  "худ лит": "literatura",
+  "худож.лит": "literatura",
+  "художественная литература": "literatura",
+  religion: "religiya",
+  религиоведение: "religiya",
   programming: "programmirovanie",
   antiquity: "antichnaya-filosofiya",
   ancient: "antichnaya-filosofiya",
@@ -67,6 +75,9 @@ export type BulkImportOptions = {
   sourceLabel: string;
   createdBy?: string | null;
   confidence?: "confirmed" | "low";
+  /** When true, unmatched root folders become new top-level categories (and
+   * remaining path segments become nested children). Use for curated drops. */
+  createMissingTopLevel?: boolean;
 };
 
 export type BulkImportResult = {
@@ -190,11 +201,61 @@ async function loadCategoryIndex(): Promise<CategoryEntry[]> {
  * unmatched path falls back to `defaultCategoryId` instead of inventing a
  * new top-level category.
  */
+async function ensureChildCategory(
+  parentId: string | null,
+  parentLabel: string,
+  childName: string,
+  index: CategoryEntry[],
+  createdCategoryNames: Set<string>,
+): Promise<CategoryEntry> {
+  const existing = index.find(
+    (c) =>
+      (parentId == null ? c.parentId == null : c.parentId === parentId) &&
+      normalize(c.name) === normalize(childName),
+  );
+  if (existing) return existing;
+
+  const id = randomUUID();
+  const slug = slugify(childName) || id;
+  await db.insert(categories).values({
+    id,
+    parentId,
+    slug,
+    name: childName,
+    sortOrder: 999,
+  });
+  const created = { id, parentId, name: childName, slug };
+  index.push(created);
+  createdCategoryNames.add(parentId ? `${parentLabel} → ${childName}` : childName);
+  return created;
+}
+
+async function ensureCategoryChain(
+  fromParentId: string | null,
+  fromParentLabel: string,
+  names: string[],
+  index: CategoryEntry[],
+  createdCategoryNames: Set<string>,
+): Promise<string> {
+  let parentId = fromParentId;
+  let parentLabel = fromParentLabel;
+  let lastId = fromParentId;
+  for (const name of names) {
+    const child = await ensureChildCategory(parentId, parentLabel, name, index, createdCategoryNames);
+    lastId = child.id;
+    parentId = child.id;
+    parentLabel = child.name;
+  }
+  if (!lastId) throw new Error("empty category chain");
+  return lastId;
+}
+
 async function resolveCategory(
   segments: string[],
   index: CategoryEntry[],
   defaultCategoryId: string,
   createdCategoryNames: Set<string>,
+  createMissingTopLevel = false,
 ): Promise<string> {
   const clean = segments.map((s) => s.trim()).filter(Boolean);
 
@@ -225,17 +286,16 @@ async function resolveCategory(
     if (!parent) return false;
     const prevNorm = normalize(clean[i - 1]);
     const parentNorm = normalize(parent.name);
-    return parentNorm === prevNorm || normalize(parent.slug) === prevNorm || normalize(CATEGORY_ALIASES[prevNorm] ?? "") === parentNorm;
+    return (
+      parentNorm === prevNorm ||
+      normalize(parent.slug) === prevNorm ||
+      normalize(CATEGORY_ALIASES[prevNorm] ?? "") === parentNorm
+    );
   };
 
   // Walk from the most specific (deepest) folder up to the root, matching
-  // each against the catalog. Crucially, once we hit an ancestor that *does*
-  // match, we don't just dump the file there — if there was a more specific
-  // (still-unmatched) folder directly under it, that becomes a new
-  // subcategory instead (one level of auto-creation). Without this, a path
-  // like ".../Философия/Классические тексты/..." would incorrectly land
-  // straight on the "Философия" root just because that name alone matches,
-  // never giving the new subfolder a chance to become its own category.
+  // each against the catalog. Once an ancestor matches, create the full
+  // remaining path under it as nested subcategories (not just one level).
   for (let i = clean.length - 1; i >= 0; i--) {
     const norm = normalize(clean[i]);
     if (!norm) continue;
@@ -243,20 +303,19 @@ async function resolveCategory(
     if (!candidate || !parentConsistent(candidate, i)) continue;
 
     if (i < clean.length - 1) {
-      const childName = clean[i + 1];
-      const existingChild = index.find(
-        (c) => c.parentId === candidate.id && normalize(c.name) === normalize(childName),
+      return ensureCategoryChain(
+        candidate.id,
+        candidate.name,
+        clean.slice(i + 1),
+        index,
+        createdCategoryNames,
       );
-      if (existingChild) return existingChild.id;
-
-      const id = randomUUID();
-      const slug = slugify(childName) || id;
-      await db.insert(categories).values({ id, parentId: candidate.id, slug, name: childName, sortOrder: 999 });
-      index.push({ id, parentId: candidate.id, name: childName, slug });
-      createdCategoryNames.add(`${candidate.name} → ${childName}`);
-      return id;
     }
     return candidate.id;
+  }
+
+  if (createMissingTopLevel && clean.length > 0) {
+    return ensureCategoryChain(null, "", clean, index, createdCategoryNames);
   }
 
   return defaultCategoryId;
@@ -381,7 +440,13 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
       }
 
       const segments = path.dirname(relPath).split(path.sep).filter((s) => s && s !== ".");
-      const categoryId = await resolveCategory(segments, categoryIndex, options.defaultCategoryId, createdCategoryNames);
+      const categoryId = await resolveCategory(
+        segments,
+        categoryIndex,
+        options.defaultCategoryId,
+        createdCategoryNames,
+        Boolean(options.createMissingTopLevel),
+      );
 
       let language = extension === ".epub" ? await epubLanguage(filePath) : null;
       if (!language) {
