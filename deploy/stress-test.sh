@@ -3,6 +3,7 @@
 # Prefer hitting localhost from the VPS (less noise, same Node pressure).
 #
 #   bash deploy/stress-test.sh
+#   bash deploy/stress-test.sh --browse -c 30 -n 600
 #   bash deploy/stress-test.sh --url http://127.0.0.1:3000 --concurrency 20 --requests 400
 #   bash deploy/stress-test.sh --url https://blablablarden.ru --concurrency 30 --requests 600
 #
@@ -12,6 +13,8 @@ set -euo pipefail
 URL="http://127.0.0.1:3000"
 CONCURRENCY=15
 REQUESTS=300
+# default = mixed; --browse ≈ anonymous catalog + book pages (no auth)
+PROFILE="mixed"
 PATHS=("/" "/api/status" "/register" "/catalog/matematika" "/graph" "/login")
 
 while [[ $# -gt 0 ]]; do
@@ -19,6 +22,24 @@ while [[ $# -gt 0 ]]; do
     --url) URL="$2"; shift 2 ;;
     --concurrency|-c) CONCURRENCY="$2"; shift 2 ;;
     --requests|-n) REQUESTS="$2"; shift 2 ;;
+    --browse)
+      PROFILE="browse"
+      PATHS=(
+        "/"
+        "/catalog/matematika"
+        "/catalog/matematika/algebra"
+        "/catalog/matematika/analiz"
+        "/catalog/filosofiya"
+        "/catalog/filosofiya/filosofiya-nauki"
+        "/graph"
+        "/tags"
+        # real document ids from prod catalog samples
+        "/documents/f415a824-bdd1-4eee-bac8-ff6bafa3346a"
+        "/documents/9534646a-9aa3-40af-a0fd-545cf71b5e5e"
+        "/documents/200a8b72-ae0e-42b8-ae33-a33a3b6b8230"
+      )
+      shift
+      ;;
     --help|-h)
       sed -n '2,12p' "$0"
       cat <<'EOF'
@@ -48,6 +69,7 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 echo "== stress-test =="
 echo "  target:       $URL"
+echo "  profile:      $PROFILE"
 echo "  concurrency:  $CONCURRENCY"
 echo "  requests:     $REQUESTS"
 echo "  paths:        ${PATHS[*]}"
