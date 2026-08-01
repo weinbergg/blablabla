@@ -9,7 +9,33 @@
  *   fuser -k 3000/tcp 2>/dev/null
  *   pm2 start ecosystem.config.cjs
  *   pm2 save
+ *
+ * Maintenance flags are read from data/maintenance.json so
+ * `bash scripts/maintenance.sh on|off|warn` can flip them via pm2 restart.
  */
+const fs = require("fs");
+const path = require("path");
+
+let maintenance = {
+  MAINTENANCE_MODE: "0",
+  MAINTENANCE_MESSAGE: "",
+  MAINTENANCE_ETA: "",
+  MAINTENANCE_WARN_UNTIL: "",
+};
+try {
+  const raw = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "data", "maintenance.json"), "utf8"),
+  );
+  maintenance = {
+    MAINTENANCE_MODE: raw.locked ? "1" : "0",
+    MAINTENANCE_MESSAGE: raw.message || "",
+    MAINTENANCE_ETA: raw.eta || "",
+    MAINTENANCE_WARN_UNTIL: raw.warnUntil || "",
+  };
+} catch {
+  /* no file yet — site open */
+}
+
 module.exports = {
   apps: [
     {
@@ -26,8 +52,8 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: 3000,
-        // Bind explicitly; nginx proxies to 127.0.0.1:3000
         HOSTNAME: "127.0.0.1",
+        ...maintenance,
       },
     },
   ],

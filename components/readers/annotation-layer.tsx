@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, type RefObject } from "react";
 import katex from "katex";
 import { MathText } from "@/components/math-text";
 import {
@@ -84,7 +84,29 @@ const SHAPE_ICONS: Record<AnnotationShape, typeof StickyNote> = {
   drawing: Pencil,
 };
 
-export const COLOR_PRESETS = ["#c85c35", "#8a5a9e", "#2f6f4f", "#1d5b8a", "#b8860b", "#17202c"];
+/** Dark ink first — reads on the white sticker popup; bright rust was hard to see on formulas. */
+export const COLOR_PRESETS = ["#17202c", "#c85c35", "#8a5a9e", "#2f6f4f", "#1d5b8a", "#b8860b"];
+const FORMULA_DEFAULT_COLOR = COLOR_PRESETS[0];
+
+const LATEX_SNIPPETS: { label: string; insert: string; hint: string }[] = [
+  { label: "a/b", insert: "\\frac{a}{b}", hint: "Дробь" },
+  { label: "√", insert: "\\sqrt{x}", hint: "Корень" },
+  { label: "∫", insert: "\\int_{a}^{b}", hint: "Интеграл" },
+  { label: "∑", insert: "\\sum_{i=1}^{n}", hint: "Сумма" },
+  { label: "α", insert: "\\alpha", hint: "Альфа" },
+  { label: "β", insert: "\\beta", hint: "Бета" },
+  { label: "π", insert: "\\pi", hint: "Пи" },
+  { label: "∞", insert: "\\infty", hint: "Бесконечность" },
+  { label: "→", insert: "\\to", hint: "Стрелка" },
+  { label: "≠", insert: "\\neq", hint: "Не равно" },
+  { label: "≤", insert: "\\leq", hint: "Меньше или равно" },
+  { label: "∈", insert: "\\in", hint: "Принадлежит" },
+  { label: "ℝ", insert: "\\mathbb{R}", hint: "Вещественные" },
+  { label: "∂", insert: "\\partial", hint: "Частная производная" },
+  { label: "·", insert: "\\cdot", hint: "Умножение" },
+  { label: "x²", insert: "x^{2}", hint: "Степень" },
+  { label: "xᵢ", insert: "x_{i}", hint: "Индекс" },
+];
 
 /** Fixed logical canvas that a freehand drawing is normalized to, so it stays crisp at any zoom level. */
 export const DRAWING_VIEWBOX = { w: 260, h: 150 };
@@ -170,9 +192,73 @@ function captureSelectionAnchor(container: HTMLElement): { text: string; rects: 
   return rects.length ? { text: text.slice(0, 600), rects } : null;
 }
 
-function FormulaBody({ source }: { source: string }) {
+function FormulaBody({ source, color }: { source: string; color?: string }) {
   const html = katex.renderToString(source, { throwOnError: false, displayMode: true });
-  return <div className="overflow-x-auto py-1 text-sm" dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div
+      className="overflow-x-auto py-1 text-sm [&_.katex]:text-[1.05em]"
+      style={{ color: color || "var(--ink)" }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+function insertAtCursor(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number,
+  snippet: string,
+) {
+  const before = value.slice(0, selectionStart);
+  const after = value.slice(selectionEnd);
+  const next = `${before}${snippet}${after}`;
+  const caret = before.length + snippet.length;
+  return { next, caret };
+}
+
+function LatexSnippetBar({
+  textareaRef,
+  value,
+  onChange,
+}: {
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  function apply(snippet: string) {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? value.length;
+    const { next, caret } = insertAtCursor(value, start, end, snippet);
+    onChange(next);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(caret, caret);
+    });
+  }
+
+  return (
+    <div className="mb-2 space-y-1.5">
+      <p className="text-[10px] leading-4 text-muted">
+        LaTeX: наберите код или нажмите шаблон. Пример:{" "}
+        <code className="rounded bg-ink/5 px-1">{"\\frac{a}{b}"}</code>,{" "}
+        <code className="rounded bg-ink/5 px-1">{"\\int_0^1 x\\,dx"}</code>
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {LATEX_SNIPPETS.map((item) => (
+          <button
+            key={item.insert}
+            type="button"
+            title={item.hint}
+            onClick={() => apply(item.insert)}
+            className="rounded-md border border-ink/12 bg-ink/[0.03] px-1.5 py-0.5 font-mono text-[11px] text-ink transition-colors hover:border-ink/30 hover:bg-ink/[0.06]"
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function DrawingBody({ source, color }: { source: string; color: string }) {
@@ -577,6 +663,27 @@ export function AnnotationLayer({
   const [visibility, setVisibility] = useState<AnnotationVisibility>("public");
   const [allowDiscussion, setAllowDiscussion] = useState(false);
   const [saving, setSaving] = useState(false);
+  const formulaTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const draftStorageKey = `blabla:annotation-draft:p${pageNumber ?? "x"}`;
+
+  function selectShape(next: AnnotationShape) {
+    setShape(next);
+    // Formulas need strong contrast on the light popup; default to ink.
+    if (next === "formula") setColor(FORMULA_DEFAULT_COLOR);
+  }
+
+  // Keep in-progress formula/note text across reloads / short maintenance windows.
+  useEffect(() => {
+    if (!draft) return;
+    try {
+      sessionStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({ shape, color, text, visibility, allowDiscussion }),
+      );
+    } catch {
+      /* ignore quota */
+    }
+  }, [draft, shape, color, text, visibility, allowDiscussion, draftStorageKey]);
 
   useEffect(() => {
     if (!placing || pageDraw?.active) return;
@@ -602,19 +709,37 @@ export function AnnotationLayer({
         anchorText: anchor?.text ?? null,
         anchorRects: anchor?.rects ?? null,
       });
-      setShape("note");
-      setColor(COLOR_PRESETS[0]);
-      setText("");
+      type SavedDraft = {
+        shape?: AnnotationShape;
+        color?: string;
+        text?: string;
+        visibility?: AnnotationVisibility;
+        allowDiscussion?: boolean;
+      };
+      let restored: SavedDraft = {};
+      try {
+        const raw = sessionStorage.getItem(draftStorageKey);
+        if (raw) restored = JSON.parse(raw) as SavedDraft;
+      } catch {
+        restored = {};
+      }
+      setShape(restored.shape && restored.shape in SHAPE_ICONS ? restored.shape : "note");
+      setColor(
+        restored.color && COLOR_PRESETS.includes(restored.color)
+          ? restored.color
+          : COLOR_PRESETS[0],
+      );
+      setText(typeof restored.text === "string" ? restored.text : "");
       setDrawingPaths([]);
       setDrawingStrokeWidth("medium");
-      setVisibility("public");
-      setAllowDiscussion(false);
+      setVisibility(restored.visibility === "private" ? "private" : "public");
+      setAllowDiscussion(Boolean(restored.allowDiscussion));
       setOpenId(null);
     }
 
     container.addEventListener("click", handleContainerClick);
     return () => container.removeEventListener("click", handleContainerClick);
-  }, [placing, containerRef, pageDraw?.active]);
+  }, [placing, containerRef, pageDraw?.active, draftStorageKey]);
 
   if (pageNumber === null) return null;
   const pageItems = items.filter((item) => item.page === pageNumber);
@@ -644,6 +769,11 @@ export function AnnotationLayer({
     });
     setSaving(false);
     setDraft(null);
+    try {
+      sessionStorage.removeItem(draftStorageKey);
+    } catch {
+      /* ignore */
+    }
     onPlaced();
   }
 
@@ -739,7 +869,7 @@ export function AnnotationLayer({
                   )}
                   {item.shape === "formula" ? (
                     item.body ? (
-                      <FormulaBody source={item.body} />
+                      <FormulaBody source={item.body} color={item.color} />
                     ) : (
                       <p className="text-sm italic text-muted">Формула не введена</p>
                     )
@@ -835,7 +965,7 @@ export function AnnotationLayer({
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setShape(key)}
+                  onClick={() => selectShape(key)}
                   className={`grid size-8 place-items-center rounded-lg border transition-colors ${
                     shape === key ? "border-ink bg-ink text-paper" : "border-ink/15 text-muted hover:border-ink/40"
                   }`}
@@ -847,20 +977,32 @@ export function AnnotationLayer({
             })}
           </div>
 
-          <div className="mb-3 flex gap-1.5">
-            {COLOR_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setColor(preset)}
-                className="size-6 rounded-full"
-                style={{
-                  backgroundColor: preset,
-                  boxShadow: color === preset ? `0 0 0 2px white, 0 0 0 4px ${preset}` : undefined,
-                }}
-                aria-label={preset}
-              />
-            ))}
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-muted">Цвет</span>
+            <div className="flex gap-1.5">
+              {COLOR_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setColor(preset)}
+                  className="size-6 rounded-full border border-black/10"
+                  style={{
+                    backgroundColor: preset,
+                    boxShadow:
+                      color === preset
+                        ? `0 0 0 2px #fff, 0 0 0 3.5px ${preset}`
+                        : "inset 0 0 0 1px rgba(0,0,0,0.08)",
+                  }}
+                  aria-label={`Цвет ${preset}`}
+                  aria-pressed={color === preset}
+                />
+              ))}
+            </div>
+            <span
+              className="ml-auto size-5 rounded-full border border-ink/15"
+              style={{ backgroundColor: color }}
+              title="Выбранный цвет"
+            />
           </div>
 
           {shape === "drawing" ? (
@@ -878,22 +1020,35 @@ export function AnnotationLayer({
             </>
           ) : (
             <>
+              {shape === "formula" && (
+                <LatexSnippetBar
+                  textareaRef={formulaTextareaRef}
+                  value={text}
+                  onChange={setText}
+                />
+              )}
               <textarea
+                ref={shape === "formula" ? formulaTextareaRef : undefined}
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 placeholder={
                   shape === "formula"
-                    ? "Формула в LaTeX, например \\int_0^1 x^2\\,dx"
+                    ? "\\int_0^1 x^2\\,dx"
                     : "Что стоит отметить на этой странице?"
                 }
-                rows={3}
-                className={`mb-3 w-full rounded-lg border border-ink/15 p-2.5 text-sm outline-none focus:border-ink/40 ${
+                rows={shape === "formula" ? 4 : 3}
+                className={`mb-3 w-full rounded-lg border border-ink/15 bg-paper p-2.5 text-sm outline-none focus:border-ink/40 ${
                   shape === "formula" ? "font-mono" : ""
                 }`}
+                style={shape === "formula" ? { color } : undefined}
               />
-              {shape === "formula" && text.trim() && (
-                <div className="mb-3 rounded-lg border border-ink/10 bg-ink/[0.02] px-2">
-                  <FormulaBody source={text.trim()} />
+              {shape === "formula" && (
+                <div className="mb-3 rounded-lg border border-ink/10 bg-paper px-2 py-1">
+                  {text.trim() ? (
+                    <FormulaBody source={text.trim()} color={color} />
+                  ) : (
+                    <p className="py-2 text-center text-[11px] text-muted">Превью формулы появится здесь</p>
+                  )}
                 </div>
               )}
             </>
