@@ -1,12 +1,14 @@
 /**
  * Fix book titles/authors stored as latinized Russian
- * ("Zanimatelnaya astronomia" → "Занимательная астрономия").
+ * ("Zanimatelnaya astronomia", "Li S Teoria grupp preobrazovaniy … RKhD").
  *
  * Prefers Cyrillic from pdfinfo when available; otherwise reverse-transliterates.
+ * Skips foreign-language catalog entries. Can also undo a bad previous pass.
  *
  *   npx tsx scripts/fix-latinized-titles.ts
  *   npx tsx scripts/fix-latinized-titles.ts --apply
- *   npx tsx scripts/fix-latinized-titles.ts --apply --limit=50
+ *   npx tsx scripts/fix-latinized-titles.ts --revert-mangled
+ *   npx tsx scripts/fix-latinized-titles.ts --revert-mangled --apply
  */
 import { execFile } from "child_process";
 import path from "path";
@@ -17,13 +19,16 @@ import { authors, documentAuthors, documents } from "../lib/db/schema";
 import {
   detransliterateAuthorName,
   detransliterateRussian,
+  isNonRussianLanguage,
   looksLatinizedRussian,
+  looksMangledForeignCyrillic,
 } from "../lib/detransliterate";
 import { buildDisplayFileName } from "../lib/filenames";
 import { slugify } from "../lib/transliterate";
 
 const execFileAsync = promisify(execFile);
 const APPLY = process.argv.includes("--apply");
+const REVERT = process.argv.includes("--revert-mangled");
 const limitArg = process.argv.find((a) => a.startsWith("--limit="));
 const LIMIT = limitArg ? Number(limitArg.split("=")[1]) : Infinity;
 
@@ -54,8 +59,25 @@ function noCyrillic(value: string) {
   return !/[а-яё]/i.test(value);
 }
 
+/** Pull original latin filename from sourceNote import marker when present. */
+function filenameFromSourceNote(sourceNote: string | null): string | null {
+  if (!sourceNote) return null;
+  const m = sourceNote.match(/\[import:[^:\]]+:([^\]]+)\]/);
+  if (!m) return null;
+  const base = path.basename(m[1]).replace(/\.[^.]+$/, "");
+  return base.replace(/_/g, " ").trim() || null;
+}
+
 async function main() {
-  console.log(APPLY ? "APPLY mode" : "DRY-RUN (pass --apply to write)");
+  console.log(
+    REVERT
+      ? APPLY
+        ? "REVERT-MANGLED APPLY"
+        : "REVERT-MANGLED DRY-RUN"
+      : APPLY
+        ? "APPLY mode"
+        : "DRY-RUN (pass --apply to write)",
+  );
 
   const rows = await db
     .select({
@@ -64,20 +86,17 @@ async function main() {
       fileUrl: documents.fileUrl,
       fileType: documents.fileType,
       language: documents.language,
+      sourceNote: documents.sourceNote,
+      fileName: documents.fileName,
     })
     .from(documents);
 
   let scanned = 0;
   let titleChanged = 0;
   let authorChanged = 0;
-  let languageSet = 0;
 
   for (const row of rows) {
     if (scanned >= LIMIT) break;
-
-    const titleNeeds =
-      noCyrillic(row.title) &&
-      (row.language === "ru" || looksLatinizedRussian(row.title));
 
     const authorRows = await db
       .select({
@@ -90,14 +109,8 @@ async function main() {
       .where(eq(documentAuthors.documentId, row.id))
       .orderBy(asc(documentAuthors.position));
 
-    const authorsNeed = authorRows.filter((a) => noCyrillic(a.name) && looksLatinizedRussian(a.name));
-    if (!titleNeeds && authorsNeed.length === 0) continue;
-    scanned += 1;
-
-    let nextTitle = row.title;
     let metaTitle: string | null = null;
     let metaAuthor: string | null = null;
-
     if (row.fileType === "PDF" && row.fileUrl?.startsWith("/uploads/")) {
       const disk = path.join(process.cwd(), "public", row.fileUrl);
       const meta = await pdfMeta(disk);
@@ -105,12 +118,65 @@ async function main() {
       metaAuthor = meta.author;
     }
 
+    if (REVERT) {
+      const mangled =
+        looksMangledForeignCyrillic(row.title) ||
+        (hasCyrillic(row.title) &&
+          isNonRussianLanguage(row.language) &&
+          metaTitle &&
+          noCyrillic(metaTitle) &&
+          !looksLatinizedRussian(metaTitle));
+
+      if (!mangled) continue;
+      scanned += 1;
+
+      const fromNote = filenameFromSourceNote(row.sourceNote);
+      const restore =
+        (metaTitle && noCyrillic(metaTitle) && metaTitle.length >= 3 && !looksLatinizedRussian(metaTitle)
+          ? metaTitle.trim()
+          : null) ||
+        (fromNote && noCyrillic(fromNote) && !looksLatinizedRussian(fromNote) ? fromNote : null);
+
+      if (!restore || restore === row.title) {
+        console.log(`SKIP revert (no latin source): ${row.title}`);
+        continue;
+      }
+
+      titleChanged += 1;
+      console.log(`REVERT  ${row.title}`);
+      console.log(`     →  ${restore}`);
+      if (APPLY) {
+        const fileName = buildDisplayFileName(
+          restore,
+          authorRows.map((a) => a.name),
+          `.${row.fileType.toLowerCase()}`,
+        );
+        // Put back a sensible non-ru language if we wrongly stamped "ru".
+        let language = row.language;
+        if (language === "ru" || !language) {
+          language = null;
+        }
+        await db.update(documents).set({ title: restore, fileName, language }).where(eq(documents.id, row.id));
+      }
+      continue;
+    }
+
+    // Forward pass: latinized Russian → Cyrillic
+    if (isNonRussianLanguage(row.language)) continue;
+
+    const titleNeeds = noCyrillic(row.title) && (row.language === "ru" || looksLatinizedRussian(row.title));
+    const authorsNeed = authorRows.filter(
+      (a) => noCyrillic(a.name) && (row.language === "ru" || looksLatinizedRussian(a.name)),
+    );
+    if (!titleNeeds && authorsNeed.length === 0) continue;
+    scanned += 1;
+
+    let nextTitle = row.title;
     if (titleNeeds) {
       if (hasCyrillic(metaTitle) && metaTitle!.length >= 3 && metaTitle!.length <= 240) {
         nextTitle = metaTitle!.trim();
       } else {
         nextTitle = detransliterateRussian(row.title, { force: true });
-        // Filename titles are often all-lowercase — capitalize the first letter.
         if (nextTitle && /^[а-яё]/.test(nextTitle)) {
           nextTitle = nextTitle.charAt(0).toUpperCase() + nextTitle.slice(1);
         }
@@ -121,7 +187,6 @@ async function main() {
     for (const author of authorRows) {
       let nextName = author.name;
       if (noCyrillic(author.name) && (looksLatinizedRussian(author.name) || row.language === "ru")) {
-        // Prefer first Cyrillic author from PDF when there's a single author link.
         if (
           authorRows.length === 1 &&
           hasCyrillic(metaAuthor) &&
@@ -130,7 +195,7 @@ async function main() {
           metaAuthor.length <= 120
         ) {
           nextName = metaAuthor.trim();
-        } else {
+        } else if (looksLatinizedRussian(author.name) || /^[A-Z][a-z]+\s+[A-Z]([a-z]{0,2})?(\s+[A-Z]([a-z]{0,2})?)?$/.test(author.name)) {
           nextName = detransliterateAuthorName(author.name);
         }
       }
@@ -165,9 +230,6 @@ async function main() {
           })
           .where(eq(documents.id, row.id));
       }
-    } else if (APPLY && titleNeeds && !row.language) {
-      await db.update(documents).set({ language: "ru" }).where(eq(documents.id, row.id));
-      languageSet += 1;
     }
   }
 
