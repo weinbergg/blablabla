@@ -15,6 +15,8 @@ export function BookSpine({
   authorLabel,
   year,
   fileType,
+  progressPage,
+  progressTotal,
   onRemove,
 }: {
   id: string;
@@ -22,6 +24,8 @@ export function BookSpine({
   authorLabel: string;
   year: string | null;
   fileType: string;
+  progressPage?: number | null;
+  progressTotal?: number | null;
   onRemove?: () => void;
 }) {
   const accent = spineAccent(id);
@@ -29,17 +33,26 @@ export function BookSpine({
   // stays stable across renders) so neighbouring spines don't look printed
   // from one mould — closer to how real hardbacks vary on a shelf.
   const jitter = (id.charCodeAt(0) + id.charCodeAt(id.length - 1)) % 5;
+  const href =
+    progressPage && progressPage > 1
+      ? `/documents/${id}?page=${progressPage}`
+      : `/documents/${id}`;
   return (
     <div className="group/spine relative shrink-0" style={{ width: 128 + jitter }}>
       <Link
-        href={`/documents/${id}`}
+        href={href}
         className="relative flex w-full flex-col justify-between overflow-hidden rounded-t-md rounded-b-sm p-3 shadow-[0_6px_14px_rgba(25,31,40,0.18)] transition-transform duration-200 group-hover/spine:-translate-y-1.5"
         style={{
           height: 182 + jitter * 2,
           background: `linear-gradient(160deg, ${accent} 0%, ${accent}cc 100%)`,
         }}
       >
-        <span className="font-mono text-[9px] uppercase tracking-widest text-paper/70">{fileType}</span>
+        <span className="font-mono text-[9px] uppercase tracking-widest text-paper/70">
+          {fileType}
+          {progressPage && progressPage > 1
+            ? ` · ${progressPage}${progressTotal ? `/${progressTotal}` : ""}`
+            : ""}
+        </span>
         <div>
           <p className="line-clamp-4 font-serif text-[13px] leading-[1.15] text-paper">{title}</p>
           <p className="mt-1.5 truncate text-[10px] text-paper/75">
@@ -127,6 +140,8 @@ export function Bookshelf({
                   authorLabel={entry.document.authors.map((a) => a.name).join(", ") || "автор не указан"}
                   year={entry.document.year}
                   fileType={entry.document.fileType}
+                  progressPage={entry.progressPage}
+                  progressTotal={entry.progressTotal}
                   onRemove={readOnly ? undefined : () => remove(entry.document.id)}
                 />
               ))}

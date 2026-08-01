@@ -6,6 +6,7 @@ import { DocumentWorkspace } from "@/components/document-workspace";
 import { DocumentEditForm } from "@/components/document-edit-form";
 import { LibraryButton } from "@/components/library-button";
 import { RateReviewPanel, StarRating } from "@/components/rate-review";
+import { ShareWithFriends } from "@/components/share-with-friends";
 import { getCurrentUser } from "@/lib/auth";
 import { getLibraryStatusForDocument, getPublicReviews, getRatingSummary } from "@/lib/db/library";
 import {
@@ -179,6 +180,14 @@ export default async function DocumentPage({
                 initialReview={libraryItem.reviewBody}
               />
             )}
+            <ShareWithFriends
+              payload={{
+                kind: "book",
+                title: document.title,
+                url: `/documents/${document.id}`,
+                excerpt: authorNames || null,
+              }}
+            />
             {document.fileUrl && (
               <div className="flex flex-wrap items-center gap-2">
                 <a
@@ -225,12 +234,15 @@ export default async function DocumentPage({
 
         <DocumentWorkspace
           documentId={document.id}
+          documentTitle={document.title}
           fileUrl={document.fileUrl}
           fileType={document.fileType}
           comments={comments}
           annotations={annotations}
           currentUser={currentUser}
           language={document.language}
+          onShelf={Boolean(libraryItem)}
+          initialCloudPage={libraryItem?.progressPage ?? null}
         />
 
         {publicReviews.length > 0 && (

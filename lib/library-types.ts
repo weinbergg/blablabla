@@ -31,6 +31,8 @@ export type LibraryEntry = {
   rating: number | null;
   reviewBody: string | null;
   updatedAt: string;
+  progressPage: number | null;
+  progressTotal: number | null;
   document: LibraryBookSummary;
 };
 

@@ -5,6 +5,7 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  List,
   Loader2,
   MapPin,
   PenTool,
@@ -146,6 +147,10 @@ export function PdfReader({
   const [drawStrokeWidth, setDrawStrokeWidth] = useState<StrokeWidthPreset>("medium");
   const [drawVisibility, setDrawVisibility] = useState<AnnotationVisibility>("public");
   const [drawSaving, setDrawSaving] = useState(false);
+  const [toc, setToc] = useState<{ title: string; page: number }[]>([]);
+  const [tocOpen, setTocOpen] = useState(false);
+  const pageRef = useRef(page);
+  pageRef.current = page;
 
   useEffect(() => {
     const storedMode = window.localStorage.getItem(SPREAD_KEY);
@@ -184,7 +189,40 @@ export function PdfReader({
         if (cancelled) return;
         docRef.current = doc;
         setNumPages(doc.numPages);
-        onPageChange(1, doc.numPages);
+        // Resume wherever the parent already decided — never force page 1 and
+        // wipe reading progress / ?page= deep links.
+        const resume = Math.min(Math.max(pageRef.current || 1, 1), doc.numPages);
+        onPageChange(resume, doc.numPages);
+
+        try {
+          const outline = await doc.getOutline();
+          if (!cancelled && outline?.length) {
+            const flat: { title: string; page: number }[] = [];
+            async function walk(
+              items: { title: string; dest: string | unknown[] | null; items?: unknown[] }[],
+            ) {
+              for (const item of items) {
+                try {
+                  let dest = item.dest;
+                  if (typeof dest === "string") dest = await doc.getDestination(dest);
+                  if (Array.isArray(dest) && dest[0]) {
+                    const idx = await doc.getPageIndex(dest[0] as Parameters<typeof doc.getPageIndex>[0]);
+                    flat.push({ title: item.title || "Раздел", page: idx + 1 });
+                  }
+                } catch {
+                  /* skip broken outline entries */
+                }
+                if (item.items?.length) {
+                  await walk(item.items as { title: string; dest: string | unknown[] | null; items?: unknown[] }[]);
+                }
+              }
+            }
+            await walk(outline);
+            if (!cancelled) setToc(flat.slice(0, 200));
+          }
+        } catch {
+          /* outline optional */
+        }
       } catch {
         if (!cancelled) setError(true);
       } finally {
@@ -503,6 +541,17 @@ export function PdfReader({
           >
             <ChevronRight size={16} />
           </button>
+          {toc.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTocOpen((o) => !o)}
+              className={`icon-button ${tocOpen ? "border-rust text-rust" : ""}`}
+              aria-label="Оглавление"
+              title="Оглавление"
+            >
+              <List size={14} />
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -566,6 +615,31 @@ export function PdfReader({
           )}
         </div>
       </div>
+
+      {tocOpen && toc.length > 0 && (
+        <div className="mb-3 max-h-48 overflow-y-auto rounded-xl border border-ink/10 bg-paper p-2">
+          <p className="mb-1 px-2 font-mono text-[10px] uppercase tracking-widest text-muted">
+            Оглавление
+          </p>
+          <ul className="columns-1 gap-x-4 sm:columns-2">
+            {toc.map((item, i) => (
+              <li key={`${item.page}-${i}`} className="break-inside-avoid">
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-ink/[0.04]"
+                  onClick={() => {
+                    onPageChange(item.page, numPages);
+                    setTocOpen(false);
+                  }}
+                >
+                  <span className="text-ink">{item.title}</span>
+                  <span className="ml-2 font-mono text-[10px] text-muted">стр. {item.page}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {placing && (
         <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">

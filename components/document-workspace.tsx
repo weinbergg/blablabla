@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
@@ -16,7 +16,14 @@ import {
 } from "lucide-react";
 import type { AnnotationItem } from "@/components/readers/annotation-layer";
 import { MathText } from "@/components/math-text";
+import { ShareWithFriends } from "@/components/share-with-friends";
 import { countLabel } from "@/lib/pluralize";
+import {
+  loadReadingProgress,
+  pruneReadingProgress,
+  saveReadingProgress,
+  type ReadingProgressKind,
+} from "@/lib/reading-progress";
 import { canAnnotateFiles } from "@/lib/roles";
 
 const PdfReader = dynamic(
@@ -57,14 +64,18 @@ async function submitReport(targetType: "annotation" | "comment", targetId: stri
 
 export function DocumentWorkspace({
   documentId,
+  documentTitle,
   fileUrl,
   fileType,
   comments,
   annotations,
   currentUser,
   language,
+  onShelf = false,
+  initialCloudPage = null,
 }: {
   documentId: string;
+  documentTitle?: string;
   fileUrl: string | null;
   fileType: string;
   comments: CommentItem[];
@@ -72,22 +83,116 @@ export function DocumentWorkspace({
   currentUser: CurrentUser;
   /** Primary language of the book — used by the selection dictionary. */
   language?: string | null;
+  /** When true, rare cloud sync of progress is allowed (shelf-only). */
+  onShelf?: boolean;
+  initialCloudPage?: number | null;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
+  const [scrollRatio, setScrollRatio] = useState(0);
+  const [progressReady, setProgressReady] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const lastCloudSync = useRef(0);
   const isPdf = fileType === "PDF";
   const isEpub = fileType === "EPUB";
   const isTxt = fileType === "TXT";
   const canFullscreen = Boolean(fileUrl) && (isPdf || isEpub || isTxt);
   const canAnnotate = canAnnotateFiles(currentUser?.role);
+  const progressKind: ReadingProgressKind | null = isPdf
+    ? "pdf"
+    : isEpub
+      ? "epub"
+      : isTxt
+        ? "txt"
+        : null;
 
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("page");
-    const n = raw ? Number.parseInt(raw, 10) : NaN;
-    if (Number.isFinite(n) && n >= 1) setPage(n);
-  }, []);
+    const fromUrl = raw ? Number.parseInt(raw, 10) : NaN;
+    if (Number.isFinite(fromUrl) && fromUrl >= 1) {
+      setPage(fromUrl);
+      setProgressReady(true);
+      return;
+    }
+
+    const local = loadReadingProgress(documentId);
+    let next = 1;
+    let ratio = 0;
+    if (local && (!progressKind || local.kind === progressKind)) {
+      next = local.page;
+      ratio = local.scrollRatio ?? 0;
+    } else if (typeof initialCloudPage === "number" && initialCloudPage >= 1) {
+      // Cloud only when this browser has no local bookmark (cross-device / new device).
+      next = initialCloudPage;
+    }
+    setPage(next);
+    setScrollRatio(ratio);
+    setProgressReady(true);
+    pruneReadingProgress(documentId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
+
+  function syncCloud(nextPage: number, total?: number) {
+    if (!currentUser || !onShelf || !progressKind) return;
+    const now = Date.now();
+    if (now - lastCloudSync.current < 60_000) return;
+    lastCloudSync.current = now;
+    void fetch(`/api/reading-progress/${documentId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page: nextPage, total, kind: progressKind }),
+      keepalive: true,
+    });
+  }
+
+  function persistPosition(nextPage: number, total?: number, nextScroll?: number) {
+    if (!progressKind) return;
+    saveReadingProgress(documentId, {
+      kind: progressKind,
+      page: nextPage,
+      total,
+      scrollRatio: nextScroll,
+    });
+    try {
+      const url = new URL(window.location.href);
+      if (progressKind === "txt") {
+        url.searchParams.delete("page");
+      } else {
+        url.searchParams.set("page", String(nextPage));
+      }
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      /* ignore */
+    }
+    syncCloud(nextPage, total);
+  }
+
+  useEffect(() => {
+    function flush() {
+      if (!progressKind || !progressReady) return;
+      saveReadingProgress(documentId, {
+        kind: progressKind,
+        page,
+        total: numPages || undefined,
+        scrollRatio: isTxt ? scrollRatio : undefined,
+      });
+      if (currentUser && onShelf) {
+        lastCloudSync.current = 0;
+        syncCloud(page, numPages || undefined);
+      }
+    }
+    function onVis() {
+      if (document.visibilityState === "hidden") flush();
+    }
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, page, numPages, scrollRatio, progressKind, progressReady, onShelf, currentUser?.id]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -109,6 +214,12 @@ export function DocumentWorkspace({
       body: JSON.stringify({ documentId, body, annotationId }),
     });
     router.refresh();
+  }
+
+  function handlePageChange(next: number, total: number) {
+    setPage(next);
+    setNumPages(total);
+    persistPosition(next, total);
   }
 
   const annotationComments = useMemo(
@@ -154,14 +265,11 @@ export function DocumentWorkspace({
           </div>
         )}
         <div className={fullscreen ? "min-h-0 flex-1 overflow-y-auto px-4 pb-12 md:px-8" : ""}>
-          {fileUrl && isPdf && (
+          {progressReady && fileUrl && isPdf && (
             <PdfReader
               url={fileUrl}
               page={page}
-              onPageChange={(next, total) => {
-                setPage(next);
-                setNumPages(total);
-              }}
+              onPageChange={handlePageChange}
               documentId={documentId}
               currentUserId={currentUser?.id ?? null}
               initialAnnotations={annotations}
@@ -173,14 +281,11 @@ export function DocumentWorkspace({
               language={language}
             />
           )}
-          {fileUrl && isEpub && (
+          {progressReady && fileUrl && isEpub && (
             <EpubReader
               url={fileUrl}
               page={page}
-              onPageChange={(next, total) => {
-                setPage(next);
-                setNumPages(total);
-              }}
+              onPageChange={handlePageChange}
               documentId={documentId}
               currentUserId={currentUser?.id ?? null}
               initialAnnotations={annotations}
@@ -192,8 +297,17 @@ export function DocumentWorkspace({
               language={language}
             />
           )}
-          {fileUrl && isTxt && (
-            <TxtReader url={fileUrl} language={language} fullscreen={fullscreen} />
+          {progressReady && fileUrl && isTxt && (
+            <TxtReader
+              url={fileUrl}
+              language={language}
+              fullscreen={fullscreen}
+              initialScrollRatio={scrollRatio}
+              onScrollRatioChange={(ratio) => {
+                setScrollRatio(ratio);
+                persistPosition(1, undefined, ratio);
+              }}
+            />
           )}
           {fileUrl && !isPdf && !isEpub && !isTxt && (
             <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
@@ -219,7 +333,10 @@ export function DocumentWorkspace({
               <AnnotationsIndex
                 annotations={annotations}
                 canJump={isPdf || isEpub}
-                onJumpToPage={(target) => setPage(target)}
+                onJumpToPage={(target) => handlePageChange(target, numPages || target)}
+                documentId={documentId}
+                documentTitle={documentTitle}
+                canShare={Boolean(currentUser)}
               />
             )}
           </div>
@@ -425,10 +542,16 @@ function AnnotationsIndex({
   annotations,
   canJump,
   onJumpToPage,
+  documentId,
+  documentTitle,
+  canShare,
 }: {
   annotations: AnnotationItem[];
   canJump: boolean;
   onJumpToPage: (page: number) => void;
+  documentId: string;
+  documentTitle?: string;
+  canShare?: boolean;
 }) {
   const [author, setAuthor] = useState("");
   const [pageFilter, setPageFilter] = useState("");
@@ -489,36 +612,48 @@ function AnnotationsIndex({
 
       <div className="space-y-2">
         {filtered.length === 0 && <p className="text-sm text-muted">Пометок не найдено.</p>}
-        {filtered.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => canJump && onJumpToPage(item.page)}
-            disabled={!canJump}
-            className="flex w-full items-center justify-between gap-3 rounded-xl border border-ink/10 px-3.5 py-2.5 text-left text-sm transition-colors hover:border-rust/40 disabled:cursor-default disabled:hover:border-ink/10"
-          >
-            <span className="min-w-0 flex-1 truncate">
-              <span className="font-medium text-ink">{item.authorName}</span>
-              <span className="text-muted">
-                {" "}
-                ·{" "}
-                {item.shape === "drawing"
-                  ? "рисунок"
-                  : item.shape === "formula"
-                    ? item.body
-                      ? "формула"
-                      : "формула (пусто)"
-                    : item.body
-                      ? item.body.slice(0, 60)
-                      : "без текста"}
-              </span>
-            </span>
-            <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted">
-              стр. {item.page}
-              {canJump && <ArrowRight size={12} />}
-            </span>
-          </button>
-        ))}
+        {filtered.map((item) => {
+          const excerpt =
+            item.shape === "drawing"
+              ? "рисунок"
+              : item.shape === "formula"
+                ? item.body || "формула"
+                : item.body || item.anchorText || "без текста";
+          const shareUrl = `/documents/${documentId}?page=${item.page}`;
+          return (
+            <div
+              key={item.id}
+              className="flex items-center gap-2 rounded-xl border border-ink/10 px-3.5 py-2.5"
+            >
+              <button
+                type="button"
+                onClick={() => canJump && onJumpToPage(item.page)}
+                disabled={!canJump}
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left text-sm transition-colors hover:text-rust disabled:cursor-default disabled:hover:text-inherit"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-medium text-ink">{item.authorName}</span>
+                  <span className="text-muted"> · {excerpt.slice(0, 60)}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted">
+                  стр. {item.page}
+                  {canJump && <ArrowRight size={12} />}
+                </span>
+              </button>
+              {canShare && (
+                <ShareWithFriends
+                  compact
+                  payload={{
+                    kind: "annotation",
+                    title: documentTitle || "Пометка",
+                    url: shareUrl,
+                    excerpt,
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </aside>
   );

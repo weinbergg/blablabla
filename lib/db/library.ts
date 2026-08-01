@@ -79,6 +79,8 @@ export async function getLibraryForUser(userId: string): Promise<LibraryEntry[]>
       rating: row.rating,
       reviewBody: row.reviewBody,
       updatedAt: row.updatedAt,
+      progressPage: row.progressPage ?? null,
+      progressTotal: row.progressTotal ?? null,
       document: summaries.get(row.documentId)!,
     }));
 }

@@ -11,7 +11,7 @@ import {
   type Simulation,
   type SimulationNodeDatum,
 } from "d3-force";
-import { ArrowUpRight, Minus, Pin, Plus, RotateCcw, Waypoints, X } from "lucide-react";
+import { ArrowUpRight, Minus, Pin, Plus, RotateCcw, Search, Waypoints, X } from "lucide-react";
 import type { GraphEdge, GraphNode } from "@/lib/db/queries";
 import { estimateTextWidth, pickLabelPlacements } from "@/lib/label-layout";
 import { assignRootClusters, buildCategoryAuthorTree } from "@/lib/graph-tree";
@@ -145,8 +145,11 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
-  /** Authors crowd the map — off by default; auto-on when zoomed in, or via toggle. */
+  /** Authors crowd the map — off by default; reveal only via toggle or pin. */
   const [showAuthors, setShowAuthors] = useState(false);
+  /** Hide deep subsections until focused — keeps large catalogs readable. */
+  const [compactMode, setCompactMode] = useState(true);
+  const [query, setQuery] = useState("");
 
   const dragNode = useRef<{ id: string; moved: boolean; startX: number; startY: number } | null>(null);
   const dragPan = useRef<{
@@ -289,11 +292,6 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     return () => clearTimeout(id);
   }, [view.k]);
 
-  // Auto-reveal authors when the user zooms in enough to have room for them.
-  useEffect(() => {
-    if (view.k >= 1.15) setShowAuthors(true);
-  }, [view.k]);
-
   const authorsVisible = showAuthors || Boolean(pinnedId?.startsWith("author:"));
   const positioned = nodesRef.current;
   const links = linksRef.current;
@@ -315,18 +313,56 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     return set;
   }, [activeId, links]);
 
+  const searchHits = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [] as SimNode[];
+    return positioned
+      .filter((n) => n.label.toLowerCase().includes(q))
+      .sort((a, b) => a.label.length - b.label.length)
+      .slice(0, 8);
+  }, [positioned, query]);
+
+  function focusNode(id: string) {
+    const node = nodeById.get(id);
+    if (!node) return;
+    setPinnedId(id);
+    setQuery("");
+    if (node.type === "author") setShowAuthors(true);
+    const x = node.x ?? WIDTH / 2;
+    const y = node.y ?? HEIGHT / 2;
+    const k = clamp(Math.max(view.k, 1.35), MIN_ZOOM, MAX_ZOOM);
+    setView({ k, x: WIDTH / 2 - x * k, y: HEIGHT / 2 - y * k });
+    setLabelK(k);
+  }
+
   const visibleNodeIds = useMemo(() => {
     const set = new Set<string>();
     for (const n of positioned) {
+      const isFocus = pinnedId === n.id || (pinnedId && neighborIds?.has(n.id));
       if (n.type === "author" && !authorsVisible) {
-        // Still show an author if it's pinned or a neighbour of the pin.
-        if (pinnedId === n.id || (pinnedId && neighborIds?.has(n.id))) set.add(n.id);
+        if (isFocus) set.add(n.id);
+        continue;
+      }
+      if (compactMode && n.type === "category" && (n.depth ?? 0) > 1 && !isFocus) {
         continue;
       }
       set.add(n.id);
     }
     return set;
-  }, [positioned, authorsVisible, pinnedId, neighborIds]);
+  }, [positioned, authorsVisible, pinnedId, neighborIds, compactMode]);
+
+  const pinnedNeighbors = useMemo(() => {
+    if (!pinnedId || !neighborIds) return [] as SimNode[];
+    return [...neighborIds]
+      .filter((id) => id !== pinnedId)
+      .map((id) => nodeById.get(id))
+      .filter((n): n is SimNode => Boolean(n))
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === "category" ? -1 : 1;
+        return (b.documentCount ?? 0) - (a.documentCount ?? 0);
+      })
+      .slice(0, 12);
+  }, [pinnedId, neighborIds, nodeById]);
 
   const labelPlacements = useMemo(() => {
     // Node circles and label text are rendered at `baseSize * elementScale(k)`
@@ -526,18 +562,14 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
   return (
     <div className="overflow-hidden rounded-3xl border border-ink/10 bg-[#f7f4ed]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-5 py-3.5">
-        <div className="flex flex-wrap items-center gap-4 text-xs text-muted">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2.5 rounded-full" style={{ backgroundColor: CATEGORY_COLOR }} />
-            раздел / подраздел
+            раздел
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2.5 rounded-full" style={{ backgroundColor: AUTHOR_COLOR }} />
             автор
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-px w-4 border-t border-dashed border-rust" />
-            смысловая связь
           </span>
           <button
             type="button"
@@ -548,8 +580,45 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
           >
             {authorsVisible ? "Авторы: вкл" : "Авторы: выкл"}
           </button>
+          <button
+            type="button"
+            onClick={() => setCompactMode((v) => !v)}
+            className={`rounded-full border px-2.5 py-1 transition-colors ${
+              compactMode ? "border-rust/40 text-rust" : "border-ink/15 text-muted hover:text-ink"
+            }`}
+            title="В компактном виде скрыты глубокие подразделы — клик по разделу показывает соседей"
+          >
+            {compactMode ? "Компактно" : "Все уровни"}
+          </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative">
+            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Найти раздел…"
+              className="h-8 w-40 rounded-full border border-ink/15 bg-white/70 pl-8 pr-3 text-xs text-ink outline-none focus:border-ink/35 md:w-52"
+            />
+            {searchHits.length > 0 && (
+              <ul className="sticker-panel absolute left-0 top-full z-20 mt-1 max-h-56 w-56 overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-lg">
+                {searchHits.map((hit) => (
+                  <li key={hit.id}>
+                    <button
+                      type="button"
+                      onClick={() => focusNode(hit.id)}
+                      className="block w-full px-3 py-1.5 text-left text-xs hover:bg-ink/[0.04]"
+                    >
+                      <span className="text-ink">{hit.label}</span>
+                      <span className="mt-0.5 block text-[10px] uppercase tracking-wider text-muted">
+                        {hit.type === "author" ? "автор" : "раздел"}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </label>
           <button type="button" onClick={() => zoomBy(1.35)} className="icon-button" aria-label="Приблизить">
             <Plus size={15} />
           </button>
@@ -564,7 +633,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
 
       <div className="relative">
         {pinnedNode && (
-          <div className="absolute right-4 top-4 z-10 w-[min(280px,calc(100%-2rem))] rounded-2xl border border-ink/10 bg-white/95 p-4 shadow-lg backdrop-blur">
+          <div className="sticker-panel absolute right-4 top-4 z-10 w-[min(300px,calc(100%-2rem))] rounded-2xl border border-ink/10 bg-white p-4 shadow-lg">
             <div className="mb-2 flex items-start justify-between gap-2">
               <div>
                 <p
@@ -578,7 +647,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                       : "Текст"
                     : "Раздел каталога"}
                 </p>
-                <p className="mt-1 font-serif text-lg leading-tight">{pinnedNode.label}</p>
+                <p className="mt-1 font-serif text-lg leading-tight text-ink">{pinnedNode.label}</p>
               </div>
               <button
                 type="button"
@@ -593,6 +662,21 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
               <p className="mb-3 text-xs text-muted">
                 {pinnedNode.documentCount} {pinnedNode.documentCount === 1 ? "текст" : "текстов"} в разделе
               </p>
+            )}
+            {pinnedNeighbors.length > 0 && (
+              <div className="mb-3 max-h-36 space-y-1 overflow-y-auto border-t border-ink/10 pt-2">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Рядом</p>
+                {pinnedNeighbors.map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => focusNode(n.id)}
+                    className="block w-full truncate rounded-lg px-1.5 py-1 text-left text-xs text-ink hover:bg-ink/[0.04]"
+                  >
+                    {n.label}
+                  </button>
+                ))}
+              </div>
             )}
             {pinnedNode.href && (
               <Link
@@ -691,7 +775,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                 <circle
                   r={radius}
                   fill={isAuthor ? AUTHOR_COLOR : CATEGORY_COLOR}
-                  opacity={dimmed ? 0.25 : 1}
+                  opacity={dimmed ? 0.08 : 1}
                   className="transition-opacity duration-500 ease-out"
                 />
               </g>
@@ -748,7 +832,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                     fontWeight={isAuthor ? 500 : 600}
                     fontFamily={isAuthor ? "inherit" : "var(--font-serif, serif)"}
                     fill="#191f28"
-                    opacity={dimmed ? 0.2 : 1}
+                    opacity={dimmed ? 0.06 : 1}
                     stroke={HALO}
                     strokeWidth={4}
                     paintOrder="stroke"
@@ -766,7 +850,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
       </div>
 
       <p className="border-t border-ink/10 px-5 py-3 text-center text-xs text-muted">
-        Колесо мыши — масштаб, перетаскивание фона — сдвиг, клик по точке — закрепить/открепить связи, перетаскивание точки — подвинуть вручную.
+        Поиск или клик закрепляет узел и подсвечивает связи. «Компактно» прячет глубокие подразделы. Авторы по умолчанию скрыты.
       </p>
 
       {relationEdges.length > 0 && (

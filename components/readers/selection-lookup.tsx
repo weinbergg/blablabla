@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { RefObject, useEffect, useState } from "react";
 import { BookMarked, BookOpenText, ExternalLink, Languages, Plus } from "lucide-react";
+import { ShareWithFriends } from "@/components/share-with-friends";
 import type { LookupResult } from "@/lib/lookup";
 import type { GlossaryHit } from "@/lib/db/glossaries";
 
@@ -300,6 +301,18 @@ export function SelectionLookup({
           <Plus size={12} />
           В словарь
         </button>
+        <ShareWithFriends
+          compact
+          payload={{
+            kind: "quote",
+            title: "Цитата",
+            url:
+              typeof window !== "undefined"
+                ? `${window.location.pathname}${window.location.search}`
+                : "/",
+            excerpt: state.text,
+          }}
+        />
         <Link
           href="/glossaries"
           className="icon-button size-8"

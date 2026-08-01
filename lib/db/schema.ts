@@ -394,6 +394,12 @@ export const libraryItems = sqliteTable("library_items", {
    * and in the friends' activity feed — separate from `note`, which stays
    * private to the shelf owner. */
   reviewBody: text("review_body"),
+  /** Last reading position for shelf books — synced rarely from the client
+   * (localStorage is the hot path). Null when the user never opened the file. */
+  progressPage: integer("progress_page"),
+  progressTotal: integer("progress_total"),
+  progressKind: text("progress_kind"),
+  progressAt: text("progress_at"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`(current_timestamp)`),

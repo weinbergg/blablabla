@@ -13,13 +13,18 @@ export function TxtReader({
   language,
   fullscreen = false,
   onFullscreenChange,
+  initialScrollRatio = 0,
+  onScrollRatioChange,
 }: {
   url: string;
   language?: string | null;
   fullscreen?: boolean;
   onFullscreenChange?: (value: boolean) => void;
+  initialScrollRatio?: number;
+  onScrollRatioChange?: (ratio: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const restoredRef = useRef(false);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [canScrollUp, setCanScrollUp] = useState(false);
@@ -29,17 +34,16 @@ export function TxtReader({
     let cancelled = false;
     setText(null);
     setError(false);
+    restoredRef.current = false;
     (async () => {
       try {
         const res = await fetch(url);
         if (!res.ok) throw new Error(String(res.status));
         const buf = await res.arrayBuffer();
-        // Prefer UTF-8; fall back to latin1 for older Classical dumps.
         let decoded = new TextDecoder("utf-8", { fatal: false }).decode(buf);
         if (decoded.includes("\uFFFD") && buf.byteLength < 8_000_000) {
           decoded = new TextDecoder("latin1").decode(buf);
         }
-        // Strip a UTF-8 BOM if present.
         if (decoded.charCodeAt(0) === 0xfeff) decoded = decoded.slice(1);
         if (!cancelled) setText(decoded);
       } catch {
@@ -61,15 +65,36 @@ export function TxtReader({
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || text == null) return;
+
+    if (!restoredRef.current && initialScrollRatio > 0) {
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) el.scrollTop = max * initialScrollRatio;
+      restoredRef.current = true;
+    }
+
+    let timer: number | null = null;
+    function onScroll() {
+      syncScrollEdges();
+      if (!onScrollRatioChange) return;
+      if (timer != null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const node = wrapRef.current;
+        if (!node) return;
+        const max = node.scrollHeight - node.clientHeight;
+        onScrollRatioChange(max > 0 ? node.scrollTop / max : 0);
+      }, 400);
+    }
+
     syncScrollEdges();
-    el.addEventListener("scroll", syncScrollEdges, { passive: true });
+    el.addEventListener("scroll", onScroll, { passive: true });
     const ro = new ResizeObserver(syncScrollEdges);
     ro.observe(el);
     return () => {
-      el.removeEventListener("scroll", syncScrollEdges);
+      el.removeEventListener("scroll", onScroll);
       ro.disconnect();
+      if (timer != null) window.clearTimeout(timer);
     };
-  }, [text]);
+  }, [text, initialScrollRatio, onScrollRatioChange]);
 
   function scrollByPage(dir: -1 | 1) {
     const el = wrapRef.current;
