@@ -705,7 +705,6 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
   const [message, setMessage] = useState("");
   const [lastCode, setLastCode] = useState("");
   const [massMode, setMassMode] = useState(false);
-  const [grantBooster, setGrantBooster] = useState(false);
 
   async function createInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -720,7 +719,6 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
         email: formData.get("email"),
         note: formData.get("note"),
         multiUse: massMode,
-        grantRole: grantBooster ? "booster" : "member",
       }),
     });
     const result = (await response.json().catch(() => ({}))) as { code?: string; error?: string };
@@ -770,20 +768,10 @@ function InvitesTab({ invites }: { invites: AdminInvite[] }) {
             <span>Заметка (необязательно)</span>
             <input name="note" placeholder={massMode ? "например: общий чат в Telegram" : "Для кого приглашение"} />
           </label>
-          <label className="flex items-center gap-2.5 rounded-xl border border-ink/10 bg-ink/[0.03] px-3.5 py-3 text-sm">
-            <input
-              type="checkbox"
-              checked={grantBooster}
-              onChange={(event) => setGrantBooster(event.target.checked)}
-            />
-            <span>
-              Выдать роль «бустер» при регистрации
-              <span className="mt-0.5 block text-xs text-muted">
-                Зарегистрировавшийся сразу сможет ставить пометки в файлах и приглашать
-                обычных участников.
-              </span>
-            </span>
-          </label>
+          <p className="rounded-xl border border-ink/10 bg-ink/[0.03] px-3.5 py-3 text-xs leading-5 text-muted">
+            Регистрация на сайте открытая — код нужен только для реферальной пометки.
+            Роль «бустер» выдаётся вручную во вкладке «Участники».
+          </p>
           <button className="button-primary w-full" disabled={busy}>
             {busy ? "Создаю…" : "Сгенерировать код"}
           </button>

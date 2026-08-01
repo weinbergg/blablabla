@@ -21,7 +21,6 @@ export async function POST(request: Request) {
     email?: unknown;
     note?: unknown;
     multiUse?: unknown;
-    grantRole?: unknown;
   } | null;
 
   // Multi-use "drop in the group chat" links are an admin/booster privilege —
@@ -29,10 +28,8 @@ export async function POST(request: Request) {
   // regular member's referral link should do.
   const multiUse = Boolean(body?.multiUse) && (user.role === "admin" || user.role === "booster");
 
-  // Granting the "booster" role on signup is an admin-only privilege — it's
-  // meant for onboarding a batch of trusted people at once, who then invite
-  // regular members through their own (member-granting) referral links.
-  const grantRole = body?.grantRole === "booster" && user.role === "admin" ? "booster" : "member";
+  // Booster is never granted via invite — only from the admin users panel.
+  const grantRole = "member" as const;
 
   if (user.role !== "admin" && !multiUse) {
     const unused = await db

@@ -35,7 +35,7 @@ export default async function LoginPage() {
           <p className="mt-6 text-center text-sm text-muted">
             Нет аккаунта?{" "}
             <Link href="/register" className="font-medium text-ink underline">
-              Зарегистрироваться по приглашению
+              Зарегистрироваться
             </Link>
           </p>
         </section>

@@ -71,8 +71,8 @@ export function InvitePage({
       <p className="eyebrow mb-3">Рефералы</p>
       <h1 className="font-serif text-4xl tracking-tight md:text-5xl">Пригласить друзей</h1>
       <p className="mt-4 text-sm leading-6 text-muted">
-        Библиотека открыта по приглашениям. Сгенерируйте ссылку и поделитесь ей — мы запоминаем,
-        кто кого позвал, чтобы видеть, как растёт круг читателей, но никак иначе это не ограничиваем.
+        Регистрация на сайте открытая. Ссылка ниже нужна только чтобы отметить, кто кого позвал —
+        так видно, как растёт круг читателей. Роль бустера по ссылке не выдаётся.
       </p>
 
       <div className="mt-6 flex items-center gap-2 rounded-xl bg-ink/5 px-4 py-3 text-sm">

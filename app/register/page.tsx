@@ -30,11 +30,11 @@ export default async function RegisterPage({
           <span className="grid size-11 place-items-center rounded-full bg-ink font-serif text-2xl italic text-paper">
             b.
           </span>
-          <p className="eyebrow mb-3 mt-8">Регистрация по приглашению</p>
+          <p className="eyebrow mb-3 mt-8">Регистрация</p>
           <h1 className="font-serif text-4xl tracking-tight">Присоединиться</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            Регистрация закрытая — нужен код приглашения от администратора
-            библиотеки.
+            Создайте аккаунт, чтобы читать с полки, писать в обсуждениях и
+            добавлять друзей. Роль бустера выдаёт только администратор.
           </p>
           <RegisterForm inviteCode={code} />
           <p className="mt-6 text-center text-sm text-muted">

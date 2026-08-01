@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "crypto";
 import { and, count, eq, inArray, or } from "drizzle-orm";
-import { db } from "@/lib/db/client";
+import { db, sqlite } from "@/lib/db/client";
 import { friendships, users } from "@/lib/db/schema";
 
 export type FriendUser = { id: string; name: string; role: string };
@@ -125,10 +125,22 @@ export async function getFriendshipStatus(viewerId: string, otherId: string): Pr
   };
 }
 
-export async function sendFriendRequest(requesterId: string, addresseeId: string) {
+export async function sendFriendRequest(
+  requesterId: string,
+  addresseeId: string,
+): Promise<{ friendshipId: string; status: "pending" | "accepted" }> {
   if (requesterId === addresseeId) {
     throw new Error("Нельзя добавить в друзья самого себя.");
   }
+  const [addressee] = await db
+    .select({ id: users.id, status: users.status })
+    .from(users)
+    .where(eq(users.id, addresseeId))
+    .limit(1);
+  if (!addressee || addressee.status !== "active") {
+    throw new Error("Пользователь не найден.");
+  }
+
   const [existing] = await db
     .select()
     .from(friendships)
@@ -140,20 +152,33 @@ export async function sendFriendRequest(requesterId: string, addresseeId: string
     )
     .limit(1);
   if (existing) {
-    if (existing.status === "accepted") throw new Error("Вы уже друзья.");
+    if (existing.status === "accepted") {
+      return { friendshipId: existing.id, status: "accepted" };
+    }
     // They already asked us — treat "add" as accept (common UX expectation).
     if (existing.addresseeId === requesterId && existing.status === "pending") {
-      await db
-        .update(friendships)
-        .set({ status: "accepted" })
-        .where(eq(friendships.id, existing.id));
-      return existing.id;
+      await acceptFriendshipRow(existing.id);
+      return { friendshipId: existing.id, status: "accepted" };
     }
     throw new Error("Заявка уже отправлена — дождитесь ответа.");
   }
   const id = randomUUID();
   await db.insert(friendships).values({ id, requesterId, addresseeId, status: "pending" });
-  return id;
+  return { friendshipId: id, status: "pending" };
+}
+
+function acceptFriendshipRow(friendshipId: string) {
+  // Raw SQL: reliable write path for the status flip (ORM update was flaky in prod).
+  const result = sqlite
+    .prepare(`UPDATE friendships SET status = 'accepted' WHERE id = ? AND status = 'pending'`)
+    .run(friendshipId);
+  if (result.changes === 0) {
+    const row = sqlite.prepare(`SELECT status FROM friendships WHERE id = ?`).get(friendshipId) as
+      | { status: string }
+      | undefined;
+    if (row?.status === "accepted") return;
+    throw new Error("Не удалось сохранить принятие заявки.");
+  }
 }
 
 /** Ownership check baked in: only the addressee may accept/decline, and
@@ -173,15 +198,7 @@ export async function respondToFriendRequest(friendshipId: string, userId: strin
     throw new Error("Заявка уже обработана.");
   }
   if (action === "accept") {
-    await db.update(friendships).set({ status: "accepted" }).where(eq(friendships.id, friendshipId));
-    const [check] = await db
-      .select({ status: friendships.status })
-      .from(friendships)
-      .where(eq(friendships.id, friendshipId))
-      .limit(1);
-    if (check?.status !== "accepted") {
-      throw new Error("Не удалось сохранить принятие заявки.");
-    }
+    await acceptFriendshipRow(friendshipId);
     return { friendshipId, status: "accepted" as const };
   }
   await db.delete(friendships).where(eq(friendships.id, friendshipId));

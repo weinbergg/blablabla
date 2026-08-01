@@ -134,6 +134,20 @@ export async function getConversationParticipants(conversationId: string) {
     .where(eq(conversationParticipants.conversationId, conversationId));
 }
 
+/** Earliest lastReadAt among other participants — a message is "read" for the
+ * sender when every other person in the thread has read at least that far. */
+export async function getPeerLastReadAt(conversationId: string, viewerId: string): Promise<string | null> {
+  const rows = await db
+    .select({ lastReadAt: conversationParticipants.lastReadAt })
+    .from(conversationParticipants)
+    .where(
+      and(eq(conversationParticipants.conversationId, conversationId), ne(conversationParticipants.userId, viewerId)),
+    );
+  const stamps = rows.map((r) => r.lastReadAt).filter((v): v is string => Boolean(v));
+  if (stamps.length === 0 || stamps.length < rows.length) return null;
+  return stamps.sort()[0] ?? null;
+}
+
 /**
  * A 1:1 chat between the same two people should reuse the existing thread
  * rather than spawning a duplicate every time someone hits "написать" —

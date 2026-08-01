@@ -21,8 +21,9 @@ export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({
-        inviteCode: formData.get("inviteCode"),
+        inviteCode: formData.get("inviteCode") || undefined,
         name: formData.get("name"),
         email: formData.get("email"),
         password: formData.get("password"),
@@ -43,21 +44,20 @@ export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
   return (
     <form onSubmit={submit} method="post" className="mt-8 space-y-4">
       <label className="field">
-        <span>Код приглашения</span>
-        <input name="inviteCode" defaultValue={inviteCode} required />
-      </label>
-      <label className="field">
         <span>Имя</span>
-        <input name="name" required />
+        <input name="name" required autoComplete="nickname" />
       </label>
       <label className="field">
         <span>Почта</span>
-        <input name="email" type="email" required />
+        <input name="email" type="email" required autoComplete="email" />
       </label>
       <label className="field">
         <span>Пароль</span>
-        <input name="password" type="password" minLength={8} required />
+        <input name="password" type="password" minLength={8} required autoComplete="new-password" />
       </label>
+      {inviteCode ? (
+        <input type="hidden" name="inviteCode" value={inviteCode} />
+      ) : null}
       <button className="button-primary w-full" disabled={busy || !mounted}>
         {busy ? "Создаю аккаунт…" : "Создать аккаунт"}
         {!busy && <ArrowRight size={16} />}

@@ -479,11 +479,6 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
         }
       }
       title = title.trim();
-      const normTitle = normalizeTitleForDedup(title);
-      if (existingTitles.has(normTitle)) {
-        result.skippedDuplicate += 1;
-        continue;
-      }
 
       const segments = path.dirname(relPath).split(path.sep).filter((s) => s && s !== ".");
       const categoryId = await resolveCategory(
@@ -498,6 +493,28 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
       if (!language) {
         const sample = await readTextSample(filePath, extension);
         language = sample.trim() ? guessLanguage(sample) : null;
+      }
+
+      // Filenames sometimes store Russian as Latin ("Zanimatelnaya…") — restore Cyrillic.
+      {
+        const { looksLatinizedRussian, detransliterateRussian, detransliterateAuthorName } =
+          await import("@/lib/detransliterate");
+        if (title && !/[а-яё]/i.test(title) && (language === "ru" || looksLatinizedRussian(title))) {
+          title = detransliterateRussian(title, { force: true });
+          if (/^[а-яё]/.test(title)) title = title.charAt(0).toUpperCase() + title.slice(1);
+          if (!language) language = "ru";
+        }
+        for (let i = 0; i < authorNames.length; i += 1) {
+          if (!/[а-яё]/i.test(authorNames[i]) && (language === "ru" || looksLatinizedRussian(authorNames[i]))) {
+            authorNames[i] = detransliterateAuthorName(authorNames[i]);
+          }
+        }
+      }
+
+      const normTitle = normalizeTitleForDedup(title);
+      if (existingTitles.has(normTitle)) {
+        result.skippedDuplicate += 1;
+        continue;
       }
 
       const { fileUrl, fileType, originalFormat, storedPath } = await storeFileFromPath(filePath, extension);

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getConversationMessages, isConversationParticipant, markConversationRead, postMessage } from "@/lib/db/messages";
+import {
+  getConversationMessages,
+  getPeerLastReadAt,
+  isConversationParticipant,
+  markConversationRead,
+  postMessage,
+} from "@/lib/db/messages";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -11,8 +17,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   if (!(await isConversationParticipant(id, user.id))) {
     return NextResponse.json({ error: "Диалог не найден." }, { status: 404 });
   }
-  const messages = await getConversationMessages(id);
-  return NextResponse.json({ messages });
+  const [messages, peerLastReadAt] = await Promise.all([
+    getConversationMessages(id),
+    getPeerLastReadAt(id, user.id),
+  ]);
+  return NextResponse.json({ messages, peerLastReadAt });
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {

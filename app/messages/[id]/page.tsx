@@ -4,7 +4,12 @@ import { notFound, redirect } from "next/navigation";
 import { Header } from "@/components/header";
 import { MessageThread } from "@/components/message-thread";
 import { getCurrentUser } from "@/lib/auth";
-import { getConversationMessages, getConversationParticipants, isConversationParticipant } from "@/lib/db/messages";
+import {
+  getConversationMessages,
+  getConversationParticipants,
+  getPeerLastReadAt,
+  isConversationParticipant,
+} from "@/lib/db/messages";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +24,10 @@ export default async function MessageThreadPage({
   const { id } = await params;
   if (!(await isConversationParticipant(id, user.id))) notFound();
 
-  const [messages, participants] = await Promise.all([
+  const [messages, participants, peerLastReadAt] = await Promise.all([
     getConversationMessages(id),
     getConversationParticipants(id),
+    getPeerLastReadAt(id, user.id),
   ]);
   const otherParticipants = participants.filter((p) => p.id !== user.id);
   const title = otherParticipants.length
@@ -40,7 +46,12 @@ export default async function MessageThreadPage({
           Все сообщения
         </Link>
         <h1 className="mb-6 font-serif text-3xl tracking-tight">{title}</h1>
-        <MessageThread conversationId={id} initialMessages={messages} currentUserId={user.id} />
+        <MessageThread
+          conversationId={id}
+          initialMessages={messages}
+          currentUserId={user.id}
+          initialPeerLastReadAt={peerLastReadAt}
+        />
       </main>
     </>
   );

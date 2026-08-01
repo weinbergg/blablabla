@@ -45,3 +45,29 @@ location /_next/static/ {
     # без try_files — ломает пути с [id]
 }
 ```
+
+## Мониторинг после рекламы (без деплоя приложения)
+
+На VPS прямо сейчас:
+
+```bash
+# разово
+bash /var/www/blabla/deploy/monitor.sh
+
+# каждые 30 секунд
+bash /var/www/blabla/deploy/monitor.sh --watch
+```
+
+Если скрипта ещё нет на сервере (правки не выгружали) — достаточно:
+
+```bash
+uptime; free -h; df -h /
+pm2 status
+# посетители из nginx (уникальные IP за сегодня)
+sudo awk '{print $1}' /var/log/nginx/access.log | sort -u | wc -l
+# хиты за последний час (грубо)
+sudo tail -n 50000 /var/log/nginx/access.log | awk -v h="$(date -u +%d/%b/%Y:%H)" '$4 ~ h {c++} END{print c+0}'
+```
+
+Скрипт показывает: load / RAM / диск, статус pm2, число пользователей в SQLite,
+уникальные IP и хиты за 1ч/24ч, топ страниц, HTTP-проверку.

@@ -31,6 +31,7 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
       const response = await fetch(`/api/friends/${friendshipId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ action }),
       });
       const result = (await response.json().catch(() => ({}))) as FriendsData & {
@@ -76,7 +77,12 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
     <div className="space-y-10">
       <AddFriendBox
         currentUserId={currentUserId}
-        existingIds={[...friends.map((f) => f.id), ...outgoing.map((o) => o.id), ...incoming.map((i) => i.id)]}
+        // Incoming is intentionally NOT blocked: "добавить" on a pending
+        // incoming request auto-accepts (see sendFriendRequest).
+        friendIds={new Set(friends.map((f) => f.id))}
+        outgoingIds={new Set(outgoing.map((o) => o.id))}
+        incomingByUserId={new Map(incoming.map((i) => [i.id, i.friendshipId]))}
+        onAcceptIncoming={(friendshipId) => respond(friendshipId, "accept")}
         onResult={(next) => {
           if (next.friends) setFriends(next.friends);
           if (next.incoming) setIncoming(next.incoming);
@@ -189,11 +195,17 @@ export function FriendsPanel({ data, currentUserId }: { data: FriendsData; curre
 
 function AddFriendBox({
   currentUserId,
-  existingIds,
+  friendIds,
+  outgoingIds,
+  incomingByUserId,
+  onAcceptIncoming,
   onResult,
 }: {
   currentUserId: string;
-  existingIds: string[];
+  friendIds: Set<string>;
+  outgoingIds: Set<string>;
+  incomingByUserId: Map<string, string>;
+  onAcceptIncoming: (friendshipId: string) => void;
   onResult: (data: Partial<FriendsData> & { friendshipId?: string }) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -209,7 +221,9 @@ function AddFriendBox({
       return;
     }
     debounceRef.current = setTimeout(async () => {
-      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query.trim())}`);
+      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query.trim())}`, {
+        credentials: "same-origin",
+      });
       if (!response.ok) return;
       const data = (await response.json()) as { users: UserOption[] };
       setResults(data.users.filter((u) => u.id !== currentUserId));
@@ -225,6 +239,7 @@ function AddFriendBox({
     const response = await fetch("/api/friends", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ userId: user.id }),
     });
     const result = (await response.json().catch(() => ({}))) as FriendsData & {
@@ -254,12 +269,26 @@ function AddFriendBox({
         {results.length > 0 && (
           <div className="absolute inset-x-0 top-full z-10 mt-1.5 max-h-56 overflow-y-auto rounded-lg border border-ink/10 bg-paper shadow-lg">
             {results.map((user) => {
-              const alreadyLinked = existingIds.includes(user.id);
+              const isFriend = friendIds.has(user.id);
+              const isOutgoing = outgoingIds.has(user.id);
+              const incomingFriendshipId = incomingByUserId.get(user.id);
               return (
                 <div key={user.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                   <span>{user.name}</span>
-                  {alreadyLinked ? (
-                    <span className="text-xs text-muted">уже в списке</span>
+                  {isFriend ? (
+                    <span className="text-xs text-muted">уже друзья</span>
+                  ) : isOutgoing ? (
+                    <span className="text-xs text-muted">заявка отправлена</span>
+                  ) : incomingFriendshipId ? (
+                    <button
+                      type="button"
+                      onClick={() => onAcceptIncoming(incomingFriendshipId)}
+                      disabled={busyId === user.id}
+                      className="flex items-center gap-1 text-xs text-ink underline underline-offset-2 hover:no-underline"
+                    >
+                      <Check size={12} />
+                      принять
+                    </button>
                   ) : (
                     <button
                       type="button"

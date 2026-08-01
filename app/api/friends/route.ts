@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getFriendsData, getFriendshipStatus, sendFriendRequest } from "@/lib/db/friends";
+import { getFriendsData, sendFriendRequest } from "@/lib/db/friends";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -17,18 +17,18 @@ export async function POST(request: Request) {
   const addresseeId = typeof body?.userId === "string" ? body.userId : null;
   if (!addresseeId) return NextResponse.json({ error: "Не указан пользователь." }, { status: 400 });
 
-  let friendshipId: string;
+  let result: { friendshipId: string; status: "pending" | "accepted" };
   try {
-    friendshipId = await sendFriendRequest(user.id, addresseeId);
+    result = await sendFriendRequest(user.id, addresseeId);
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }
-  const status = await getFriendshipStatus(user.id, addresseeId);
   const data = await getFriendsData(user.id);
   return NextResponse.json({
     ok: true,
-    friendshipId,
-    accepted: status.status === "accepted",
+    friendshipId: result.friendshipId,
+    status: result.status,
+    accepted: result.status === "accepted",
     ...data,
   });
 }

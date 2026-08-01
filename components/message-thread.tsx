@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Check, CheckCheck, Send } from "lucide-react";
 
 export type ThreadMessage = {
   id: string;
@@ -16,22 +16,30 @@ function formatTime(iso: string) {
   return date.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function isReadByPeer(messageCreatedAt: string, peerLastReadAt: string | null) {
+  if (!peerLastReadAt) return false;
+  return messageCreatedAt <= peerLastReadAt;
+}
+
 export function MessageThread({
   conversationId,
   initialMessages,
   currentUserId,
+  initialPeerLastReadAt = null,
 }: {
   conversationId: string;
   initialMessages: ThreadMessage[];
   currentUserId: string;
+  initialPeerLastReadAt?: string | null;
 }) {
   const [messages, setMessages] = useState(initialMessages);
+  const [peerLastReadAt, setPeerLastReadAt] = useState<string | null>(initialPeerLastReadAt);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch(`/api/messages/${conversationId}`, { method: "PATCH" });
+    fetch(`/api/messages/${conversationId}`, { method: "PATCH", credentials: "same-origin" });
   }, [conversationId]);
 
   useEffect(() => {
@@ -43,10 +51,13 @@ export function MessageThread({
   // enough for a small invite-only community, not built for high frequency.
   useEffect(() => {
     const interval = setInterval(async () => {
-      const response = await fetch(`/api/messages/${conversationId}`);
+      const response = await fetch(`/api/messages/${conversationId}`, { credentials: "same-origin" });
       if (!response.ok) return;
-      const data = (await response.json()) as { messages: ThreadMessage[] };
+      const data = (await response.json()) as { messages: ThreadMessage[]; peerLastReadAt?: string | null };
       setMessages(data.messages);
+      if (data.peerLastReadAt !== undefined) setPeerLastReadAt(data.peerLastReadAt);
+      // Keep unread badge clear while the thread is open.
+      fetch(`/api/messages/${conversationId}`, { method: "PATCH", credentials: "same-origin" });
     }, 8000);
     return () => clearInterval(interval);
   }, [conversationId]);
@@ -59,6 +70,7 @@ export function MessageThread({
     const response = await fetch(`/api/messages/${conversationId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ body: text }),
     });
     setBusy(false);
@@ -66,10 +78,11 @@ export function MessageThread({
       setBody(text);
       return;
     }
-    const refreshed = await fetch(`/api/messages/${conversationId}`);
+    const refreshed = await fetch(`/api/messages/${conversationId}`, { credentials: "same-origin" });
     if (refreshed.ok) {
-      const data = (await refreshed.json()) as { messages: ThreadMessage[] };
+      const data = (await refreshed.json()) as { messages: ThreadMessage[]; peerLastReadAt?: string | null };
       setMessages(data.messages);
+      if (data.peerLastReadAt !== undefined) setPeerLastReadAt(data.peerLastReadAt);
     }
   }
 
@@ -81,13 +94,30 @@ export function MessageThread({
         )}
         {messages.map((message) => {
           const mine = message.authorId === currentUserId;
+          const read = mine && isReadByPeer(message.createdAt, peerLastReadAt);
           return (
             <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm ${mine ? "bg-ink text-paper" : "bg-ink/6"}`}>
                 {!mine && <p className="mb-0.5 text-xs font-medium opacity-70">{message.authorName}</p>}
                 <p className="whitespace-pre-wrap leading-6">{message.body}</p>
-                <p className={`mt-1 text-[10px] uppercase tracking-widest ${mine ? "text-paper/50" : "text-muted"}`}>
-                  {formatTime(message.createdAt)}
+                <p
+                  className={`mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest ${
+                    mine ? "justify-end text-paper/50" : "text-muted"
+                  }`}
+                >
+                  <span>{formatTime(message.createdAt)}</span>
+                  {mine &&
+                    (read ? (
+                      <span className="inline-flex items-center gap-0.5 normal-case tracking-normal text-paper/70" title="Прочитано">
+                        <CheckCheck size={12} strokeWidth={2.25} />
+                        <span className="sr-only">Прочитано</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 normal-case tracking-normal text-paper/45" title="Доставлено">
+                        <Check size={12} strokeWidth={2.25} />
+                        <span className="sr-only">Доставлено</span>
+                      </span>
+                    ))}
                 </p>
               </div>
             </div>
