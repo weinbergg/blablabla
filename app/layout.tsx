@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
+import { ChunkLoadRecovery } from "@/components/chunk-load-recovery";
 import { MaintenanceBanner } from "@/components/maintenance-banner";
 import "./globals.css";
 
@@ -48,6 +49,7 @@ export default function RootLayout({
         <Script id="theme-init" strategy="beforeInteractive">
           {`(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark");}}catch(e){}})();`}
         </Script>
+        <ChunkLoadRecovery />
         <MaintenanceBanner />
         {children}
       </body>
