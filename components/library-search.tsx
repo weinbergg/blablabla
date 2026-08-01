@@ -39,38 +39,38 @@ export function LibrarySearch({
 
   return (
     <div className="relative mx-auto w-full max-w-2xl">
-      <div className="flex items-center gap-3 rounded-full border border-ink/15 bg-white/60 px-5 shadow-[0_12px_40px_rgba(25,31,40,0.06)] backdrop-blur dark:bg-white/5 dark:shadow-none">
-        <Search size={19} className="shrink-0 text-muted" />
+      <div className="flex items-center gap-3 border border-ink/15 bg-[var(--surface)] px-4">
+        <Search size={18} className="shrink-0 text-muted" />
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Найти книгу или автора — на русском или английском"
-          className="h-14 w-full bg-transparent text-[15px] outline-none placeholder:text-muted/70"
+          className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted/70"
           aria-label="Поиск по библиотеке"
         />
         {query && (
           <button
             type="button"
             onClick={() => setQuery("")}
-            className="rounded-full p-1 text-muted transition-colors hover:bg-ink/5 hover:text-ink"
+            className="rounded p-1 text-muted transition-colors hover:bg-ink/5 hover:text-ink"
             aria-label="Очистить поиск"
           >
             <X size={16} />
           </button>
         )}
-        <span className="hidden rounded-md border border-ink/10 px-2 py-1 font-mono text-[10px] text-muted sm:block">
+        <span className="hidden border border-ink/10 px-2 py-1 font-mono text-[10px] text-muted sm:block">
           {countLabel(totalCount, ["текст", "текста", "текстов"])}
         </span>
       </div>
 
       {normalizedQuery && (
-        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 shadow-2xl dark:bg-[#1b1e25]">
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 overflow-hidden border border-ink/12 bg-[var(--surface)] p-1.5 shadow-lg">
           {results.length ? (
             results.map((doc) => (
               <Link
                 key={doc.id}
                 href={`/documents/${doc.id}`}
-                className="group flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-colors hover:bg-ink/[0.045]"
+                className="group flex items-center justify-between gap-4 px-3.5 py-3 transition-colors hover:bg-ink/[0.04]"
               >
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{doc.title}</span>

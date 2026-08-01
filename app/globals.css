@@ -3,22 +3,27 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --paper: #f7f4ed;
-  --paper-rgb: 247, 244, 237;
-  --ink: #17202c;
-  --ink-rgb: 23, 32, 44;
-  --muted: #6e716f;
-  --rust: #c85c35;
+  /* Cool stone paper + forest accent — avoids cream/terracotta AI cluster */
+  --paper: #e8e6e1;
+  --paper-rgb: 232, 230, 225;
+  --ink: #1b2421;
+  --ink-rgb: 27, 36, 33;
+  --muted: #5a635e;
+  --rust: #2f5d4a;
+  --rust-rgb: 47, 93, 74;
+  --surface: #f3f1ec;
   color-scheme: light;
 }
 
 .dark {
-  --paper: #14161c;
-  --paper-rgb: 20, 22, 28;
-  --ink: #e9e6de;
-  --ink-rgb: 233, 230, 222;
-  --muted: #8b8e93;
-  --rust: #e08657;
+  --paper: #121613;
+  --paper-rgb: 18, 22, 19;
+  --ink: #e6e3da;
+  --ink-rgb: 230, 227, 218;
+  --muted: #8a918c;
+  --rust: #7fa892;
+  --rust-rgb: 127, 168, 146;
+  --surface: #1a1f1c;
   color-scheme: dark;
 }
 
@@ -27,9 +32,9 @@
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-rust: var(--rust);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-serif: Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-source-sans), "Source Sans 3", system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+  --font-serif: var(--font-spectral), Spectral, Georgia, serif;
 }
 
 * {
@@ -42,11 +47,18 @@ html {
 
 body {
   min-width: 320px;
-  background:
-    radial-gradient(circle at 18% 0%, rgba(200, 92, 53, 0.045), transparent 30rem),
-    var(--paper);
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(180deg, rgba(var(--ink-rgb), 0.03), transparent 18rem),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(var(--ink-rgb), 0.012) 3px,
+      rgba(var(--ink-rgb), 0.012) 4px
+    );
   color: var(--ink);
-  font-family: var(--font-geist-sans), Arial, sans-serif;
+  font-family: var(--font-sans);
   transition: background-color 200ms ease, color 200ms ease;
 }
 
@@ -69,57 +81,62 @@ button:disabled {
 }
 
 ::selection {
-  background: rgba(200, 92, 53, 0.22);
+  background: rgba(var(--rust-rgb), 0.28);
 }
 
 .shell {
-  width: min(1180px, calc(100% - 40px));
+  width: min(1120px, calc(100% - 40px));
   margin-inline: auto;
 }
 
 .eyebrow {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
   line-height: 1.4;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.hero-orbit {
-  position: absolute;
-  top: 46%;
-  left: 50%;
-  width: min(96vw, 950px);
-  aspect-ratio: 1;
-  border: 1px solid rgba(var(--ink-rgb), 0.055);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+.brand-mark {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
 }
 
-.hero-orbit::before,
-.hero-orbit::after {
-  content: "";
-  position: absolute;
-  inset: 12%;
-  border: inherit;
-  border-radius: inherit;
+@keyframes brand-rise {
+  from {
+    transform: translateY(0.55rem);
+  }
+  to {
+    transform: none;
+  }
 }
 
-.hero-orbit::after {
-  inset: 27%;
+@media (prefers-reduced-motion: no-preference) {
+  .brand-in {
+    animation: brand-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .brand-in-delay {
+    animation: brand-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+  }
+
+  .brand-in-delay-2 {
+    animation: brand-rise 750ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
+  }
 }
 
 .category-card {
-  transition: color 250ms ease;
+  transition: color 250ms ease, background-color 250ms ease;
 }
 
 .category-wash {
   position: absolute;
   inset: 100% 0 0;
-  opacity: 0.09;
+  opacity: 0.1;
   transition: inset 350ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -128,20 +145,20 @@ button:disabled {
 }
 
 .dark-list article {
-  border-color: rgba(247, 244, 237, 0.14);
+  border-color: rgba(230, 227, 218, 0.14);
 }
 
 .dark-list article .text-muted {
-  color: rgba(247, 244, 237, 0.55);
+  color: rgba(230, 227, 218, 0.55);
 }
 
 .dark-list article a {
-  border-color: rgba(247, 244, 237, 0.24);
+  border-color: rgba(230, 227, 218, 0.24);
 }
 
 .dark-list article a:hover {
-  background: #f7f4ed;
-  color: #17202c;
+  background: var(--paper);
+  color: #1b2421;
 }
 
 .field {
@@ -157,16 +174,13 @@ button:disabled {
   color: var(--muted);
 }
 
-/* Excludes checkboxes/radios — those live inside .field too (e.g. the
-   "Дополнительные разделы" multi-select list) but must keep their native
-   tiny box size instead of stretching to the field's full width. */
 .field input:not([type="checkbox"]):not([type="radio"]),
 .field select,
 .field textarea {
   width: 100%;
-  border: 1px solid rgba(var(--ink-rgb), 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  border-radius: 6px;
+  background: var(--surface);
   color: var(--ink);
   padding: 11px 13px;
   font-size: 14px;
@@ -179,21 +193,21 @@ button:disabled {
 .dark .field input:not([type="checkbox"]):not([type="radio"]),
 .dark .field select,
 .dark .field textarea {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .field input:not([type="checkbox"]):not([type="radio"]):focus,
 .field select:focus,
 .field textarea:focus {
-  border-color: rgba(var(--ink-rgb), 0.5);
-  box-shadow: 0 0 0 3px rgba(var(--ink-rgb), 0.05);
+  border-color: rgba(var(--rust-rgb), 0.65);
+  box-shadow: 0 0 0 3px rgba(var(--rust-rgb), 0.12);
 }
 
 .field input[type="checkbox"],
 .field input[type="radio"] {
   width: 15px;
   height: 15px;
-  accent-color: var(--ink);
+  accent-color: var(--rust);
   flex: none;
 }
 
@@ -217,7 +231,7 @@ button:disabled {
 .file-input::file-selector-button {
   margin-right: 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 5px;
   background: rgba(var(--ink-rgb), 0.08);
   color: var(--ink);
   padding: 7px 10px;
@@ -232,11 +246,12 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 999px;
+  border-radius: 6px;
   padding: 0 18px;
   font-size: 13px;
   font-weight: 600;
-  transition: all 160ms ease;
+  letter-spacing: 0.01em;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
 .button-primary {
@@ -246,10 +261,11 @@ button:disabled {
 
 .button-primary:hover {
   background: var(--rust);
+  color: #f3f1ec;
 }
 
 .button-secondary {
-  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  border: 1px solid rgba(var(--ink-rgb), 0.18);
   background: transparent;
   color: var(--ink);
 }
@@ -264,15 +280,15 @@ button:disabled {
   width: 36px;
   height: 36px;
   place-items: center;
-  border: 1px solid rgba(var(--ink-rgb), 0.12);
-  border-radius: 50%;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  border-radius: 6px;
   color: var(--muted);
   transition: all 150ms ease;
 }
 
 @media (max-width: 640px) {
   .shell {
-    width: min(100% - 28px, 1180px);
+    width: min(100% - 28px, 1120px);
   }
 }
 
@@ -337,9 +353,6 @@ button:disabled {
   animation: sticker-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Minimal pdf.js text layer, trimmed from pdfjs-dist/web/pdf_viewer.css — just
-   enough to make page text invisibly selectable so stickers can anchor to a
-   passage, without pulling in the full viewer stylesheet. */
 .textLayer {
   position: absolute;
   inset: 0;
@@ -359,5 +372,5 @@ button:disabled {
 }
 
 .textLayer ::selection {
-  background: rgba(200, 92, 53, 0.35);
+  background: rgba(var(--rust-rgb), 0.35);
 }

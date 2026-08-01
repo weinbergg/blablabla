@@ -20,10 +20,10 @@ export async function Header() {
         <Link href="/" className="group flex items-center gap-3">
           <AntoineMark className="size-9 shrink-0" />
           <span className="leading-tight">
-            <span className="block text-sm font-semibold tracking-tight">
+            <span className="brand-mark block text-[1.15rem] text-ink transition-colors group-hover:text-rust">
               blablablarden
             </span>
-            <span className="block text-[10px] uppercase tracking-[0.2em] text-muted">
+            <span className="block font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
               библиотека
             </span>
           </span>

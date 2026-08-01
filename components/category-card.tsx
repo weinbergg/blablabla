@@ -42,7 +42,7 @@ export function CategoryCard({
           <span className="font-mono text-xs text-muted">
             {String(index + 1).padStart(2, "0")}
           </span>
-          <span className="grid size-11 place-items-center rounded-full bg-ink/8 font-serif text-lg text-ink">
+          <span className="grid size-10 place-items-center border border-ink/12 bg-ink/[0.04] font-serif text-lg text-ink">
             {category.name.charAt(0).toUpperCase()}
           </span>
         </div>

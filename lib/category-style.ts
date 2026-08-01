@@ -1,10 +1,10 @@
 const PALETTE = [
-  "#c85c35", // rust
-  "#4d725d", // green
-  "#355f91", // blue
-  "#8a5a9e", // violet
-  "#a67c3d", // amber
-  "#5b7a99", // slate blue
+  "#2f5d4a", // forest
+  "#3d5a6b", // slate
+  "#5a4a3d", // umber
+  "#4d6b5a", // moss
+  "#2f4a5d", // ink-blue
+  "#6b5a3d", // olive-brown
 ];
 
 /** Deterministic accent color per category so the palette stays stable across renders. */
@@ -22,18 +22,18 @@ export function categoryAccent(id: string) {
  * its category) means two books shelved side by side in the same section
  * don't come out as identical blocks. */
 const SPINE_PALETTE = [
-  "#c85c35",
-  "#4d725d",
-  "#355f91",
-  "#8a5a9e",
-  "#a67c3d",
-  "#5b7a99",
-  "#7a4a3d",
-  "#3d7a6f",
-  "#9e5a7a",
-  "#5a6e3d",
-  "#6b4d8a",
-  "#3d5a7a",
+  "#2f5d4a",
+  "#3d5a6b",
+  "#5a4a3d",
+  "#4d6b5a",
+  "#2f4a5d",
+  "#6b5a3d",
+  "#3d6b5a",
+  "#4a3d5a",
+  "#5a6b3d",
+  "#3d5a4a",
+  "#6b4a3d",
+  "#2f5a6b",
 ];
 
 export function spineAccent(id: string) {

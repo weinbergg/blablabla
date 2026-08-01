@@ -52,31 +52,28 @@ export default async function Home() {
       <Header />
       <main>
         <section className="relative border-b border-ink/10">
-          <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-            <div className="hero-orbit" />
-          </div>
-          <div className="shell relative pb-24 pt-20 text-center md:pb-32 md:pt-28">
-            <p className="eyebrow mb-7">Библиотека · с 2026 года</p>
-            <h1 className="mx-auto max-w-5xl font-serif text-[clamp(3.2rem,8vw,6.6rem)] leading-[0.9] tracking-[-0.045em]">
-              Собрание текстов по <span className="italic text-rust">математике</span>,
-              <span className="block">философии и истории.</span>
+          <div className="shell relative pb-20 pt-16 text-center md:pb-28 md:pt-24">
+            <p className="brand-mark brand-in mx-auto max-w-5xl text-[clamp(3.4rem,9vw,7.2rem)] text-ink">
+              blablablarden
+            </p>
+            <h1 className="brand-in-delay mx-auto mt-6 max-w-2xl font-serif text-[clamp(1.35rem,2.8vw,1.85rem)] font-normal leading-snug tracking-tight text-ink/90">
+              Собрание текстов по математике, философии и истории
             </h1>
-            <p className="mx-auto mt-8 max-w-xl text-base leading-7 text-muted md:text-lg">
-              Личная подборка книг и статей — от первоисточников до
-              современных исследований.
+            <p className="brand-in-delay-2 mx-auto mt-4 max-w-lg text-[15px] leading-7 text-muted md:text-base">
+              Личная подборка — от первоисточников до современных исследований.
             </p>
 
-            <div className="mt-10">
+            <div className="brand-in-delay-2 mt-10">
               <LibrarySearch documents={searchable} totalCount={totalDocuments} />
             </div>
           </div>
         </section>
 
         <section id="catalog" className="shell py-20 md:py-28">
-          <div className="mb-10 flex items-end justify-between">
+          <div className="mb-10 flex items-end justify-between gap-6">
             <div>
               <p className="eyebrow mb-3">Разделы</p>
-              <h2 className="font-serif text-4xl tracking-tight md:text-5xl">
+              <h2 className="font-serif text-4xl font-normal tracking-tight md:text-5xl">
                 Вся библиотека
               </h2>
             </div>
@@ -85,7 +82,7 @@ export default async function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-px overflow-hidden border border-ink/12 bg-ink/12 sm:grid-cols-2 lg:grid-cols-3">
             {visibleTree.map((category, index) => (
               <CategoryCard
                 key={category.id}
@@ -98,16 +95,16 @@ export default async function Home() {
           </div>
         </section>
 
-        <section className="bg-[#17202c] text-[#f7f4ed]">
+        <section className="bg-ink text-paper">
           <div className="shell py-20 md:py-28">
-            <div className="mb-9 flex items-end justify-between">
+            <div className="mb-9 flex items-end justify-between gap-6">
               <div>
-                <p className="eyebrow mb-3 text-[#f7f4ed]/50">Новые поступления</p>
-                <h2 className="font-serif text-4xl tracking-tight md:text-5xl">
+                <p className="eyebrow mb-3 text-paper/50">Новые поступления</p>
+                <h2 className="font-serif text-4xl font-normal tracking-tight md:text-5xl">
                   Недавно добавлено
                 </h2>
               </div>
-              <span className="hidden font-mono text-[10px] uppercase tracking-widest text-[#f7f4ed]/40 sm:block">
+              <span className="hidden font-mono text-[11px] uppercase tracking-[0.12em] text-paper/40 sm:block">
                 Обновляется регулярно
               </span>
             </div>
@@ -132,7 +129,7 @@ export default async function Home() {
             <AntoineMark className="size-4 shrink-0 opacity-70" />
             © 2026 blablablarden. Личная электронная библиотека.
           </p>
-          <p className="font-mono uppercase tracking-widest">
+          <p className="font-mono text-[11px] uppercase tracking-[0.12em]">
             Философия · История · Математика
           </p>
         </div>
