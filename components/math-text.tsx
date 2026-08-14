@@ -40,8 +40,8 @@ export function MathText({
         key={`m${key++}`}
         className={
           display
-            ? "my-1 block overflow-x-auto py-0.5"
-            : "inline-block max-w-full overflow-x-auto align-middle"
+            ? "math-scroll my-1 block max-w-full py-0.5"
+            : "math-scroll inline-block max-w-full align-middle"
         }
         dangerouslySetInnerHTML={{ __html: html }}
       />,

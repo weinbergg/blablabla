@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  Bookmark,
   Filter,
   Maximize2,
   MessageSquare,
@@ -12,12 +13,18 @@ import {
   Reply,
   Send,
   StickyNote,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import type { AnnotationItem } from "@/components/readers/annotation-layer";
 import { MathText } from "@/components/math-text";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import { countLabel } from "@/lib/pluralize";
+import {
+  loadBookmarks,
+  removeBookmark,
+  type ReaderBookmark,
+} from "@/lib/bookmarks";
 import {
   loadReadingProgress,
   pruneReadingProgress,
@@ -322,12 +329,29 @@ export function DocumentWorkspace({
           )}
 
           <div className="mx-auto mt-10 max-w-3xl space-y-6">
+            {(isPdf || isEpub) && (
+              <BookmarksPanel
+                documentId={documentId}
+                canJump
+                pageLabel={isEpub ? "глава" : "стр."}
+                onJumpToPage={(target) => handlePageChange(target, numPages || target)}
+              />
+            )}
             <CommentThread
               documentId={documentId}
               comments={comments}
               currentUser={currentUser}
-              currentPage={isPdf ? page : null}
+              currentPage={isPdf || isEpub ? page : null}
               maxPage={numPages}
+              pageLabel={isEpub ? "глава" : "стр."}
+              onJumpToPage={
+                isPdf || isEpub
+                  ? (target) => {
+                      handlePageChange(target, numPages || target);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }
+                  : undefined
+              }
             />
             {annotations.length > 0 && (
               <AnnotationsIndex
@@ -337,7 +361,14 @@ export function DocumentWorkspace({
                 documentId={documentId}
                 documentTitle={documentTitle}
                 canShare={Boolean(currentUser)}
+                pageLabel={isEpub ? "глава" : "стр."}
               />
+            )}
+            {isTxt && (
+              <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] px-4 py-3 text-sm text-muted">
+                В TXT можно выделять слова для словаря и писать в обсуждении ниже.
+                Пометки поверх текста пока только для PDF и EPUB.
+              </p>
             )}
           </div>
         </div>
@@ -352,12 +383,16 @@ function CommentThread({
   currentUser,
   currentPage,
   maxPage,
+  pageLabel = "стр.",
+  onJumpToPage,
 }: {
   documentId: string;
   comments: CommentItem[];
   currentUser: CurrentUser;
   currentPage: number | null;
   maxPage: number;
+  pageLabel?: string;
+  onJumpToPage?: (page: number) => void;
 }) {
   const router = useRouter();
   const [body, setBody] = useState("");
@@ -433,7 +468,7 @@ function CommentThread({
                   checked={attachPage}
                   onChange={(event) => setAttachPage(event.target.checked)}
                 />
-                Привязать к странице {currentPage}
+                Привязать к {pageLabel} {currentPage}
                 {maxPage ? ` из ${maxPage}` : ""}
               </label>
             ) : (
@@ -461,10 +496,20 @@ function CommentThread({
         )}
         {topLevel.map((comment) => (
           <div key={comment.id} className="border-t border-ink/10 pt-4">
-            <CommentBubble comment={comment} currentUserId={currentUser?.id ?? null} />
+            <CommentBubble
+              comment={comment}
+              currentUserId={currentUser?.id ?? null}
+              pageLabel={pageLabel}
+              onJumpToPage={onJumpToPage}
+            />
             {(repliesByParent.get(comment.id) ?? []).map((reply) => (
               <div key={reply.id} className="ml-5 mt-3 border-l border-ink/10 pl-4">
-                <CommentBubble comment={reply} currentUserId={currentUser?.id ?? null} />
+                <CommentBubble
+                  comment={reply}
+                  currentUserId={currentUser?.id ?? null}
+                  pageLabel={pageLabel}
+                  onJumpToPage={onJumpToPage}
+                />
               </div>
             ))}
 
@@ -509,16 +554,36 @@ function CommentThread({
   );
 }
 
-function CommentBubble({ comment, currentUserId }: { comment: CommentItem; currentUserId: string | null }) {
+function CommentBubble({
+  comment,
+  currentUserId,
+  pageLabel = "стр.",
+  onJumpToPage,
+}: {
+  comment: CommentItem;
+  currentUserId: string | null;
+  pageLabel?: string;
+  onJumpToPage?: (page: number) => void;
+}) {
   return (
     <div className="group">
       <div className="flex items-center gap-2 text-xs text-muted">
         <span className="font-medium text-ink">{comment.authorName}</span>
-        {comment.page && (
-          <span className="rounded-full bg-ink/5 px-2 py-0.5 font-mono text-[10px]">
-            стр. {comment.page}
-          </span>
-        )}
+        {comment.page &&
+          (onJumpToPage ? (
+            <button
+              type="button"
+              onClick={() => onJumpToPage(comment.page!)}
+              className="rounded-full bg-ink/5 px-2 py-0.5 font-mono text-[10px] transition-colors hover:bg-rust/15 hover:text-rust"
+              title={`Открыть ${pageLabel} ${comment.page}`}
+            >
+              {pageLabel} {comment.page}
+            </button>
+          ) : (
+            <span className="rounded-full bg-ink/5 px-2 py-0.5 font-mono text-[10px]">
+              {pageLabel} {comment.page}
+            </span>
+          ))}
         <span>{new Date(comment.createdAt).toLocaleDateString("ru-RU")}</span>
         {comment.authorId !== currentUserId && (
           <button
@@ -545,6 +610,7 @@ function AnnotationsIndex({
   documentId,
   documentTitle,
   canShare,
+  pageLabel = "стр.",
 }: {
   annotations: AnnotationItem[];
   canJump: boolean;
@@ -552,6 +618,7 @@ function AnnotationsIndex({
   documentId: string;
   documentTitle?: string;
   canShare?: boolean;
+  pageLabel?: string;
 }) {
   const [author, setAuthor] = useState("");
   const [pageFilter, setPageFilter] = useState("");
@@ -592,7 +659,7 @@ function AnnotationsIndex({
           <option value="">Все страницы</option>
           {pages.map((p) => (
             <option key={p} value={p}>
-              стр. {p}
+              {pageLabel} {p}
             </option>
           ))}
         </select>
@@ -636,7 +703,7 @@ function AnnotationsIndex({
                   <span className="text-muted"> · {excerpt.slice(0, 60)}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted">
-                  стр. {item.page}
+                  {pageLabel} {item.page}
                   {canJump && <ArrowRight size={12} />}
                 </span>
               </button>
@@ -654,6 +721,93 @@ function AnnotationsIndex({
             </div>
           );
         })}
+      </div>
+    </aside>
+  );
+}
+
+function BookmarksPanel({
+  documentId,
+  canJump,
+  pageLabel,
+  onJumpToPage,
+}: {
+  documentId: string;
+  canJump: boolean;
+  pageLabel: string;
+  onJumpToPage: (page: number) => void;
+}) {
+  const [items, setItems] = useState<ReaderBookmark[]>([]);
+
+  useEffect(() => {
+    function refresh() {
+      setItems(loadBookmarks(documentId));
+    }
+    refresh();
+    function onChange(event: Event) {
+      const detail = (event as CustomEvent<{ documentId?: string }>).detail;
+      if (!detail?.documentId || detail.documentId === documentId) refresh();
+    }
+    window.addEventListener("blabla:bookmarks-changed", onChange);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("blabla:bookmarks-changed", onChange);
+      window.removeEventListener("storage", refresh);
+    };
+  }, [documentId]);
+
+  if (items.length === 0) {
+    return (
+      <aside className="rounded-2xl border border-dashed border-ink/15 bg-ink/[0.015] px-5 py-4 text-sm text-muted">
+        <div className="mb-1 flex items-center gap-2 font-medium text-ink">
+          <Bookmark size={15} className="text-rust" />
+          Закладки
+        </div>
+        Нажмите иконку закладки в панели чтения, чтобы отметить раздел. Последняя открытая
+        страница запоминается отдельно (на этом устройстве и, если книга на полке, в аккаунте).
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="rounded-2xl border border-ink/10 bg-paper p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <Bookmark size={16} className="text-rust" />
+        <h2 className="font-serif text-xl">Закладки</h2>
+        <span className="ml-auto font-mono text-xs text-muted">{items.length}</span>
+      </div>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-2 rounded-xl border border-ink/10 px-3 py-2 text-sm"
+          >
+            <button
+              type="button"
+              disabled={!canJump}
+              onClick={() => {
+                onJumpToPage(item.page);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-rust disabled:cursor-default"
+            >
+              <span className="truncate">{item.label}</span>
+              <span className="flex shrink-0 items-center gap-1 font-mono text-xs text-muted">
+                {pageLabel} {item.page}
+                <ArrowRight size={12} />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setItems(removeBookmark(documentId, item.id))}
+              className="icon-button !size-8 hover:!border-red-700 hover:!text-red-700"
+              aria-label="Удалить закладку"
+              title="Удалить закладку"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
       </div>
     </aside>
   );

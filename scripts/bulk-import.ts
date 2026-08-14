@@ -114,6 +114,8 @@ async function main() {
 
   console.log(`\nДобавлено: ${result.imported}`);
   console.log(`Дубликатов пропущено: ${result.skippedDuplicate}`);
+  console.log(`  уже на сайте: ${result.skippedDuplicateLibrary}`);
+  console.log(`  внутри папки: ${result.skippedDuplicateInBatch}`);
   console.log(`Не файлы книг: ${result.skippedUnsupported}`);
   if (result.createdCategories.length) {
     console.log(`Новые разделы: ${result.createdCategories.join(", ")}`);

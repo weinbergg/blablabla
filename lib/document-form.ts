@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { eq } from "drizzle-orm";
@@ -85,20 +85,23 @@ async function storeUpload(upload: File) {
   const uploadDir = path.join(process.cwd(), "public", "uploads");
   await fs.mkdir(uploadDir, { recursive: true });
   const finalPath = path.join(uploadDir, `${storedId}${storedExt}`);
+  const bytes = Buffer.from(await upload.arrayBuffer());
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
 
   if (isDjvu) {
     const tempPath = path.join(uploadDir, `${storedId}-source.djvu`);
-    await fs.writeFile(tempPath, Buffer.from(await upload.arrayBuffer()));
+    await fs.writeFile(tempPath, bytes);
     await convertDjvuToPdf(tempPath, finalPath);
     await fs.unlink(tempPath).catch(() => undefined);
   } else {
-    await fs.writeFile(finalPath, Buffer.from(await upload.arrayBuffer()));
+    await fs.writeFile(finalPath, bytes);
   }
 
   return {
     fileUrl: `/uploads/${storedId}${storedExt}`,
     fileType: storedExt.slice(1).toUpperCase(),
     originalFormat: isDjvu ? "DJVU" : null,
+    contentHash,
   };
 }
 
@@ -157,7 +160,16 @@ export async function createDocument(formData: FormData, userId: string) {
     throw new Error("Выберите файл.");
   }
 
-  const { fileUrl, fileType, originalFormat } = await storeUpload(upload);
+  const { fileUrl, fileType, originalFormat, contentHash } = await storeUpload(upload);
+  const [dup] = await db
+    .select({ id: documents.id, title: documents.title })
+    .from(documents)
+    .where(eq(documents.contentHash, contentHash))
+    .limit(1);
+  if (dup) {
+    await removeUploadedFile(fileUrl);
+    throw new Error(`Такой файл уже есть в библиотеке («${dup.title}»).`);
+  }
   const pagesValue = Number.parseInt(stringValue(formData, "pages"), 10);
   const documentId = randomUUID();
   const authorNames = parseAuthors(formData);
@@ -174,6 +186,7 @@ export async function createDocument(formData: FormData, userId: string) {
     fileName,
     fileType,
     originalFormat,
+    contentHash,
     pages: Number.isFinite(pagesValue) && pagesValue > 0 ? pagesValue : null,
     language: stringValue(formData, "language") || null,
     secondaryLanguage: stringValue(formData, "secondaryLanguage") || null,
@@ -267,7 +280,7 @@ export async function updateDocument(
   const finalTitle = (updates.title as string | undefined) ?? existing.title;
   const upload = formData.get("file");
   if (isUploadedFile(upload) && upload.size > 0) {
-    const { fileUrl, fileType, originalFormat } = await storeUpload(upload);
+    const { fileUrl, fileType, originalFormat, contentHash } = await storeUpload(upload);
     await removeUploadedFile(existing.fileUrl);
     const displayName = buildDisplayFileName(
       finalTitle,
@@ -278,6 +291,7 @@ export async function updateDocument(
     updates.fileName = displayName;
     updates.fileType = fileType;
     updates.originalFormat = originalFormat;
+    updates.contentHash = contentHash;
     await db.insert(documentEdits).values({
       id: randomUUID(),
       documentId: existing.id,

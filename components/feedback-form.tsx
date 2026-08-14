@@ -39,7 +39,9 @@ export function FeedbackForm({ isLoggedIn }: { isLoggedIn: boolean }) {
         <MessageCircleQuestion size={28} className="mx-auto mb-3 text-rust" />
         <p className="font-serif text-xl">Спасибо, сообщение получено</p>
         <p className="mt-2 text-sm text-muted">
-          Если вы оставили контакт, мы ответим, как только сможем.
+          {isLoggedIn
+            ? "Ответ придёт в личные сообщения и появится на этой странице."
+            : "Если вы оставили контакт, мы ответим, как только сможем."}
         </p>
         <button type="button" onClick={() => setSent(false)} className="button-secondary mt-5">
           Написать ещё раз

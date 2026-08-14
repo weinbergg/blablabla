@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Search, X } from "lucide-react";
+import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { normalizeForSearch } from "@/lib/transliterate";
 import { countLabel } from "@/lib/pluralize";
 
@@ -13,6 +14,7 @@ export type SearchableDocument = {
   authorNames: string;
   categoryName: string;
   tagNames?: string;
+  language?: string | null;
 };
 
 export function LibrarySearch({
@@ -23,19 +25,29 @@ export function LibrarySearch({
   totalCount: number;
 }) {
   const [query, setQuery] = useState("");
+  const [language, setLanguage] = useState("");
   const normalizedQuery = normalizeForSearch(query);
 
+  const usedLanguages = useMemo(
+    () => LANGUAGES.filter((lang) => documents.some((doc) => doc.language === lang.code)),
+    [documents],
+  );
+
   const results = useMemo(() => {
-    if (!normalizedQuery) return [];
+    if (!normalizedQuery && !language) return [];
 
     return documents
-      .filter((doc) =>
-        [doc.title, doc.alternateTitle, doc.authorNames, doc.tagNames]
+      .filter((doc) => {
+        if (language && doc.language !== language) return false;
+        if (!normalizedQuery) return true;
+        return [doc.title, doc.alternateTitle, doc.authorNames, doc.tagNames]
           .filter(Boolean)
-          .some((value) => normalizeForSearch(value as string).includes(normalizedQuery)),
-      )
-      .slice(0, 6);
-  }, [documents, normalizedQuery]);
+          .some((value) => normalizeForSearch(value as string).includes(normalizedQuery));
+      })
+      .slice(0, language && !normalizedQuery ? 8 : 6);
+  }, [documents, normalizedQuery, language]);
+
+  const showResults = Boolean(normalizedQuery || language);
 
   return (
     <div className="relative mx-auto w-full max-w-2xl">
@@ -63,7 +75,22 @@ export function LibrarySearch({
         </span>
       </div>
 
-      {normalizedQuery && (
+      {usedLanguages.length > 1 && (
+        <div className="mt-3 flex flex-wrap justify-center gap-1.5" role="group" aria-label="Язык">
+          {usedLanguages.map((lang) => (
+            <button
+              key={lang.code}
+              type="button"
+              onClick={() => setLanguage((current) => (current === lang.code ? "" : lang.code))}
+              className={`filter-chip ${language === lang.code ? "filter-chip-active" : ""}`}
+            >
+              {languageLabel(lang.code)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showResults && (
         <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 text-left shadow-2xl dark:bg-[#1b1e25]">
           {results.length ? (
             results.map((doc) => (
@@ -76,6 +103,7 @@ export function LibrarySearch({
                   <span className="block truncate font-medium">{doc.title}</span>
                   <span className="mt-0.5 block truncate text-xs text-muted">
                     {doc.authorNames || "Автор не указан"} · {doc.categoryName}
+                    {doc.language ? ` · ${languageLabel(doc.language)}` : ""}
                   </span>
                 </span>
                 <ArrowRight

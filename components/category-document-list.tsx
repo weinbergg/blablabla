@@ -14,7 +14,7 @@ type AuthorGroup = {
   aboutDocs: Doc[];
 };
 
-function sortDocs(docs: Doc[], sortBy: "title" | "year") {
+function sortDocs(docs: Doc[], sortBy: "title" | "year" | "language") {
   const sorted = [...docs];
   if (sortBy === "year") {
     sorted.sort((a, b) => {
@@ -24,6 +24,17 @@ function sortDocs(docs: Doc[], sortBy: "title" | "year") {
       if (ay === null) return 1;
       if (by === null) return -1;
       return ay - by;
+    });
+  } else if (sortBy === "language") {
+    sorted.sort((a, b) => {
+      const al = a.language ? languageLabel(a.language) : "";
+      const bl = b.language ? languageLabel(b.language) : "";
+      if (!al && !bl) return a.title.localeCompare(b.title, "ru");
+      if (!al) return 1;
+      if (!bl) return -1;
+      const cmp = al.localeCompare(bl, "ru");
+      if (cmp !== 0) return cmp;
+      return a.title.localeCompare(b.title, "ru");
     });
   } else {
     sorted.sort((a, b) => a.title.localeCompare(b.title, "ru"));
@@ -38,7 +49,7 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
   const [language, setLanguage] = useState("");
   const [bilingualOnly, setBilingualOnly] = useState(false);
   const [authorId, setAuthorId] = useState("");
-  const [sortBy, setSortBy] = useState<"title" | "year">("title");
+  const [sortBy, setSortBy] = useState<"title" | "year" | "language">("title");
 
   const usedLanguages = useMemo(
     () => LANGUAGES.filter((l) => documents.some((d) => d.language === l.code)),
@@ -59,6 +70,7 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
   }, [documents]);
 
   const [groupByAuthor, setGroupByAuthor] = useState(() => authorOptions.length >= 3);
+  const [groupByLanguage, setGroupByLanguage] = useState(false);
 
   const filtered = useMemo(
     () =>
@@ -105,6 +117,29 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
 
   const flatSorted = useMemo(() => sortDocs(filtered, sortBy), [filtered, sortBy]);
 
+  const languageGroups = useMemo(() => {
+    if (!groupByLanguage) return [];
+    const byCode = new Map<string, Doc[]>();
+    for (const doc of filtered) {
+      const code = doc.language || "";
+      const list = byCode.get(code) ?? [];
+      list.push(doc);
+      byCode.set(code, list);
+    }
+    const innerSort = sortBy === "language" ? "title" : sortBy;
+    return [...byCode.entries()]
+      .map(([code, docs]) => ({
+        code,
+        label: code ? languageLabel(code) : "Язык не указан",
+        docs: sortDocs(docs, innerSort),
+      }))
+      .sort((a, b) => {
+        if (!a.code) return 1;
+        if (!b.code) return -1;
+        return a.label.localeCompare(b.label, "ru");
+      });
+  }, [filtered, groupByLanguage, sortBy]);
+
   const filtersActive = Boolean(language || bilingualOnly || authorId);
   const showFilters =
     usedLanguages.length > 1 || hasBilingual || authorOptions.length > 1 || hasYears || authorOptions.length >= 2;
@@ -112,23 +147,31 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
   return (
     <div>
       {showFilters && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="mb-4 space-y-2">
           {usedLanguages.length > 1 && (
-            <select
-              value={language}
-              onChange={(event) => setLanguage(event.target.value)}
-              className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5"
-            >
-              <option value="">Все языки</option>
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Язык">
+              <button
+                type="button"
+                onClick={() => setLanguage("")}
+                className={`filter-chip ${language === "" ? "filter-chip-active" : ""}`}
+              >
+                Все языки
+              </button>
               {usedLanguages.map((lang) => (
-                <option key={lang.code} value={lang.code}>
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => setLanguage(lang.code)}
+                  className={`filter-chip ${language === lang.code ? "filter-chip-active" : ""}`}
+                >
                   {languageLabel(lang.code)}
-                </option>
+                </button>
               ))}
-            </select>
+            </div>
           )}
+          <div className="flex flex-wrap items-center gap-2">
           {hasBilingual && (
-            <label className="flex items-center gap-1.5 rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5">
+            <label className="filter-chip flex items-center gap-1.5">
               <input
                 type="checkbox"
                 checked={bilingualOnly}
@@ -141,7 +184,7 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
             <select
               value={authorId}
               onChange={(event) => setAuthorId(event.target.value)}
-              className="max-w-[14rem] truncate rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5"
+              className="filter-control max-w-[14rem] truncate rounded-full px-3 py-1.5 text-xs"
             >
               <option value="">Все авторы и темы</option>
               {authorOptions.map((author) => (
@@ -151,24 +194,41 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
               ))}
             </select>
           )}
-          {hasYears && (
+          {(hasYears || usedLanguages.length > 1) && (
             <select
               value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as "title" | "year")}
-              className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5"
+              onChange={(event) => setSortBy(event.target.value as "title" | "year" | "language")}
+              className="filter-control rounded-full px-3 py-1.5 text-xs"
             >
               <option value="title">по алфавиту</option>
-              <option value="year">по году</option>
+              {hasYears && <option value="year">по году</option>}
+              {usedLanguages.length > 1 && <option value="language">по языку</option>}
             </select>
           )}
           {authorOptions.length >= 2 && (
-            <label className="flex items-center gap-1.5 rounded-full border border-ink/15 bg-white px-3 py-1.5 text-xs dark:bg-white/5">
+            <label className="filter-chip flex items-center gap-1.5">
               <input
                 type="checkbox"
-                checked={groupByAuthor}
-                onChange={(event) => setGroupByAuthor(event.target.checked)}
+                checked={groupByAuthor && !groupByLanguage}
+                onChange={(event) => {
+                  setGroupByAuthor(event.target.checked);
+                  if (event.target.checked) setGroupByLanguage(false);
+                }}
               />
               группировать по автору
+            </label>
+          )}
+          {usedLanguages.length > 1 && (
+            <label className="filter-chip flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={groupByLanguage}
+                onChange={(event) => {
+                  setGroupByLanguage(event.target.checked);
+                  if (event.target.checked) setGroupByAuthor(false);
+                }}
+              />
+              группировать по языку
             </label>
           )}
           {filtersActive && (
@@ -189,6 +249,7 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
               {filtered.length} из {documents.length}
             </span>
           )}
+          </div>
         </div>
       )}
 
@@ -198,9 +259,22 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
         </p>
       )}
 
-      {filtered.length > 0 && !groupByAuthor && flatSorted.map((document) => <DocumentRow key={document.id} document={document} />)}
+      {filtered.length > 0 && !groupByAuthor && !groupByLanguage && flatSorted.map((document) => <DocumentRow key={document.id} document={document} />)}
 
-      {filtered.length > 0 && groupByAuthor && (
+      {filtered.length > 0 && groupByLanguage && (
+        <div className="space-y-8">
+          {languageGroups.map((group) => (
+            <div key={group.code || "unknown"}>
+              <p className="mb-1 font-serif text-lg tracking-tight">{group.label}</p>
+              {group.docs.map((document) => (
+                <DocumentRow key={document.id} document={document} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {filtered.length > 0 && groupByAuthor && !groupByLanguage && (
         <div className="space-y-8">
           {groups.named.map((group) => (
             <div key={group.id}>

@@ -134,6 +134,10 @@ export const documents = sqliteTable("documents", {
   fileName: text("file_name"),
   fileType: text("file_type").notNull(),
   originalFormat: text("original_format"),
+  /** SHA-256 of the stored file bytes — used for import dedup (same PDF under
+   * different names / `(1)` copies from phone exports). Null for legacy rows
+   * until backfilled on the next bulk import. */
+  contentHash: text("content_hash"),
   pages: integer("pages"),
   /** Primary language of the text, as a short code (ru/en/de/fr/la/grc/…) — free-form
    * rather than an enum since the library keeps growing into new languages. */
@@ -154,6 +158,7 @@ export const documents = sqliteTable("documents", {
   ...timestamps,
 }, (table) => ({
   categoryIdx: index("documents_category_idx").on(table.categoryId),
+  contentHashIdx: index("documents_content_hash_idx").on(table.contentHash),
 }));
 
 /** Secondary categories a document also belongs to, beyond its primary
@@ -442,6 +447,11 @@ export const feedback = sqliteTable("feedback", {
   status: text("status", { enum: ["new", "read", "resolved"] })
     .notNull()
     .default("new"),
+  /** Admin's reply, shown back to the author if they have an account and kept
+   *  on the card so the moderator can see what was already said. */
+  adminReply: text("admin_reply"),
+  repliedAt: text("replied_at"),
+  repliedBy: text("replied_by").references(() => users.id, { onDelete: "set null" }),
   ...timestamps,
 }, (table) => ({
   statusIdx: index("feedback_status_idx").on(table.status),

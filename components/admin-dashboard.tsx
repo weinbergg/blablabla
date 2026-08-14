@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -8,12 +8,14 @@ import {
   Check,
   Copy,
   Crown,
+  ExternalLink,
   FilePlus2,
   FolderPlus,
   Home,
   LogOut,
   MessageCircleQuestion,
   Pencil,
+  Send,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -65,10 +67,13 @@ export type AdminInvite = {
 
 export type AdminFeedbackItem = {
   id: string;
+  authorId: string | null;
   authorName: string;
   contact: string | null;
   body: string;
   status: "new" | "read" | "resolved";
+  adminReply: string | null;
+  repliedAt: string | null;
   createdAt: string;
 };
 
@@ -409,12 +414,12 @@ function DocumentsTab({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Поиск по названию, автору, метке…"
-            className="min-w-[200px] flex-1 rounded-full border border-ink/15 bg-white px-4 py-1.5 text-sm dark:bg-white/5"
+            className="filter-control min-w-[200px] flex-1 rounded-full px-4 py-1.5 text-sm"
           />
           <select
             value={categoryFilter}
             onChange={(event) => setCategoryFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
+            className="filter-control rounded-full px-3 py-1.5 text-sm"
           >
             <option value="">Все разделы</option>
             {categoryOptions.map((option) => (
@@ -426,7 +431,7 @@ function DocumentsTab({
           <select
             value={languageFilter}
             onChange={(event) => setLanguageFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
+            className="filter-control rounded-full px-3 py-1.5 text-sm"
           >
             <option value="">Все языки</option>
             {usedLanguages.map((lang) => (
@@ -438,7 +443,7 @@ function DocumentsTab({
           <select
             value={formatFilter}
             onChange={(event) => setFormatFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
+            className="filter-control rounded-full px-3 py-1.5 text-sm"
           >
             <option value="">Все форматы</option>
             {fileTypes.map((type) => (
@@ -450,7 +455,7 @@ function DocumentsTab({
           <select
             value={confidenceFilter}
             onChange={(event) => setConfidenceFilter(event.target.value)}
-            className="rounded-full border border-ink/15 bg-white px-3 py-1.5 text-sm dark:bg-white/5"
+            className="filter-control rounded-full px-3 py-1.5 text-sm"
           >
             <option value="">Любая уверенность</option>
             <option value="low">Только «уточнить»</option>
@@ -888,6 +893,22 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
     router.refresh();
   }
 
+  async function replyToReport(id: string, reply: string, notifyAuthor: boolean) {
+    setBusyId(id);
+    const response = await fetch(`/api/reports/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "resolved", reply, notifyAuthor }),
+    });
+    setBusyId(null);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      window.alert(result.error || "Не удалось отправить ответ.");
+      return;
+    }
+    router.refresh();
+  }
+
   const reportedTargetIds = new Set(reports.map((r) => r.targetId));
   const visibleFeed = onlyReported ? feed.filter((item) => reportedTargetIds.has(item.id)) : feed;
 
@@ -903,23 +924,80 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
           <div className="space-y-3">
             {reports.map((report) => (
               <div key={report.id} className="rounded-xl border border-ink/10 bg-white p-4 text-sm dark:bg-white/5">
-                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted">
                   <span className="font-medium text-ink">{report.reporterName}</span>
                   пожаловался на {report.targetType === "annotation" ? "пометку" : "комментарий"} в
-                  <span className="font-medium text-ink">«{report.documentTitle}»</span>
+                  <Link href={`/documents/${report.documentId}`} className="font-medium text-ink underline-offset-2 hover:underline">
+                    «{report.documentTitle}»
+                  </Link>
+                  {report.targetPage != null && <span>· стр. {report.targetPage}</span>}
                   <span>· {new Date(report.createdAt).toLocaleDateString("ru-RU")}</span>
                 </div>
-                {report.reason && <p className="mb-3 text-sm">{report.reason}</p>}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => deleteContent(report.targetType, report.targetId)}
-                    disabled={busyId === report.targetId}
-                    className="button-secondary !py-1.5 !text-xs hover:!border-red-700 hover:!text-red-700"
+                {report.reason && (
+                  <p className="mb-3 text-sm">
+                    <span className="text-xs text-muted">Причина: </span>
+                    {report.reason}
+                  </p>
+                )}
+                <blockquote className="mb-3 rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2.5">
+                  {report.targetDeleted ? (
+                    <p className="text-xs text-muted">Запись уже удалена.</p>
+                  ) : (
+                    <>
+                      <p className="mb-1 text-[11px] text-muted">
+                        {report.targetType === "annotation" ? "Пометка" : "Комментарий"}
+                        {report.targetAuthorName ? ` · ${report.targetAuthorName}` : ""}
+                        {report.targetAuthorStrikes > 0
+                          ? ` · ${countLabel(report.targetAuthorStrikes, ["страйк", "страйка", "страйков"])}`
+                          : ""}
+                      </p>
+                      <p className="whitespace-pre-wrap leading-6 text-ink">
+                        {report.targetBody || "(без текста)"}
+                      </p>
+                    </>
+                  )}
+                </blockquote>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <Link
+                    href={`/documents/${report.documentId}`}
+                    className="button-secondary !py-1.5 !text-xs"
                   >
-                    <Trash2 size={12} />
-                    Удалить запись
-                  </button>
+                    <ExternalLink size={12} />
+                    Открыть текст
+                  </Link>
+                  {!report.targetDeleted && (
+                    <button
+                      type="button"
+                      onClick={() => deleteContent(report.targetType, report.targetId)}
+                      disabled={busyId === report.targetId}
+                      className="button-secondary !py-1.5 !text-xs hover:!border-red-700 hover:!text-red-700"
+                    >
+                      <Trash2 size={12} />
+                      Удалить запись
+                    </button>
+                  )}
+                  {report.targetAuthorId && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => moderateUser(report.targetAuthorId!, "strike")}
+                        disabled={busyId === report.targetAuthorId}
+                        className="button-secondary !py-1.5 !text-xs"
+                      >
+                        <TriangleAlert size={12} />
+                        Страйк автору
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moderateUser(report.targetAuthorId!, "ban")}
+                        disabled={busyId === report.targetAuthorId}
+                        className="button-secondary !py-1.5 !text-xs hover:!border-red-700 hover:!text-red-700"
+                      >
+                        <Ban size={12} />
+                        Заблокировать
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => resolveReport(report.id, "dismissed")}
@@ -929,6 +1007,24 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
                     Отклонить жалобу
                   </button>
                 </div>
+                <AdminReplyForm
+                  disabled={busyId === report.id}
+                  placeholder="Ответ жалобщику — уйдёт в личные сообщения"
+                  extra={
+                    report.targetAuthorId ? (
+                      <label className="flex items-center gap-1.5 text-xs text-muted">
+                        <input type="checkbox" name="notifyAuthor" />
+                        написать также автору записи
+                      </label>
+                    ) : null
+                  }
+                  onSend={async (text, form) => {
+                    const notifyAuthor = Boolean(
+                      (form?.elements.namedItem("notifyAuthor") as HTMLInputElement | null)?.checked,
+                    );
+                    await replyToReport(report.id, text, notifyAuthor);
+                  }}
+                />
               </div>
             ))}
           </div>
@@ -956,7 +1052,9 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
                 )}
                 <span>{item.kind === "annotation" ? "пометка" : "комментарий"}</span>
                 {item.page && <span>· стр. {item.page}</span>}
-                <span>· «{item.documentTitle}»</span>
+                <Link href={`/documents/${item.documentId}`} className="hover:text-ink">
+                  · «{item.documentTitle}»
+                </Link>
                 <span>· {new Date(item.createdAt).toLocaleDateString("ru-RU")}</span>
                 {item.openReports > 0 && (
                   <span className="flex items-center gap-1 text-rust">
@@ -965,7 +1063,7 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
                   </span>
                 )}
               </div>
-              <p className="mb-2 truncate text-sm text-ink/80">{item.snippet || "(без текста)"}</p>
+              <p className="mb-2 whitespace-pre-wrap text-sm text-ink/80">{item.snippet || "(без текста)"}</p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1248,6 +1346,25 @@ function ReferralsTab({
 }
 
 function FeedbackTab({ items }: { items: AdminFeedbackItem[] }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function patchFeedback(id: string, payload: { status?: AdminFeedbackItem["status"]; reply?: string }) {
+    setBusyId(id);
+    const response = await fetch(`/api/feedback/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    setBusyId(null);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      window.alert(result.error || "Не удалось сохранить.");
+      return;
+    }
+    router.refresh();
+  }
+
   return (
     <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm md:p-8">
       <div className="mb-6 flex items-center gap-3">
@@ -1262,13 +1379,113 @@ function FeedbackTab({ items }: { items: AdminFeedbackItem[] }) {
             <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted">
               <span className="font-medium text-ink">{item.authorName || "Аноним"}</span>
               {item.contact && <span>· {item.contact}</span>}
+              {item.authorId && <span>· аккаунт на сайте</span>}
               <span>· {new Date(item.createdAt).toLocaleString("ru-RU")}</span>
-              {item.status === "new" && <span className="rounded-full bg-rust/10 px-2 py-0.5 text-[10px] text-rust">новое</span>}
+              {item.status === "new" && (
+                <span className="rounded-full bg-rust/10 px-2 py-0.5 text-[10px] text-rust">новое</span>
+              )}
+              {item.status === "read" && (
+                <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[10px] text-muted">прочитано</span>
+              )}
+              {item.status === "resolved" && (
+                <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[10px] text-muted">решено</span>
+              )}
             </div>
             <p className="whitespace-pre-wrap leading-6">{item.body}</p>
+            {item.adminReply && (
+              <div className="mt-3 rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2.5">
+                <p className="mb-1 text-[11px] text-muted">
+                  Ваш ответ
+                  {item.repliedAt ? ` · ${new Date(item.repliedAt).toLocaleString("ru-RU")}` : ""}
+                </p>
+                <p className="whitespace-pre-wrap leading-6">{item.adminReply}</p>
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {item.status === "new" && (
+                <button
+                  type="button"
+                  onClick={() => patchFeedback(item.id, { status: "read" })}
+                  disabled={busyId === item.id}
+                  className="button-secondary !py-1.5 !text-xs"
+                >
+                  Прочитано
+                </button>
+              )}
+              {item.status !== "resolved" && (
+                <button
+                  type="button"
+                  onClick={() => patchFeedback(item.id, { status: "resolved" })}
+                  disabled={busyId === item.id}
+                  className="button-secondary !py-1.5 !text-xs"
+                >
+                  <Check size={12} />
+                  Решено
+                </button>
+              )}
+            </div>
+            {!item.adminReply && (
+              <div className="mt-3">
+                <AdminReplyForm
+                  disabled={busyId === item.id}
+                  placeholder={
+                    item.authorId
+                      ? "Ответ уйдёт в личные сообщения и сохранится здесь"
+                      : item.contact
+                        ? `Ответ сохранится здесь — свяжитесь через ${item.contact}`
+                        : "Внутренняя заметка: автор не оставил контакт"
+                  }
+                  onSend={(text) => patchFeedback(item.id, { reply: text, status: "resolved" })}
+                />
+              </div>
+            )}
           </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function AdminReplyForm({
+  disabled,
+  placeholder,
+  extra,
+  onSend,
+}: {
+  disabled: boolean;
+  placeholder: string;
+  extra?: ReactNode;
+  onSend: (text: string, form: HTMLFormElement) => Promise<void>;
+}) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = text.trim();
+    if (!value) return;
+    setBusy(true);
+    await onSend(value, event.currentTarget);
+    setBusy(false);
+    setText("");
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-2">
+      <textarea
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        rows={3}
+        placeholder={placeholder}
+        className="filter-control w-full rounded-xl px-3 py-2 text-sm leading-5"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        {extra}
+        <button type="submit" className="button-primary !py-1.5 !text-xs" disabled={disabled || busy || !text.trim()}>
+          <Send size={12} />
+          {busy ? "Отправляю…" : "Ответить"}
+        </button>
+      </div>
+    </form>
   );
 }

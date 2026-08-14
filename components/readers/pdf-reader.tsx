@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  Bookmark,
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  EyeOff,
   List,
   Loader2,
   MapPin,
@@ -27,7 +30,10 @@ import {
   type PageDrawSession,
   type StrokeWidthPreset,
 } from "./annotation-layer";
+import { PageJumpInput } from "./page-jump-input";
 import { SelectionLookup } from "./selection-lookup";
+import { isTypingTarget } from "@/lib/reader-keys";
+import { addBookmark, loadBookmarks } from "@/lib/bookmarks";
 
 type SpreadMode = "single" | "double";
 type FlipDirection = "forward" | "backward";
@@ -185,6 +191,8 @@ export function PdfReader({
   const [drawSaving, setDrawSaving] = useState(false);
   const [toc, setToc] = useState<{ title: string; page: number }[]>([]);
   const [tocOpen, setTocOpen] = useState(false);
+  const [showAnnotations, setShowAnnotations] = useState(true);
+  const [bookmarkFlash, setBookmarkFlash] = useState(false);
   const pageRef = useRef(page);
   pageRef.current = page;
 
@@ -433,6 +441,8 @@ export function PdfReader({
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      if (isTypingTarget(event.target)) return;
       if (event.key === "ArrowRight") goNext();
       if (event.key === "ArrowLeft") goPrev();
     }
@@ -593,10 +603,6 @@ export function PdfReader({
     );
   }
 
-  const pageLabel = rightPageNumber
-    ? `стр. ${leftPageNumber}–${rightPageNumber} из ${numPages}`
-    : `стр. ${leftPageNumber} из ${numPages}`;
-
   const annotationHandlers = {
     currentUserId: currentUserId ?? null,
     placing,
@@ -607,7 +613,23 @@ export function PdfReader({
     onReply: onReplyToAnnotation ?? (() => {}),
     onReport: onReport ?? (() => {}),
     onPlaced: () => setPlacing(false),
+    hidden: !showAnnotations,
   };
+
+  function jumpToPage(target: number) {
+    if (!confirmDiscardDrawing()) return;
+    onPageChange(Math.min(numPages, Math.max(1, target)), numPages);
+  }
+
+  function bookmarkHere() {
+    if (!documentId || !numPages) return;
+    addBookmark(documentId, leftPageNumber);
+    setBookmarkFlash(true);
+    window.setTimeout(() => setBookmarkFlash(false), 1200);
+    window.dispatchEvent(new CustomEvent("blabla:bookmarks-changed", { detail: { documentId } }));
+    // touch localStorage so parent lists can refresh if listening
+    loadBookmarks(documentId);
+  }
 
   return (
     <div
@@ -629,9 +651,20 @@ export function PdfReader({
           >
             <ChevronLeft size={16} />
           </button>
-          <span className="min-w-[9rem] text-center font-mono text-xs text-muted">
-            {loading ? "Загрузка…" : pageLabel}
-          </span>
+          {loading ? (
+            <span className="min-w-[9rem] text-center font-mono text-xs text-muted">Загрузка…</span>
+          ) : (
+            <PageJumpInput
+              page={leftPageNumber}
+              total={numPages}
+              display={
+                rightPageNumber
+                  ? `стр. ${leftPageNumber}–${rightPageNumber} из ${numPages}`
+                  : `стр. ${leftPageNumber} из ${numPages}`
+              }
+              onJump={jumpToPage}
+            />
+          )}
           <button
             type="button"
             onClick={goNext}
@@ -686,6 +719,26 @@ export function PdfReader({
           >
             <Sparkles size={14} />
           </button>
+          <button
+            type="button"
+            onClick={() => setShowAnnotations((v) => !v)}
+            className={`icon-button ${!showAnnotations ? "border-rust text-rust" : ""}`}
+            aria-label={showAnnotations ? "Скрыть пометки" : "Показать пометки"}
+            title={showAnnotations ? "Скрыть пометки и рисунки" : "Показать пометки и рисунки"}
+          >
+            {showAnnotations ? <Eye size={14} /> : <EyeOff size={14} />}
+          </button>
+          {documentId && (
+            <button
+              type="button"
+              onClick={bookmarkHere}
+              className={`icon-button ${bookmarkFlash ? "border-rust bg-rust text-white" : ""}`}
+              aria-label="Поставить закладку на эту страницу"
+              title="Закладка на эту страницу"
+            >
+              <Bookmark size={14} />
+            </button>
+          )}
           {documentId && currentUserId && canAnnotate && (
             <>
               <button

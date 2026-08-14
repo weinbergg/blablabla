@@ -824,14 +824,7 @@ export async function getModerationFeed(limit = 150): Promise<ModerationItem[]> 
       authorId: row.authorId,
       authorName: row.authorName,
       authorStrikes: row.authorStrikes,
-      snippet:
-        row.shape === "drawing"
-          ? row.body.includes('"fullPage":true')
-            ? "Рисунок на всей странице"
-            : "Рисунок"
-          : row.shape === "formula"
-            ? `Формула: ${row.body || "—"}`
-            : row.body,
+      snippet: annotationSnippet(row.shape, row.body),
       page: row.page,
       visibility: row.visibility,
       createdAt: row.createdAt,
@@ -855,6 +848,14 @@ export async function getModerationFeed(limit = 150): Promise<ModerationItem[]> 
   return items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, limit);
 }
 
+function annotationSnippet(shape: string, body: string) {
+  if (shape === "drawing") {
+    return body.includes('"fullPage":true') ? "Рисунок на всей странице" : "Рисунок";
+  }
+  if (shape === "formula") return `Формула: ${body || "—"}`;
+  return body;
+}
+
 export type ReportRow = {
   id: string;
   targetType: "annotation" | "comment";
@@ -865,10 +866,16 @@ export type ReportRow = {
   reporterName: string;
   reason: string;
   createdAt: string;
+  targetBody: string | null;
+  targetAuthorId: string | null;
+  targetAuthorName: string | null;
+  targetAuthorStrikes: number;
+  targetPage: number | null;
+  targetDeleted: boolean;
 };
 
 export async function getOpenReports(): Promise<ReportRow[]> {
-  return db
+  const rows = await db
     .select({
       id: reports.id,
       targetType: reports.targetType,
@@ -885,6 +892,69 @@ export async function getOpenReports(): Promise<ReportRow[]> {
     .innerJoin(documents, eq(reports.documentId, documents.id))
     .where(eq(reports.status, "open"))
     .orderBy(desc(reports.createdAt));
+
+  const commentIds = rows.filter((row) => row.targetType === "comment").map((row) => row.targetId);
+  const annotationIds = rows.filter((row) => row.targetType === "annotation").map((row) => row.targetId);
+
+  const [commentRows, annotationRows] = await Promise.all([
+    commentIds.length
+      ? db
+          .select({
+            id: comments.id,
+            body: comments.body,
+            page: comments.page,
+            authorId: comments.authorId,
+            authorName: users.name,
+            authorStrikes: users.strikes,
+          })
+          .from(comments)
+          .innerJoin(users, eq(comments.authorId, users.id))
+          .where(inArray(comments.id, commentIds))
+      : Promise.resolve([]),
+    annotationIds.length
+      ? db
+          .select({
+            id: annotations.id,
+            body: annotations.body,
+            shape: annotations.shape,
+            page: annotations.page,
+            authorId: annotations.authorId,
+            authorName: users.name,
+            authorStrikes: users.strikes,
+          })
+          .from(annotations)
+          .innerJoin(users, eq(annotations.authorId, users.id))
+          .where(inArray(annotations.id, annotationIds))
+      : Promise.resolve([]),
+  ]);
+
+  const commentsById = new Map(commentRows.map((row) => [row.id, row]));
+  const annotationsById = new Map(annotationRows.map((row) => [row.id, row]));
+
+  return rows.map((row) => {
+    if (row.targetType === "comment") {
+      const target = commentsById.get(row.targetId);
+      return {
+        ...row,
+        targetBody: target?.body ?? null,
+        targetAuthorId: target?.authorId ?? null,
+        targetAuthorName: target?.authorName ?? null,
+        targetAuthorStrikes: target?.authorStrikes ?? 0,
+        targetPage: target?.page ?? null,
+        targetDeleted: !target,
+      };
+    }
+    const target = annotationsById.get(row.targetId);
+    return {
+      ...row,
+      targetBody: target ? annotationSnippet(target.shape, target.body) : null,
+      targetAuthorId: target?.authorId ?? null,
+      targetAuthorName: target?.authorName ?? null,
+      targetAuthorStrikes: target?.authorStrikes ?? 0,
+      targetPage: target?.page ?? null,
+      targetDeleted: !target,
+    };
+  });
 }
 
 export type ReferralRow = {
@@ -1002,9 +1072,26 @@ export async function getFeedbackList() {
       contact: feedback.contact,
       body: feedback.body,
       status: feedback.status,
+      adminReply: feedback.adminReply,
+      repliedAt: feedback.repliedAt,
       createdAt: feedback.createdAt,
     })
     .from(feedback)
     .leftJoin(users, eq(feedback.authorId, users.id))
+    .orderBy(desc(feedback.createdAt));
+}
+
+export async function getFeedbackForUser(userId: string) {
+  return db
+    .select({
+      id: feedback.id,
+      body: feedback.body,
+      status: feedback.status,
+      adminReply: feedback.adminReply,
+      repliedAt: feedback.repliedAt,
+      createdAt: feedback.createdAt,
+    })
+    .from(feedback)
+    .where(eq(feedback.authorId, userId))
     .orderBy(desc(feedback.createdAt));
 }

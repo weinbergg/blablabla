@@ -123,7 +123,28 @@ export const DRAWING_VIEWBOX = { w: 260, h: 150 };
  * annotation coordinate on the page (x/y, anchorRects) is already stored as a
  * 0..1000 fraction of the page's own width/height. */
 export const PAGE_DRAWING_VIEWBOX = { w: 1000, h: 1000 };
-type DrawingData = { paths: string[]; viewBox: { w: number; h: number }; fullPage?: boolean; strokeWidth?: number };
+type DrawingData = {
+  paths: string[];
+  viewBox: { w: number; h: number };
+  fullPage?: boolean;
+  strokeWidth?: number;
+  /**
+   * EPUB only: spineIndex:pageWithinSection (e.g. "3:2"). Full-page drawings
+   * must not paint on every visual screen of a long spine chapter.
+   */
+  screenKey?: string;
+};
+
+/** Whether a full-page drawing should render on the current EPUB screen. PDF
+ * callers omit `screenKey` and always get true. */
+function drawingVisibleOnScreen(drawing: DrawingData, screenKey?: string | null): boolean {
+  if (!screenKey) return true;
+  if (!drawing.fullPage) return true;
+  if (drawing.screenKey) return drawing.screenKey === screenKey;
+  // Legacy drawings without a screen key: show only on the first screen of
+  // the spine section so they stop cloning across the whole chapter.
+  return /:1$/.test(screenKey);
+}
 
 export type StrokeWidthPreset = "thin" | "medium" | "thick";
 /** Absolute stroke widths in each tool's own viewBox units — the small pad
@@ -204,7 +225,7 @@ function FormulaBody({ source, color }: { source: string; color?: string }) {
   const html = katex.renderToString(source, { throwOnError: false, displayMode: true });
   return (
     <div
-      className="overflow-x-auto py-1 text-sm [&_.katex]:text-[1.05em]"
+      className="math-scroll py-1 text-sm [&_.katex]:text-[1.05em]"
       style={{ color: color || "var(--ink)" }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
@@ -646,6 +667,8 @@ export function AnnotationLayer({
   onReport,
   onPlaced,
   pageDraw,
+  screenKey = null,
+  hidden = false,
 }: {
   pageNumber: number | null;
   items: AnnotationItem[];
@@ -662,6 +685,10 @@ export function AnnotationLayer({
   /** Set (on both pages of a spread) while "draw on the page" mode is on —
    * see `PageDrawSession` for how the two pages coordinate ownership. */
   pageDraw?: PageDrawSession;
+  /** EPUB visual screen within a spine section (`spine:page`). PDF leaves null. */
+  screenKey?: string | null;
+  /** When true, pins and page drawings are not shown (reader wants a clean page). */
+  hidden?: boolean;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -759,7 +786,15 @@ export function AnnotationLayer({
   }, [placing, containerRef, pageDraw?.active, draftStorageKey]);
 
   if (pageNumber === null) return null;
-  const pageItems = items.filter((item) => item.page === pageNumber);
+  const pageItems = hidden
+    ? []
+    : items.filter((item) => {
+    if (item.page !== pageNumber) return false;
+    if (item.shape !== "drawing") return true;
+    const drawing = parseDrawing(item.body);
+    if (!drawing) return true;
+    return drawingVisibleOnScreen(drawing, screenKey);
+  });
 
   async function submitDraft() {
     if (!draft || !pageNumber) return;

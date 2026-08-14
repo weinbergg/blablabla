@@ -11,15 +11,17 @@
  *   (or, for a folder name that isn't yet a category, at most one new
  *   subcategory under a folder that *does* match). Safe to re-run on the
  *   same source after adding more files to it.
+ * - Duplicates are detected by SHA-256 of file bytes (not by title), so
+ *   `Book.pdf` / `Book(1).pdf` / renamed copies from a phone dump collapse.
  * - By default a folder whose name doesn't match anything in the catalog does
  *   NOT invent a wild new top-level category — files land in
  *   `defaultCategoryId` ("Без категории"). Pass `createMissingTopLevel: true`
  *   for curated trees (e.g. literature/Библиотека) where root folders are
  *   intentional new sections.
  */
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { execFile } from "child_process";
-import { promises as fs } from "fs";
+import { createReadStream, promises as fs } from "fs";
 import path from "path";
 import { promisify } from "util";
 import { eq } from "drizzle-orm";
@@ -91,6 +93,10 @@ export type BulkImportOptions = {
 export type BulkImportResult = {
   imported: number;
   skippedDuplicate: number;
+  /** Same bytes already in the library (by content hash). */
+  skippedDuplicateLibrary: number;
+  /** Same bytes already seen earlier in this import folder. */
+  skippedDuplicateInBatch: number;
   skippedUnsupported: number;
   errors: { file: string; message: string }[];
   byCategory: { categoryId: string; categoryName: string; count: number }[];
@@ -207,17 +213,49 @@ function normalize(value: string) {
   return normalizeForSearch(value);
 }
 
-/** Stricter than `normalize`: also drops edition/printing noise so
- * "Reinforcement Learning: An Introduction" and "Reinforcement Learning -
- * An Introduction (Second Edition)" are recognised as the same book instead
- * of silently duplicating it under a slightly different title. */
-function normalizeTitleForDedup(title: string) {
-  return normalize(title)
-    .replace(/\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\s*edition\b/g, "")
-    .replace(/\b(revised|expanded|updated|new|extended)\s*edition\b/g, "")
-    .replace(/\bedition\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+/** SHA-256 hex digest of a file on disk (streaming — phone dumps include 100MB+ PDFs). */
+export async function hashFile(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+/**
+ * Load content hashes already in the library. Legacy rows without `content_hash`
+ * are backfilled from `public/uploads/…` so a re-import of the same bytes
+ * (different filename) is still skipped.
+ */
+export async function loadExistingContentHashes(): Promise<Set<string>> {
+  const hashes = new Set<string>();
+  const rows = await db
+    .select({
+      id: documents.id,
+      fileUrl: documents.fileUrl,
+      contentHash: documents.contentHash,
+    })
+    .from(documents);
+
+  for (const row of rows) {
+    if (row.contentHash) {
+      hashes.add(row.contentHash);
+      continue;
+    }
+    if (!row.fileUrl?.startsWith("/uploads/")) continue;
+    const disk = path.join(process.cwd(), "public", row.fileUrl);
+    try {
+      const digest = await hashFile(disk);
+      hashes.add(digest);
+      await db.update(documents).set({ contentHash: digest }).where(eq(documents.id, row.id));
+    } catch {
+      /* missing / unreadable upload — skip */
+    }
+  }
+
+  return hashes;
 }
 
 async function loadCategoryIndex(): Promise<CategoryEntry[]> {
@@ -355,7 +393,7 @@ async function resolveCategory(
   return defaultCategoryId;
 }
 
-async function storeFileFromPath(sourcePath: string, extension: string) {
+async function storeFileFromPath(sourcePath: string, extension: string, contentHash: string) {
   const isDjvu = extension === ".djvu";
   const storedExt = isDjvu ? ".pdf" : extension;
   const storedId = randomUUID();
@@ -374,6 +412,7 @@ async function storeFileFromPath(sourcePath: string, extension: string) {
     fileType: storedExt.slice(1).toUpperCase(),
     originalFormat: isDjvu ? "DJVU" : null,
     storedPath: finalPath,
+    contentHash,
   };
 }
 
@@ -418,9 +457,10 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
   const categoryNameById = new Map(categoryIndex.map((c) => [c.id, c.name]));
   const createdCategoryNames = new Set<string>();
 
-  const existingDocs = await db.select({ id: documents.id, title: documents.title, sourceNote: documents.sourceNote }).from(documents);
-  const existingTitles = new Set(existingDocs.map((d) => normalizeTitleForDedup(d.title)));
+  const existingDocs = await db.select({ sourceNote: documents.sourceNote }).from(documents);
   const existingSourceNotes = new Set(existingDocs.map((d) => d.sourceNote).filter(Boolean) as string[]);
+  const existingHashes = await loadExistingContentHashes();
+  const libraryHashes = new Set(existingHashes);
 
   const authorIdCache = new Map<string, string>();
   async function getOrCreateAuthor(name: string) {
@@ -437,6 +477,8 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
   const result: BulkImportResult = {
     imported: 0,
     skippedDuplicate: 0,
+    skippedDuplicateLibrary: 0,
+    skippedDuplicateInBatch: 0,
     skippedUnsupported: 0,
     errors: [],
     byCategory: [],
@@ -461,10 +503,21 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
     const sourceMarker = `[import:${options.sourceLabel}:${relPath}]`;
     if (existingSourceNotes.has(sourceMarker) || [...existingSourceNotes].some((n) => n.includes(sourceMarker))) {
       result.skippedDuplicate += 1;
+      result.skippedDuplicateLibrary += 1;
       continue;
     }
 
     try {
+      // Hash the *source* bytes before any DJVU→PDF conversion so identical
+      // phone copies (Book.pdf / Book(1).pdf) match even when names differ.
+      const contentHash = await hashFile(filePath);
+      if (existingHashes.has(contentHash)) {
+        result.skippedDuplicate += 1;
+        if (libraryHashes.has(contentHash)) result.skippedDuplicateLibrary += 1;
+        else result.skippedDuplicateInBatch += 1;
+        continue;
+      }
+
       const baseName = path.basename(filePath, extension);
       let { authorNames, title } = parseAuthorTitle(baseName);
       // Bare titles like "Котлован.pdf" have no author segment — try PDF Info.
@@ -511,13 +564,11 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
         }
       }
 
-      const normTitle = normalizeTitleForDedup(title);
-      if (existingTitles.has(normTitle)) {
-        result.skippedDuplicate += 1;
-        continue;
-      }
-
-      const { fileUrl, fileType, originalFormat, storedPath } = await storeFileFromPath(filePath, extension);
+      const { fileUrl, fileType, originalFormat, storedPath } = await storeFileFromPath(
+        filePath,
+        extension,
+        contentHash,
+      );
       const pages =
         fileType === "PDF" ? (metaPages ?? (await pdfPageCount(storedPath))) : null;
       const fileName = buildDisplayFileName(title, authorNames, `.${fileType.toLowerCase()}`);
@@ -531,6 +582,7 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
         fileName,
         fileType,
         originalFormat,
+        contentHash,
         pages,
         language,
         confidence: options.confidence ?? "low",
@@ -543,7 +595,7 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
         await db.insert(documentAuthors).values({ documentId, authorId, position }).onConflictDoNothing();
       }
 
-      existingTitles.add(normTitle);
+      existingHashes.add(contentHash);
       existingSourceNotes.add(sourceMarker);
       result.imported += 1;
       perCategoryCount.set(categoryId, (perCategoryCount.get(categoryId) ?? 0) + 1);

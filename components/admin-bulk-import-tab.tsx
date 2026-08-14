@@ -8,6 +8,8 @@ import type { CategoryOption } from "@/components/document-edit-form";
 type ImportResult = {
   imported: number;
   skippedDuplicate: number;
+  skippedDuplicateLibrary?: number;
+  skippedDuplicateInBatch?: number;
   skippedUnsupported: number;
   errors: { file: string; message: string }[];
   byCategory: { categoryId: string; categoryName: string; count: number }[];
@@ -113,7 +115,7 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
               выбранный слева) — такие материалы удобно находить и разложить вручную через фильтр по
               разделу на вкладке «Материалы».
             </li>
-            <li>Дубликаты (по названию файла или по совпадающему заголовку) пропускаются, так что архив можно смело догружать повторно.</li>
+            <li>Дубликаты определяются по SHA-256 содержимого файла (не по названию): копии вроде <code>Book(1).pdf</code> и книги, уже лежащие на сайте, пропускаются.</li>
             <li>Формат PDF/EPUB/DjVu/FB2/MOBI/TXT определяется по расширению; DjVu автоматически конвертируется в PDF. Язык текста определяется приблизительно — при необходимости поправьте его в карточке материала.</li>
             <li>Мусор — файлы меньше 12 КБ, системные папки вроде <code>__MACOSX</code> — пропускается автоматически.</li>
           </ul>
@@ -131,6 +133,12 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
               <div className="rounded-xl border border-ink/10 py-3">
                 <p className="font-serif text-2xl">{result.skippedDuplicate}</p>
                 <p className="text-xs text-muted">дубликатов пропущено</p>
+                {(result.skippedDuplicateLibrary != null || result.skippedDuplicateInBatch != null) && (
+                  <p className="mt-1 px-1 text-[10px] leading-snug text-muted">
+                    сайт {result.skippedDuplicateLibrary ?? "—"} · папка{" "}
+                    {result.skippedDuplicateInBatch ?? "—"}
+                  </p>
+                )}
               </div>
               <div className="rounded-xl border border-ink/10 py-3">
                 <p className="font-serif text-2xl">{result.skippedUnsupported}</p>

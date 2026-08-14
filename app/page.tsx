@@ -45,6 +45,7 @@ export default async function Home() {
     authorNames: doc.authors.map((a) => a.name).join(", "),
     categoryName: categoryById.get(doc.categoryId)?.name ?? "",
     tagNames: doc.tags.map((t) => t.name).join(", "),
+    language: doc.language,
   }));
 
   return (
