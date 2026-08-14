@@ -342,6 +342,68 @@ export async function getAuthorBySlug(slug: string) {
   return { author, documents: documentsWithCategory };
 }
 
+/**
+ * Intertextual neighbours: same authors, shared tags, or same primary category.
+ * Ranked so co-authorship beats shared tags beats same shelf.
+ */
+export async function getRelatedDocuments(documentId: string, limit = 8) {
+  const doc = await getDocumentById(documentId);
+  if (!doc) return [];
+
+  const scores = new Map<string, number>();
+  const bump = (id: string, weight: number) => {
+    if (id === documentId) return;
+    scores.set(id, (scores.get(id) ?? 0) + weight);
+  };
+
+  const authorIds = doc.authors.map((a) => a.id);
+  if (authorIds.length) {
+    const links = await db
+      .select({ documentId: documentAuthors.documentId })
+      .from(documentAuthors)
+      .where(inArray(documentAuthors.authorId, authorIds));
+    for (const link of links) bump(link.documentId, 5);
+  }
+
+  const subjectIds = doc.subjects.map((s) => s.id);
+  if (subjectIds.length) {
+    const links = await db
+      .select({ documentId: documentSubjects.documentId })
+      .from(documentSubjects)
+      .where(inArray(documentSubjects.authorId, subjectIds));
+    for (const link of links) bump(link.documentId, 4);
+  }
+
+  const tagIds = doc.tags.map((t) => t.id);
+  if (tagIds.length) {
+    const links = await db
+      .select({ documentId: documentTags.documentId })
+      .from(documentTags)
+      .where(inArray(documentTags.tagId, tagIds));
+    for (const link of links) bump(link.documentId, 3);
+  }
+
+  const sameCategory = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(eq(documents.categoryId, doc.categoryId));
+  for (const row of sameCategory) bump(row.id, 1);
+
+  const ranked = [...scores.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([id]) => id);
+
+  if (!ranked.length) return [];
+
+  const rows = await db.select().from(documents).where(inArray(documents.id, ranked));
+  const withAuthors = await attachAuthors(rows);
+  const byId = new Map(withAuthors.map((row) => [row.id, row]));
+  return ranked.map((id) => byId.get(id)).filter(Boolean) as (DocumentRow & {
+    authors: AuthorRow[];
+  })[];
+}
+
 /** Other authors who share at least one category with the given author — used for "related authors" cross-links. */
 export async function getRelatedAuthors(authorId: string, excludeAuthorId: string) {
   const relations = await db

@@ -1,11 +1,16 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Plus, X } from "lucide-react";
 import { DocumentRow } from "@/components/document-row";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
-import type { AuthorRow, DocumentRow as DocumentRowType } from "@/lib/db/queries";
+import type { AuthorRow, DocumentRow as DocumentRowType, TagRow } from "@/lib/db/queries";
 
-type Doc = DocumentRowType & { authors: AuthorRow[]; subjects?: AuthorRow[] };
+type Doc = DocumentRowType & {
+  authors: AuthorRow[];
+  subjects?: AuthorRow[];
+  tags?: TagRow[];
+};
 
 type AuthorGroup = {
   id: string;
@@ -13,6 +18,8 @@ type AuthorGroup = {
   byDocs: Doc[];
   aboutDocs: Doc[];
 };
+
+type ExtraFilter = "author" | "tag" | "bilingual";
 
 function sortDocs(docs: Doc[], sortBy: "title" | "year" | "language") {
   const sorted = [...docs];
@@ -42,27 +49,25 @@ function sortDocs(docs: Doc[], sortBy: "title" | "year" | "language") {
   return sorted;
 }
 
-function FilterField({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="text-[11px] font-medium text-muted">{label}</span>
+    <label className="flex min-w-[9.5rem] flex-1 flex-col gap-1">
+      <span className="text-[11px] text-muted">{label}</span>
       {children}
     </label>
   );
 }
 
-/** Client-side filters/grouping for a category's document list. */
 export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
   const [language, setLanguage] = useState("");
-  const [bilingualOnly, setBilingualOnly] = useState(false);
-  const [authorId, setAuthorId] = useState("");
   const [sortBy, setSortBy] = useState<"title" | "year" | "language">("title");
-  const [groupBy, setGroupBy] = useState<"none" | "author" | "language">(() =>
-    documents.some((d) => d.authors.length > 0) &&
-    new Set(documents.flatMap((d) => d.authors.map((a) => a.id))).size >= 3
-      ? "author"
-      : "none",
-  );
+  const [groupBy, setGroupBy] = useState<"none" | "author" | "language">("none");
+  const [authorId, setAuthorId] = useState("");
+  const [tagId, setTagId] = useState("");
+  const [bilingualOnly, setBilingualOnly] = useState(false);
+  const [extras, setExtras] = useState<ExtraFilter[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const addRef = useRef<HTMLDivElement>(null);
 
   const usedLanguages = useMemo(
     () => LANGUAGES.filter((l) => documents.some((d) => d.language === l.code)),
@@ -82,6 +87,37 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
   }, [documents]);
 
+  const tagOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const doc of documents) {
+      for (const tag of doc.tags ?? []) byId.set(tag.id, tag.name);
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  }, [documents]);
+
+  useEffect(() => {
+    if (!addOpen) return;
+    function onDoc(event: MouseEvent) {
+      if (!addRef.current?.contains(event.target as Node)) setAddOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [addOpen]);
+
+  function addExtra(kind: ExtraFilter) {
+    setExtras((prev) => (prev.includes(kind) ? prev : [...prev, kind]));
+    setAddOpen(false);
+  }
+
+  function removeExtra(kind: ExtraFilter) {
+    setExtras((prev) => prev.filter((item) => item !== kind));
+    if (kind === "author") setAuthorId("");
+    if (kind === "tag") setTagId("");
+    if (kind === "bilingual") setBilingualOnly(false);
+  }
+
   const filtered = useMemo(
     () =>
       documents.filter((d) => {
@@ -92,9 +128,10 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
             d.authors.some((a) => a.id === authorId) || (d.subjects ?? []).some((a) => a.id === authorId);
           if (!matches) return false;
         }
+        if (tagId && !(d.tags ?? []).some((t) => t.id === tagId)) return false;
         return true;
       }),
-    [documents, language, bilingualOnly, authorId],
+    [documents, language, bilingualOnly, authorId, tagId],
   );
 
   const groupByAuthor = groupBy === "author";
@@ -105,9 +142,7 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
     const byId = new Map<string, AuthorGroup>();
     const unattributed: Doc[] = [];
     for (const doc of filtered) {
-      const authorIds = doc.authors.map((a) => a.id);
-      const subjectIds = (doc.subjects ?? []).map((a) => a.id);
-      if (authorIds.length === 0 && subjectIds.length === 0) {
+      if (doc.authors.length === 0 && (doc.subjects ?? []).length === 0) {
         unattributed.push(doc);
         continue;
       }
@@ -122,10 +157,12 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
         byId.set(subject.id, group);
       }
     }
-    const named = [...byId.values()]
-      .map((group) => ({ ...group, byDocs: sortDocs(group.byDocs, sortBy), aboutDocs: sortDocs(group.aboutDocs, sortBy) }))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    return { named, unattributed: sortDocs(unattributed, sortBy) };
+    return {
+      named: [...byId.values()]
+        .map((g) => ({ ...g, byDocs: sortDocs(g.byDocs, sortBy), aboutDocs: sortDocs(g.aboutDocs, sortBy) }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      unattributed: sortDocs(unattributed, sortBy),
+    };
   }, [filtered, groupByAuthor, sortBy]);
 
   const flatSorted = useMemo(() => sortDocs(filtered, sortBy), [filtered, sortBy]);
@@ -139,121 +176,173 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
       list.push(doc);
       byCode.set(code, list);
     }
-    const innerSort = sortBy === "language" ? "title" : sortBy;
+    const inner = sortBy === "language" ? "title" : sortBy;
     return [...byCode.entries()]
       .map(([code, docs]) => ({
         code,
         label: code ? languageLabel(code) : "Язык не указан",
-        docs: sortDocs(docs, innerSort),
+        docs: sortDocs(docs, inner),
       }))
-      .sort((a, b) => {
-        if (!a.code) return 1;
-        if (!b.code) return -1;
-        return a.label.localeCompare(b.label, "ru");
-      });
+      .sort((a, b) => (!a.code ? 1 : !b.code ? -1 : a.label.localeCompare(b.label, "ru")));
   }, [filtered, groupByLanguage, sortBy]);
 
-  const filtersActive = Boolean(language || bilingualOnly || authorId);
-  const showFilters =
-    usedLanguages.length > 1 || hasBilingual || authorOptions.length > 1 || hasYears || authorOptions.length >= 2;
+  const showBar =
+    usedLanguages.length > 1 || hasYears || authorOptions.length > 1 || tagOptions.length > 0 || hasBilingual;
+
+  const availableExtras: { kind: ExtraFilter; label: string; ok: boolean }[] = [
+    { kind: "author", label: "Автор / тема", ok: authorOptions.length > 1 && !extras.includes("author") },
+    { kind: "tag", label: "Метка", ok: tagOptions.length > 0 && !extras.includes("tag") },
+    { kind: "bilingual", label: "Только билингва", ok: hasBilingual && !extras.includes("bilingual") },
+  ];
+
+  if (!showBar) {
+    return (
+      <div>
+        {documents.map((document) => (
+          <DocumentRow key={document.id} document={document} />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div>
-      {showFilters && (
-        <div className="mb-5 rounded-xl border border-ink/10 bg-ink/[0.02] p-3 md:p-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {usedLanguages.length > 1 && (
-              <FilterField label="Язык">
-                <select
-                  value={language}
-                  onChange={(event) => setLanguage(event.target.value)}
-                  className="filter-control w-full rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">Все языки</option>
-                  {usedLanguages.map((lang) => (
-                    <option key={lang.code} value={lang.code}>
-                      {languageLabel(lang.code)}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
-            )}
-            {authorOptions.length > 1 && (
-              <FilterField label="Автор или тема">
-                <select
-                  value={authorId}
-                  onChange={(event) => setAuthorId(event.target.value)}
-                  className="filter-control w-full truncate rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">Все</option>
-                  {authorOptions.map((author) => (
-                    <option key={author.id} value={author.id}>
-                      {author.name}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
-            )}
-            <FilterField label="Сортировка">
+      <div className="mb-5 border border-ink/12 bg-ink/[0.02] p-3 md:p-4" style={{ borderRadius: 8 }}>
+        <div className="flex flex-wrap items-end gap-3">
+          {usedLanguages.length > 1 && (
+            <Field label="Язык">
               <select
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value as "title" | "year" | "language")}
-                className="filter-control w-full rounded-lg px-3 py-2 text-sm"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
               >
-                <option value="title">По алфавиту</option>
-                {hasYears && <option value="year">По году</option>}
+                <option value="">Все</option>
+                {usedLanguages.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {languageLabel(lang.code)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <Field label="Сортировка">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+              className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
+            >
+              <option value="title">По алфавиту</option>
+              {hasYears && <option value="year">По году</option>}
+              {usedLanguages.length > 1 && <option value="language">По языку</option>}
+            </select>
+          </Field>
+          {(authorOptions.length >= 2 || usedLanguages.length > 1) && (
+            <Field label="Группировка">
+              <select
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
+                className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
+              >
+                <option value="none">Нет</option>
+                {authorOptions.length >= 2 && <option value="author">По автору</option>}
                 {usedLanguages.length > 1 && <option value="language">По языку</option>}
               </select>
-            </FilterField>
-            {(authorOptions.length >= 2 || usedLanguages.length > 1) && (
-              <FilterField label="Группировка">
+            </Field>
+          )}
+
+          {extras.includes("author") && (
+            <Field label="Автор / тема">
+              <div className="flex items-center gap-1">
                 <select
-                  value={groupBy}
-                  onChange={(event) => setGroupBy(event.target.value as "none" | "author" | "language")}
-                  className="filter-control w-full rounded-lg px-3 py-2 text-sm"
+                  value={authorId}
+                  onChange={(e) => setAuthorId(e.target.value)}
+                  className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
                 >
-                  <option value="none">Без группировки</option>
-                  {authorOptions.length >= 2 && <option value="author">По автору</option>}
-                  {usedLanguages.length > 1 && <option value="language">По языку</option>}
+                  <option value="">Все</option>
+                  {authorOptions.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
                 </select>
-              </FilterField>
-            )}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-ink/8 pt-3 text-sm">
-            {hasBilingual && (
-              <label className="flex items-center gap-2 text-muted">
-                <input
-                  type="checkbox"
-                  checked={bilingualOnly}
-                  onChange={(event) => setBilingualOnly(event.target.checked)}
-                />
+                <button type="button" className="icon-button !size-9" aria-label="Убрать" onClick={() => removeExtra("author")}>
+                  <X size={13} />
+                </button>
+              </div>
+            </Field>
+          )}
+
+          {extras.includes("tag") && (
+            <Field label="Метка">
+              <div className="flex items-center gap-1">
+                <select
+                  value={tagId}
+                  onChange={(e) => setTagId(e.target.value)}
+                  className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="">Все</option>
+                  {tagOptions.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="icon-button !size-9" aria-label="Убрать" onClick={() => removeExtra("tag")}>
+                  <X size={13} />
+                </button>
+              </div>
+            </Field>
+          )}
+
+          {extras.includes("bilingual") && (
+            <div className="flex items-end gap-1 pb-0.5">
+              <label className="flex items-center gap-2 rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm">
+                <input type="checkbox" checked={bilingualOnly} onChange={(e) => setBilingualOnly(e.target.checked)} />
                 только билингва
               </label>
-            )}
-            {filtersActive && (
+              <button type="button" className="icon-button !size-9" aria-label="Убрать" onClick={() => removeExtra("bilingual")}>
+                <X size={13} />
+              </button>
+            </div>
+          )}
+
+          {availableExtras.some((e) => e.ok) && (
+            <div className="relative" ref={addRef}>
               <button
                 type="button"
-                onClick={() => {
-                  setLanguage("");
-                  setBilingualOnly(false);
-                  setAuthorId("");
-                }}
-                className="text-muted underline underline-offset-2 hover:text-ink"
+                onClick={() => setAddOpen((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-ink/25 px-3 py-2 text-sm text-muted hover:border-ink/40 hover:text-ink"
               >
-                Сбросить фильтры
+                <Plus size={14} />
+                Фильтр
               </button>
-            )}
-            <span className="ml-auto font-mono text-[10px] text-muted">
-              {filtered.length} из {documents.length}
-            </span>
-          </div>
+              {addOpen && (
+                <div className="absolute left-0 top-full z-30 mt-1 min-w-[11rem] rounded-md border border-ink/15 bg-paper py-1 shadow-lg">
+                  {availableExtras
+                    .filter((e) => e.ok)
+                    .map((e) => (
+                      <button
+                        key={e.kind}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-ink/[0.05]"
+                        onClick={() => addExtra(e.kind)}
+                      >
+                        {e.label}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <span className="ml-auto self-end pb-2 font-mono text-[10px] text-muted">
+            {filtered.length}/{documents.length}
+          </span>
         </div>
-      )}
+      </div>
 
       {filtered.length === 0 && (
-        <p className="border-t border-ink/10 py-7 text-sm text-muted">
-          Ничего не подходит под выбранный фильтр.
-        </p>
+        <p className="border-t border-ink/10 py-7 text-sm text-muted">Ничего не подходит под фильтр.</p>
       )}
 
       {filtered.length > 0 && !groupByAuthor && !groupByLanguage &&
@@ -272,41 +361,27 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
         </div>
       )}
 
-      {filtered.length > 0 && groupByAuthor && !groupByLanguage && (
+      {filtered.length > 0 && groupByAuthor && (
         <div className="space-y-8">
           {groups.named.map((group) => (
             <div key={group.id}>
               <p className="mb-1 font-serif text-lg tracking-tight">{group.name}</p>
-              {group.byDocs.length > 0 && (
-                <div className="mt-2">
-                  {group.aboutDocs.length > 0 && (
-                    <p className="eyebrow mb-1 text-[10px]">Тексты автора</p>
-                  )}
-                  {group.byDocs.map((document) => (
-                    <DocumentRow key={document.id} document={document} />
-                  ))}
-                </div>
-              )}
+              {group.byDocs.map((document) => (
+                <DocumentRow key={`${group.id}-by-${document.id}`} document={document} />
+              ))}
               {group.aboutDocs.length > 0 && (
                 <div className="mt-3">
-                  <p className="eyebrow mb-1 text-[10px]">О нём/о ней</p>
+                  <p className="mb-1 text-[11px] text-muted">О нём/о ней</p>
                   {group.aboutDocs.map((document) => (
-                    <DocumentRow key={document.id} document={document} />
+                    <DocumentRow key={`${group.id}-about-${document.id}`} document={document} />
                   ))}
                 </div>
               )}
             </div>
           ))}
-          {groups.unattributed.length > 0 && (
-            <div>
-              {groups.named.length > 0 && (
-                <p className="mb-1 font-serif text-lg tracking-tight">Без указания автора</p>
-              )}
-              {groups.unattributed.map((document) => (
-                <DocumentRow key={document.id} document={document} />
-              ))}
-            </div>
-          )}
+          {groups.unattributed.map((document) => (
+            <DocumentRow key={document.id} document={document} />
+          ))}
         </div>
       )}
     </div>

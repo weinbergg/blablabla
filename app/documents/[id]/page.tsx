@@ -7,6 +7,7 @@ import { DocumentEditForm } from "@/components/document-edit-form";
 import { LibraryButton } from "@/components/library-button";
 import { RateReviewPanel, StarRating } from "@/components/rate-review";
 import { ShareWithFriends } from "@/components/share-with-friends";
+import { RelatedTexts } from "@/components/related-texts";
 import { getCurrentUser } from "@/lib/auth";
 import { getLibraryStatusForDocument, getPublicReviews, getRatingSummary } from "@/lib/db/library";
 import {
@@ -17,6 +18,7 @@ import {
   getDocumentById,
   getDocumentComments,
   getDocumentEditHistory,
+  getRelatedDocuments,
 } from "@/lib/db/queries";
 import { languageLabel } from "@/lib/languages";
 import { isAdminRole } from "@/lib/roles";
@@ -46,16 +48,18 @@ export default async function DocumentPage({
 
   const currentUser = await getCurrentUser();
 
-  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews] = await Promise.all([
-    getCategoryTrail(document.categoryId),
-    getDocumentComments(document.id),
-    getDocumentEditHistory(document.id),
-    getCategoryTree(),
-    getDocumentAnnotations(document.id, currentUser?.id ?? null),
-    currentUser ? getLibraryStatusForDocument(currentUser.id, document.id) : Promise.resolve(null),
-    getRatingSummary(document.id),
-    getPublicReviews(document.id, currentUser?.id ?? null),
-  ]);
+  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related] =
+    await Promise.all([
+      getCategoryTrail(document.categoryId),
+      getDocumentComments(document.id),
+      getDocumentEditHistory(document.id),
+      getCategoryTree(),
+      getDocumentAnnotations(document.id, currentUser?.id ?? null),
+      currentUser ? getLibraryStatusForDocument(currentUser.id, document.id) : Promise.resolve(null),
+      getRatingSummary(document.id),
+      getPublicReviews(document.id, currentUser?.id ?? null),
+      getRelatedDocuments(document.id, 8),
+    ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
   const categoryOptions = flattenCategoryOptions(tree);
@@ -247,6 +251,8 @@ export default async function DocumentPage({
           onShelf={Boolean(libraryItem)}
           initialCloudPage={libraryItem?.progressPage ?? null}
         />
+
+        <RelatedTexts documents={related} />
 
         {publicReviews.length > 0 && (
           <section className="mt-12 rounded-2xl border border-ink/10 p-5">

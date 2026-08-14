@@ -90,7 +90,6 @@ export function DocumentWorkspace({
   const router = useRouter();
   const [page, setPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
-  const [scrollRatio, setScrollRatio] = useState(0);
   const [progressReady, setProgressReady] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{
@@ -122,16 +121,13 @@ export function DocumentWorkspace({
 
     const local = loadReadingProgress(documentId);
     let next = 1;
-    let ratio = 0;
     if (local && (!progressKind || local.kind === progressKind)) {
       next = local.page;
-      ratio = local.scrollRatio ?? 0;
     } else if (typeof initialCloudPage === "number" && initialCloudPage >= 1) {
       // Cloud only when this browser has no local bookmark (cross-device / new device).
       next = initialCloudPage;
     }
     setPage(next);
-    setScrollRatio(ratio);
     setProgressReady(true);
     pruneReadingProgress(documentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,21 +146,16 @@ export function DocumentWorkspace({
     });
   }
 
-  function persistPosition(nextPage: number, total?: number, nextScroll?: number) {
+  function persistPosition(nextPage: number, total?: number) {
     if (!progressKind) return;
     saveReadingProgress(documentId, {
       kind: progressKind,
       page: nextPage,
       total,
-      scrollRatio: nextScroll,
     });
     try {
       const url = new URL(window.location.href);
-      if (progressKind === "txt") {
-        url.searchParams.delete("page");
-      } else {
-        url.searchParams.set("page", String(nextPage));
-      }
+      url.searchParams.set("page", String(nextPage));
       window.history.replaceState(null, "", url.toString());
     } catch {
       /* ignore */
@@ -179,7 +170,6 @@ export function DocumentWorkspace({
         kind: progressKind,
         page,
         total: numPages || undefined,
-        scrollRatio: isTxt ? scrollRatio : undefined,
       });
       if (currentUser && onShelf) {
         lastCloudSync.current = 0;
@@ -196,7 +186,7 @@ export function DocumentWorkspace({
       document.removeEventListener("visibilitychange", onVis);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId, page, numPages, scrollRatio, progressKind, progressReady, onShelf, currentUser?.id]);
+  }, [documentId, page, numPages, progressKind, progressReady, onShelf, currentUser?.id]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -306,11 +296,15 @@ export function DocumentWorkspace({
               url={fileUrl}
               language={language}
               fullscreen={fullscreen}
-              initialScrollRatio={scrollRatio}
-              onScrollRatioChange={(ratio) => {
-                setScrollRatio(ratio);
-                persistPosition(1, undefined, ratio);
-              }}
+              page={page}
+              onPageChange={handlePageChange}
+              documentId={documentId}
+              currentUserId={currentUser?.id ?? null}
+              initialAnnotations={annotations}
+              comments={annotationComments}
+              onReplyToAnnotation={replyToAnnotation}
+              onReport={(type, id) => setReportTarget({ type, id })}
+              canAnnotate={canAnnotate}
             />
           )}
           {fileUrl && !isPdf && !isEpub && !isTxt && (
@@ -326,11 +320,11 @@ export function DocumentWorkspace({
           )}
 
           <div className="mx-auto mt-10 max-w-3xl space-y-6">
-            {(isPdf || isEpub) && (
+            {(isPdf || isEpub || isTxt) && (
               <BookmarksPanel
                 documentId={documentId}
                 canJump
-                pageLabel={isEpub ? "глава" : "стр."}
+                pageLabel={isEpub ? "глава" : isTxt ? "лист" : "стр."}
                 onJumpToPage={(target) => handlePageChange(target, numPages || target)}
               />
             )}
@@ -338,11 +332,11 @@ export function DocumentWorkspace({
               documentId={documentId}
               comments={comments}
               currentUser={currentUser}
-              currentPage={isPdf || isEpub ? page : null}
+              currentPage={isPdf || isEpub || isTxt ? page : null}
               maxPage={numPages}
-              pageLabel={isEpub ? "глава" : "стр."}
+              pageLabel={isEpub ? "глава" : isTxt ? "лист" : "стр."}
               onJumpToPage={
-                isPdf || isEpub
+                isPdf || isEpub || isTxt
                   ? (target) => {
                       handlePageChange(target, numPages || target);
                       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -354,19 +348,13 @@ export function DocumentWorkspace({
             {annotations.length > 0 && (
               <AnnotationsIndex
                 annotations={annotations}
-                canJump={isPdf || isEpub}
+                canJump={isPdf || isEpub || isTxt}
                 onJumpToPage={(target) => handlePageChange(target, numPages || target)}
                 documentId={documentId}
                 documentTitle={documentTitle}
                 canShare={Boolean(currentUser)}
-                pageLabel={isEpub ? "глава" : "стр."}
+                pageLabel={isEpub ? "глава" : isTxt ? "лист" : "стр."}
               />
-            )}
-            {isTxt && (
-              <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] px-4 py-3 text-sm text-muted">
-                В TXT можно выделять слова для словаря и писать в обсуждении ниже.
-                Пометки поверх текста пока только для PDF и EPUB.
-              </p>
             )}
           </div>
         </div>
@@ -461,87 +449,113 @@ function CommentThread({
 
   function renderThread(comment: CommentItem) {
     const replies = repliesByParent.get(comment.id) ?? [];
-    const isCollapsed = collapsed[comment.id] ?? replies.length > 2;
+    const bodyCollapsed = collapsed[`body:${comment.id}`] ?? false;
+    const repliesCollapsed = collapsed[`replies:${comment.id}`] ?? true;
     return (
-      <div key={comment.id} className="border-t border-ink/10 pt-4">
-        <CommentBubble
-          comment={comment}
-          currentUserId={currentUser?.id ?? null}
-          pageLabel={pageLabel}
-          onJumpToPage={onJumpToPage}
-          onReport={onReport}
-        />
-        {replies.length > 0 && (
-          <div className="ml-1 mt-2">
-            <button
-              type="button"
-              onClick={() => setCollapsed((c) => ({ ...c, [comment.id]: !isCollapsed }))}
-              className="mb-2 flex items-center gap-1 text-xs text-muted hover:text-ink"
-            >
-              {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-              {isCollapsed
-                ? `Показать ответы (${replies.length})`
-                : `Свернуть ответы (${replies.length})`}
-            </button>
-            {!isCollapsed &&
-              replies.map((reply) => (
-                <div key={reply.id} className="ml-4 mt-3 border-l border-ink/10 pl-4">
-                  <CommentBubble
-                    comment={reply}
-                    currentUserId={currentUser?.id ?? null}
-                    pageLabel={pageLabel}
-                    onJumpToPage={onJumpToPage}
-                    onReport={onReport}
-                  />
-                </div>
-              ))}
-          </div>
-        )}
-        {currentUser && (
-          <div className="ml-5 mt-2">
-            {replyTo === comment.id ? (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!replyBody.trim()) return;
-                  postComment(replyBody.trim(), null, comment.id);
-                }}
-                className="flex items-center gap-2"
-              >
-                <input
-                  value={replyBody}
-                  onChange={(event) => setReplyBody(event.target.value)}
-                  placeholder="Ответить…"
-                  className="flex-1 rounded-lg border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
-                  autoFocus
-                />
-                <button type="submit" className="icon-button" disabled={busy} aria-label="Отправить ответ">
-                  <Send size={13} />
+      <div key={comment.id} className="border-t border-ink/10 pt-3">
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setCollapsed((c) => ({ ...c, [`body:${comment.id}`]: !bodyCollapsed }))
+            }
+            className="mt-0.5 shrink-0 text-muted hover:text-ink"
+            aria-label={bodyCollapsed ? "Развернуть комментарий" : "Свернуть комментарий"}
+            title={bodyCollapsed ? "Развернуть" : "Свернуть"}
+          >
+            {bodyCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          </button>
+          <div className="min-w-0 flex-1">
+            <CommentBubble
+              comment={comment}
+              currentUserId={currentUser?.id ?? null}
+              pageLabel={pageLabel}
+              onJumpToPage={onJumpToPage}
+              onReport={onReport}
+              compact={bodyCollapsed}
+            />
+            {!bodyCollapsed && replies.length > 0 && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCollapsed((c) => ({
+                      ...c,
+                      [`replies:${comment.id}`]: !repliesCollapsed,
+                    }))
+                  }
+                  className="mb-2 flex items-center gap-1 text-xs text-muted hover:text-ink"
+                >
+                  {repliesCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  {repliesCollapsed
+                    ? `Ответы (${replies.length})`
+                    : `Свернуть ответы (${replies.length})`}
                 </button>
-              </form>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setReplyTo(comment.id)}
-                className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
-              >
-                <Reply size={13} />
-                Ответить
-              </button>
+                {!repliesCollapsed &&
+                  replies.map((reply) => (
+                    <div key={reply.id} className="ml-3 mt-3 border-l border-ink/10 pl-3">
+                      <CommentBubble
+                        comment={reply}
+                        currentUserId={currentUser?.id ?? null}
+                        pageLabel={pageLabel}
+                        onJumpToPage={onJumpToPage}
+                        onReport={onReport}
+                      />
+                    </div>
+                  ))}
+              </div>
+            )}
+            {!bodyCollapsed && currentUser && (
+              <div className="mt-2">
+                {replyTo === comment.id ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!replyBody.trim()) return;
+                      postComment(replyBody.trim(), null, comment.id);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      value={replyBody}
+                      onChange={(event) => setReplyBody(event.target.value)}
+                      placeholder="Ответить…"
+                      className="flex-1 rounded-lg border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
+                      autoFocus
+                    />
+                    <button type="submit" className="icon-button" disabled={busy} aria-label="Отправить ответ">
+                      <Send size={13} />
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setReplyTo(comment.id)}
+                    className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
+                  >
+                    <Reply size={13} />
+                    Ответить
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
       </div>
     );
   }
 
   return (
     <aside className="rounded-2xl border border-ink/10 bg-paper p-6">
-      <div className="mb-5 flex items-center gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <MessageSquare size={17} />
         <h2 className="font-serif text-2xl">Обсуждение</h2>
         <span className="ml-auto font-mono text-xs text-muted">{pageComments.length}</span>
       </div>
+      <p className="mb-5 max-w-xl text-sm leading-6 text-muted">
+        Здесь читают вместе: вопросы к месту в тексте, параллели с другими авторами,
+        споры о переводе. Стрелка слева сворачивает нить — удобно, когда их много.
+      </p>
 
       {currentUser ? (
         <form
@@ -591,10 +605,20 @@ function CommentThread({
 
       <div className="space-y-4">
         {topLevel.length === 0 && (
-          <p className="text-sm text-muted">Пока никто не написал ни слова — начните вы.</p>
+          <div className="rounded-xl border border-dashed border-ink/15 px-4 py-5 text-sm text-muted">
+            <p className="font-medium text-ink">Пока тихо — можно начать нить.</p>
+            <p className="mt-1.5 leading-6">
+              Задайте вопрос к странице, свяжите с другим текстом или оставьте заметку для
+              следующих читателей. Привязка к {pageLabel} помогает сразу открыть место в книге.
+            </p>
+          </div>
         )}
         {sections.map((section) => {
-          const open = sectionOpen[section.key] ?? (section.key !== "general" || sections.length === 1);
+          const open =
+            sectionOpen[section.key] ??
+            (section.page != null && currentPage != null
+              ? section.page === currentPage
+              : section.key === "general");
           return (
             <section key={section.key} className="rounded-xl border border-ink/10">
               <button
@@ -640,12 +664,14 @@ function CommentBubble({
   pageLabel = "стр.",
   onJumpToPage,
   onReport,
+  compact = false,
 }: {
   comment: CommentItem;
   currentUserId: string | null;
   pageLabel?: string;
   onJumpToPage?: (page: number) => void;
   onReport?: (commentId: string) => void;
+  compact?: boolean;
 }) {
   return (
     <div className="group">
@@ -678,7 +704,11 @@ function CommentBubble({
           </button>
         )}
       </div>
-      <MathText source={comment.body} className="mt-1.5 text-sm leading-6" />
+      {compact ? (
+        <p className="mt-1 truncate text-sm text-ink/70">{comment.body.replace(/\s+/g, " ")}</p>
+      ) : (
+        <MathText source={comment.body} className="mt-1.5 text-sm leading-6" />
+      )}
     </div>
   );
 }
