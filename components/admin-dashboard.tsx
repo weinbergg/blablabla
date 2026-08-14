@@ -850,6 +850,7 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [onlyReported, setOnlyReported] = useState(reports.length > 0);
+  const [expandedReports, setExpandedReports] = useState<Record<string, boolean>>({});
 
   async function deleteContent(kind: "annotation" | "comment", id: string) {
     if (!window.confirm("Удалить эту запись?")) return;
@@ -922,8 +923,32 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
             <span className="ml-auto font-mono text-xs text-muted">{reports.length}</span>
           </div>
           <div className="space-y-3">
-            {reports.map((report) => (
-              <div key={report.id} className="rounded-xl border border-ink/10 bg-white p-4 text-sm dark:bg-white/5">
+            {reports.map((report) => {
+              const open = expandedReports[report.id] ?? reports.length <= 3;
+              return (
+              <div key={report.id} className="rounded-xl border border-ink/10 bg-white text-sm dark:bg-white/5">
+                <button
+                  type="button"
+                  onClick={() => setExpandedReports((s) => ({ ...s, [report.id]: !open }))}
+                  className="flex w-full items-start gap-2 px-4 py-3 text-left"
+                >
+                  <span className="mt-0.5 text-muted">{open ? "▾" : "▸"}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs text-muted">
+                      <span className="font-medium text-ink">{report.reporterName}</span>
+                      {" · "}
+                      {report.targetType === "annotation" ? "пометка" : "комментарий"}
+                      {" · «"}
+                      {report.documentTitle}
+                      {"»"}
+                    </span>
+                    <span className="mt-1 block truncate text-sm text-ink">
+                      {report.reason?.trim() || "Причина не указана"}
+                    </span>
+                  </span>
+                </button>
+                {open && (
+                <div className="border-t border-ink/10 px-4 py-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted">
                   <span className="font-medium text-ink">{report.reporterName}</span>
                   пожаловался на {report.targetType === "annotation" ? "пометку" : "комментарий"} в
@@ -933,12 +958,12 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
                   {report.targetPage != null && <span>· стр. {report.targetPage}</span>}
                   <span>· {new Date(report.createdAt).toLocaleDateString("ru-RU")}</span>
                 </div>
-                {report.reason && (
-                  <p className="mb-3 text-sm">
-                    <span className="text-xs text-muted">Причина: </span>
-                    {report.reason}
-                  </p>
-                )}
+                <p className="mb-3 rounded-lg border border-rust/20 bg-rust/[0.06] px-3 py-2 text-sm">
+                  <span className="text-xs text-muted">Причина: </span>
+                  {report.reason?.trim() || (
+                    <span className="italic text-muted">не указана (старая жалоба до обязательного поля)</span>
+                  )}
+                </p>
                 <blockquote className="mb-3 rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2.5">
                   {report.targetDeleted ? (
                     <p className="text-xs text-muted">Запись уже удалена.</p>
@@ -1025,8 +1050,11 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
                     await replyToReport(report.id, text, notifyAuthor);
                   }}
                 />
+                </div>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
@@ -1348,6 +1376,7 @@ function ReferralsTab({
 function FeedbackTab({ items }: { items: AdminFeedbackItem[] }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   async function patchFeedback(id: string, payload: { status?: AdminFeedbackItem["status"]; reply?: string }) {
     setBusyId(id);
@@ -1372,75 +1401,88 @@ function FeedbackTab({ items }: { items: AdminFeedbackItem[] }) {
         <h2 className="font-serif text-3xl">Вопросы и предложения</h2>
         <span className="ml-auto font-mono text-xs text-muted">{items.length}</span>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-2">
         {items.length === 0 && <p className="text-sm text-muted">Пока ничего не приходило.</p>}
-        {items.map((item) => (
-          <div key={item.id} className="rounded-xl border border-ink/10 p-4 text-sm">
-            <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted">
-              <span className="font-medium text-ink">{item.authorName || "Аноним"}</span>
-              {item.contact && <span>· {item.contact}</span>}
-              {item.authorId && <span>· аккаунт на сайте</span>}
-              <span>· {new Date(item.createdAt).toLocaleString("ru-RU")}</span>
-              {item.status === "new" && (
-                <span className="rounded-full bg-rust/10 px-2 py-0.5 text-[10px] text-rust">новое</span>
-              )}
-              {item.status === "read" && (
-                <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[10px] text-muted">прочитано</span>
-              )}
-              {item.status === "resolved" && (
-                <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[10px] text-muted">решено</span>
+        {items.map((item) => {
+          const open = expanded[item.id] ?? item.status === "new";
+          return (
+            <div key={item.id} className="rounded-xl border border-ink/10 text-sm">
+              <button
+                type="button"
+                onClick={() => setExpanded((s) => ({ ...s, [item.id]: !open }))}
+                className="flex w-full items-start gap-2 px-4 py-3 text-left"
+              >
+                <span className="mt-0.5 text-muted">{open ? "▾" : "▸"}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                    <span className="font-medium text-ink">{item.authorName || "Аноним"}</span>
+                    <span>· {new Date(item.createdAt).toLocaleString("ru-RU")}</span>
+                    {item.status === "new" && (
+                      <span className="rounded-full bg-rust/10 px-2 py-0.5 text-[10px] text-rust">новое</span>
+                    )}
+                    {item.status === "resolved" && (
+                      <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[10px] text-muted">решено</span>
+                    )}
+                  </span>
+                  <span className="mt-1 block truncate text-ink">{item.body}</span>
+                </span>
+              </button>
+              {open && (
+                <div className="border-t border-ink/10 px-4 py-3">
+                  {item.contact && <p className="mb-2 text-xs text-muted">Контакт: {item.contact}</p>}
+                  <p className="whitespace-pre-wrap leading-6">{item.body}</p>
+                  {item.adminReply && (
+                    <div className="mt-3 rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2.5">
+                      <p className="mb-1 text-[11px] text-muted">
+                        Ваш ответ
+                        {item.repliedAt ? ` · ${new Date(item.repliedAt).toLocaleString("ru-RU")}` : ""}
+                      </p>
+                      <p className="whitespace-pre-wrap leading-6">{item.adminReply}</p>
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {item.status === "new" && (
+                      <button
+                        type="button"
+                        onClick={() => patchFeedback(item.id, { status: "read" })}
+                        disabled={busyId === item.id}
+                        className="button-secondary !py-1.5 !text-xs"
+                      >
+                        Прочитано
+                      </button>
+                    )}
+                    {item.status !== "resolved" && (
+                      <button
+                        type="button"
+                        onClick={() => patchFeedback(item.id, { status: "resolved" })}
+                        disabled={busyId === item.id}
+                        className="button-secondary !py-1.5 !text-xs"
+                      >
+                        <Check size={12} />
+                        Решено
+                      </button>
+                    )}
+                  </div>
+                  {!item.adminReply && (
+                    <div className="mt-3">
+                      <AdminReplyForm
+                        disabled={busyId === item.id}
+                        placeholder={
+                          item.authorId
+                            ? "Ответ уйдёт в личные сообщения и сохранится здесь"
+                            : item.contact
+                              ? `Ответ сохранится здесь — свяжитесь через ${item.contact}`
+                              : "Внутренняя заметка: автор не оставил контакт"
+                        }
+                        onSend={(text) => patchFeedback(item.id, { reply: text, status: "resolved" })}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-            <p className="whitespace-pre-wrap leading-6">{item.body}</p>
-            {item.adminReply && (
-              <div className="mt-3 rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2.5">
-                <p className="mb-1 text-[11px] text-muted">
-                  Ваш ответ
-                  {item.repliedAt ? ` · ${new Date(item.repliedAt).toLocaleString("ru-RU")}` : ""}
-                </p>
-                <p className="whitespace-pre-wrap leading-6">{item.adminReply}</p>
-              </div>
-            )}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {item.status === "new" && (
-                <button
-                  type="button"
-                  onClick={() => patchFeedback(item.id, { status: "read" })}
-                  disabled={busyId === item.id}
-                  className="button-secondary !py-1.5 !text-xs"
-                >
-                  Прочитано
-                </button>
-              )}
-              {item.status !== "resolved" && (
-                <button
-                  type="button"
-                  onClick={() => patchFeedback(item.id, { status: "resolved" })}
-                  disabled={busyId === item.id}
-                  className="button-secondary !py-1.5 !text-xs"
-                >
-                  <Check size={12} />
-                  Решено
-                </button>
-              )}
-            </div>
-            {!item.adminReply && (
-              <div className="mt-3">
-                <AdminReplyForm
-                  disabled={busyId === item.id}
-                  placeholder={
-                    item.authorId
-                      ? "Ответ уйдёт в личные сообщения и сохранится здесь"
-                      : item.contact
-                        ? `Ответ сохранится здесь — свяжитесь через ${item.contact}`
-                        : "Внутренняя заметка: автор не оставил контакт"
-                  }
-                  onSend={(text) => patchFeedback(item.id, { reply: text, status: "resolved" })}
-                />
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

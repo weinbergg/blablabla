@@ -27,6 +27,9 @@ export async function POST(request: Request) {
   if (!targetType || !targetId) {
     return NextResponse.json({ error: "Некорректные данные жалобы." }, { status: 400 });
   }
+  if (!reason) {
+    return NextResponse.json({ error: "Укажите причину жалобы." }, { status: 400 });
+  }
 
   const documentId =
     targetType === "annotation"

@@ -34,63 +34,65 @@ export function LibrarySearch({
   );
 
   const results = useMemo(() => {
-    if (!normalizedQuery && !language) return [];
+    if (!normalizedQuery) return [];
 
     return documents
       .filter((doc) => {
         if (language && doc.language !== language) return false;
-        if (!normalizedQuery) return true;
         return [doc.title, doc.alternateTitle, doc.authorNames, doc.tagNames]
           .filter(Boolean)
           .some((value) => normalizeForSearch(value as string).includes(normalizedQuery));
       })
-      .slice(0, language && !normalizedQuery ? 8 : 6);
+      .slice(0, 6);
   }, [documents, normalizedQuery, language]);
-
-  const showResults = Boolean(normalizedQuery || language);
 
   return (
     <div className="relative mx-auto w-full max-w-2xl">
-      <div className="flex items-center gap-3 rounded-full border border-ink/15 bg-white/60 px-5 shadow-[0_12px_40px_rgba(25,31,40,0.06)] backdrop-blur dark:bg-white/5 dark:shadow-none">
-        <Search size={19} className="shrink-0 text-muted" />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Найти книгу или автора — на русском или английском"
-          className="h-14 w-full bg-transparent text-[15px] outline-none placeholder:text-muted/70"
-          aria-label="Поиск по библиотеке"
-        />
-        {query && (
-          <button
-            type="button"
-            onClick={() => setQuery("")}
-            className="rounded-full p-1 text-muted transition-colors hover:bg-ink/5 hover:text-ink"
-            aria-label="Очистить поиск"
-          >
-            <X size={16} />
-          </button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+        <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-ink/15 bg-white/60 px-4 shadow-[0_12px_40px_rgba(25,31,40,0.06)] backdrop-blur dark:bg-white/5 dark:shadow-none">
+          <Search size={19} className="shrink-0 text-muted" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Найти книгу или автора — на русском или английском"
+            className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted/70 sm:h-14"
+            aria-label="Поиск по библиотеке"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="rounded-md p-1 text-muted transition-colors hover:bg-ink/5 hover:text-ink"
+              aria-label="Очистить поиск"
+            >
+              <X size={16} />
+            </button>
+          )}
+          <span className="hidden shrink-0 rounded-md border border-ink/10 px-2 py-1 font-mono text-[10px] text-muted sm:block">
+            {countLabel(totalCount, ["текст", "текста", "текстов"])}
+          </span>
+        </div>
+        {usedLanguages.length > 1 && (
+          <label className="flex shrink-0 flex-col justify-center gap-1 sm:w-44">
+            <span className="sr-only">Язык</span>
+            <select
+              value={language}
+              onChange={(event) => setLanguage(event.target.value)}
+              className="filter-control h-12 w-full rounded-xl px-3 text-sm sm:h-14"
+              aria-label="Фильтр по языку"
+            >
+              <option value="">Все языки</option>
+              {usedLanguages.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {languageLabel(lang.code)}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
-        <span className="hidden rounded-md border border-ink/10 px-2 py-1 font-mono text-[10px] text-muted sm:block">
-          {countLabel(totalCount, ["текст", "текста", "текстов"])}
-        </span>
       </div>
 
-      {usedLanguages.length > 1 && (
-        <div className="mt-3 flex flex-wrap justify-center gap-1.5" role="group" aria-label="Язык">
-          {usedLanguages.map((lang) => (
-            <button
-              key={lang.code}
-              type="button"
-              onClick={() => setLanguage((current) => (current === lang.code ? "" : lang.code))}
-              className={`filter-chip ${language === lang.code ? "filter-chip-active" : ""}`}
-            >
-              {languageLabel(lang.code)}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {showResults && (
+      {normalizedQuery && (
         <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 text-left shadow-2xl dark:bg-[#1b1e25]">
           {results.length ? (
             results.map((doc) => (

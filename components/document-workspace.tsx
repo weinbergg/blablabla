@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Bookmark,
+  ChevronDown,
+  ChevronRight,
   Filter,
   Maximize2,
   MessageSquare,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 import type { AnnotationItem } from "@/components/readers/annotation-layer";
 import { MathText } from "@/components/math-text";
+import { ReportDialog } from "@/components/report-dialog";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import { countLabel } from "@/lib/pluralize";
 import {
@@ -59,16 +62,6 @@ export type CommentItem = {
 
 type CurrentUser = { id: string; name: string; role: string } | null;
 
-async function submitReport(targetType: "annotation" | "comment", targetId: string) {
-  const reason = window.prompt("Что не так с этой записью? Это поможет модератору (необязательно).") ?? "";
-  const response = await fetch("/api/reports", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targetType, targetId, reason }),
-  });
-  window.alert(response.ok ? "Спасибо, жалоба отправлена модератору." : "Не получилось отправить жалобу.");
-}
-
 export function DocumentWorkspace({
   documentId,
   documentTitle,
@@ -100,6 +93,10 @@ export function DocumentWorkspace({
   const [scrollRatio, setScrollRatio] = useState(0);
   const [progressReady, setProgressReady] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{
+    type: "annotation" | "comment";
+    id: string;
+  } | null>(null);
   const lastCloudSync = useRef(0);
   const isPdf = fileType === "PDF";
   const isEpub = fileType === "EPUB";
@@ -282,7 +279,7 @@ export function DocumentWorkspace({
               initialAnnotations={annotations}
               comments={annotationComments}
               onReplyToAnnotation={replyToAnnotation}
-              onReport={submitReport}
+              onReport={(type, id) => setReportTarget({ type, id })}
               fullscreen={fullscreen}
               canAnnotate={canAnnotate}
               language={language}
@@ -298,7 +295,7 @@ export function DocumentWorkspace({
               initialAnnotations={annotations}
               comments={annotationComments}
               onReplyToAnnotation={replyToAnnotation}
-              onReport={submitReport}
+              onReport={(type, id) => setReportTarget({ type, id })}
               fullscreen={fullscreen}
               canAnnotate={canAnnotate}
               language={language}
@@ -352,6 +349,7 @@ export function DocumentWorkspace({
                     }
                   : undefined
               }
+              onReport={(id) => setReportTarget({ type: "comment", id })}
             />
             {annotations.length > 0 && (
               <AnnotationsIndex
@@ -373,6 +371,12 @@ export function DocumentWorkspace({
           </div>
         </div>
       </div>
+      <ReportDialog
+        open={Boolean(reportTarget)}
+        targetType={reportTarget?.type ?? null}
+        targetId={reportTarget?.id ?? null}
+        onClose={() => setReportTarget(null)}
+      />
     </div>
   );
 }
@@ -385,6 +389,7 @@ function CommentThread({
   maxPage,
   pageLabel = "стр.",
   onJumpToPage,
+  onReport,
 }: {
   documentId: string;
   comments: CommentItem[];
@@ -393,6 +398,7 @@ function CommentThread({
   maxPage: number;
   pageLabel?: string;
   onJumpToPage?: (page: number) => void;
+  onReport?: (commentId: string) => void;
 }) {
   const router = useRouter();
   const [body, setBody] = useState("");
@@ -400,9 +406,9 @@ function CommentThread({
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({ general: true });
 
-  // Comments posted as a reply inside a sticker's own discussion belong to
-  // that sticker's thread, not the page-level conversation below the reader.
   const pageComments = useMemo(() => comments.filter((c) => !c.annotationId), [comments]);
   const topLevel = useMemo(() => pageComments.filter((c) => !c.parentId), [pageComments]);
   const repliesByParent = useMemo(() => {
@@ -416,11 +422,28 @@ function CommentThread({
     return map;
   }, [pageComments]);
 
-  async function postComment(
-    text: string,
-    page: number | null,
-    parentId: string | null,
-  ) {
+  const sections = useMemo(() => {
+    const byKey = new Map<string, CommentItem[]>();
+    for (const comment of topLevel) {
+      const key = comment.page != null ? `p:${comment.page}` : "general";
+      const list = byKey.get(key) ?? [];
+      list.push(comment);
+      byKey.set(key, list);
+    }
+    const keys = [...byKey.keys()].sort((a, b) => {
+      if (a === "general") return 1;
+      if (b === "general") return -1;
+      return Number(a.slice(2)) - Number(b.slice(2));
+    });
+    return keys.map((key) => ({
+      key,
+      title: key === "general" ? "Общие замечания" : `${pageLabel} ${key.slice(2)}`,
+      page: key.startsWith("p:") ? Number(key.slice(2)) : null,
+      items: byKey.get(key) ?? [],
+    }));
+  }, [topLevel, pageLabel]);
+
+  async function postComment(text: string, page: number | null, parentId: string | null) {
     setBusy(true);
     const response = await fetch("/api/comments", {
       method: "POST",
@@ -434,6 +457,82 @@ function CommentThread({
       setReplyTo(null);
       router.refresh();
     }
+  }
+
+  function renderThread(comment: CommentItem) {
+    const replies = repliesByParent.get(comment.id) ?? [];
+    const isCollapsed = collapsed[comment.id] ?? replies.length > 2;
+    return (
+      <div key={comment.id} className="border-t border-ink/10 pt-4">
+        <CommentBubble
+          comment={comment}
+          currentUserId={currentUser?.id ?? null}
+          pageLabel={pageLabel}
+          onJumpToPage={onJumpToPage}
+          onReport={onReport}
+        />
+        {replies.length > 0 && (
+          <div className="ml-1 mt-2">
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => ({ ...c, [comment.id]: !isCollapsed }))}
+              className="mb-2 flex items-center gap-1 text-xs text-muted hover:text-ink"
+            >
+              {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+              {isCollapsed
+                ? `Показать ответы (${replies.length})`
+                : `Свернуть ответы (${replies.length})`}
+            </button>
+            {!isCollapsed &&
+              replies.map((reply) => (
+                <div key={reply.id} className="ml-4 mt-3 border-l border-ink/10 pl-4">
+                  <CommentBubble
+                    comment={reply}
+                    currentUserId={currentUser?.id ?? null}
+                    pageLabel={pageLabel}
+                    onJumpToPage={onJumpToPage}
+                    onReport={onReport}
+                  />
+                </div>
+              ))}
+          </div>
+        )}
+        {currentUser && (
+          <div className="ml-5 mt-2">
+            {replyTo === comment.id ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!replyBody.trim()) return;
+                  postComment(replyBody.trim(), null, comment.id);
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  value={replyBody}
+                  onChange={(event) => setReplyBody(event.target.value)}
+                  placeholder="Ответить…"
+                  className="flex-1 rounded-lg border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
+                  autoFocus
+                />
+                <button type="submit" className="icon-button" disabled={busy} aria-label="Отправить ответ">
+                  <Send size={13} />
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setReplyTo(comment.id)}
+                className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
+              >
+                <Reply size={13} />
+                Ответить
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -490,65 +589,46 @@ function CommentThread({
         </p>
       )}
 
-      <div className="space-y-5">
+      <div className="space-y-4">
         {topLevel.length === 0 && (
           <p className="text-sm text-muted">Пока никто не написал ни слова — начните вы.</p>
         )}
-        {topLevel.map((comment) => (
-          <div key={comment.id} className="border-t border-ink/10 pt-4">
-            <CommentBubble
-              comment={comment}
-              currentUserId={currentUser?.id ?? null}
-              pageLabel={pageLabel}
-              onJumpToPage={onJumpToPage}
-            />
-            {(repliesByParent.get(comment.id) ?? []).map((reply) => (
-              <div key={reply.id} className="ml-5 mt-3 border-l border-ink/10 pl-4">
-                <CommentBubble
-                  comment={reply}
-                  currentUserId={currentUser?.id ?? null}
-                  pageLabel={pageLabel}
-                  onJumpToPage={onJumpToPage}
-                />
-              </div>
-            ))}
-
-            {currentUser && (
-              <div className="ml-5 mt-2">
-                {replyTo === comment.id ? (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (!replyBody.trim()) return;
-                      postComment(replyBody.trim(), null, comment.id);
+        {sections.map((section) => {
+          const open = sectionOpen[section.key] ?? (section.key !== "general" || sections.length === 1);
+          return (
+            <section key={section.key} className="rounded-xl border border-ink/10">
+              <button
+                type="button"
+                onClick={() => setSectionOpen((s) => ({ ...s, [section.key]: !open }))}
+                className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-sm hover:bg-ink/[0.03]"
+              >
+                {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span className="font-medium">{section.title}</span>
+                {section.page != null && onJumpToPage && (
+                  <span
+                    role="link"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onJumpToPage(section.page!);
                     }}
-                    className="flex items-center gap-2"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.stopPropagation();
+                        onJumpToPage(section.page!);
+                      }
+                    }}
+                    className="text-xs text-muted underline-offset-2 hover:text-rust hover:underline"
                   >
-                    <input
-                      value={replyBody}
-                      onChange={(event) => setReplyBody(event.target.value)}
-                      placeholder="Ответить…"
-                      className="flex-1 rounded-full border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
-                      autoFocus
-                    />
-                    <button type="submit" className="icon-button" disabled={busy} aria-label="Отправить ответ">
-                      <Send size={13} />
-                    </button>
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setReplyTo(comment.id)}
-                    className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
-                  >
-                    <Reply size={13} />
-                    Ответить
-                  </button>
+                    открыть
+                  </span>
                 )}
-              </div>
-            )}
-          </div>
-        ))}
+                <span className="ml-auto font-mono text-[10px] text-muted">{section.items.length}</span>
+              </button>
+              {open && <div className="space-y-1 px-3.5 pb-3">{section.items.map(renderThread)}</div>}
+            </section>
+          );
+        })}
       </div>
     </aside>
   );
@@ -559,11 +639,13 @@ function CommentBubble({
   currentUserId,
   pageLabel = "стр.",
   onJumpToPage,
+  onReport,
 }: {
   comment: CommentItem;
   currentUserId: string | null;
   pageLabel?: string;
   onJumpToPage?: (page: number) => void;
+  onReport?: (commentId: string) => void;
 }) {
   return (
     <div className="group">
@@ -574,21 +656,21 @@ function CommentBubble({
             <button
               type="button"
               onClick={() => onJumpToPage(comment.page!)}
-              className="rounded-full bg-ink/5 px-2 py-0.5 font-mono text-[10px] transition-colors hover:bg-rust/15 hover:text-rust"
+              className="rounded-md bg-ink/5 px-2 py-0.5 font-mono text-[10px] transition-colors hover:bg-rust/15 hover:text-rust"
               title={`Открыть ${pageLabel} ${comment.page}`}
             >
               {pageLabel} {comment.page}
             </button>
           ) : (
-            <span className="rounded-full bg-ink/5 px-2 py-0.5 font-mono text-[10px]">
+            <span className="rounded-md bg-ink/5 px-2 py-0.5 font-mono text-[10px]">
               {pageLabel} {comment.page}
             </span>
           ))}
         <span>{new Date(comment.createdAt).toLocaleDateString("ru-RU")}</span>
-        {comment.authorId !== currentUserId && (
+        {comment.authorId !== currentUserId && onReport && (
           <button
             type="button"
-            onClick={() => submitReport("comment", comment.id)}
+            onClick={() => onReport(comment.id)}
             className="ml-auto opacity-0 transition-opacity hover:text-rust group-hover:opacity-100"
             aria-label="Пожаловаться на комментарий"
           >
