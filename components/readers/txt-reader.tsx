@@ -91,7 +91,8 @@ export function TxtReader({
   onReport?: (targetType: "annotation" | "comment", targetId: string) => void;
   canAnnotate?: boolean;
 }) {
-  const pageWrapRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const numPagesNotified = useRef(0);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -207,13 +208,13 @@ export function TxtReader({
   function go(delta: -1 | 1) {
     if (!total || !onPageChange) return;
     onPageChange(Math.min(total, Math.max(1, safePage + delta)), total);
-    pageWrapRef.current?.scrollTo({ top: 0 });
+    scrollRef.current?.scrollTo({ top: 0 });
   }
 
   function jumpToPage(target: number) {
     if (!total || !onPageChange) return;
     onPageChange(Math.min(total, Math.max(1, target)), total);
-    pageWrapRef.current?.scrollTo({ top: 0 });
+    scrollRef.current?.scrollTo({ top: 0 });
   }
 
   function bookmarkHere() {
@@ -304,6 +305,11 @@ export function TxtReader({
               <MapPin size={14} />
             </button>
           )}
+          {documentId && currentUserId && !canAnnotate && (
+            <span className="hidden text-[11px] text-muted sm:inline" title="Пометки на тексте — у бустеров и админов">
+              пометки: бустер+
+            </span>
+          )}
         </div>
       </div>
 
@@ -324,44 +330,49 @@ export function TxtReader({
 
       <div className="relative">
         <div
-          ref={pageWrapRef}
-          className="relative overflow-y-auto rounded-xl bg-paper px-5 py-6 md:px-10 md:py-8"
+          ref={scrollRef}
+          className="overflow-y-auto rounded-xl bg-paper"
           style={{ maxHeight: fullscreen ? "calc(100vh - 8rem)" : "70vh" }}
         >
-          {text == null ? (
-            <div className="grid place-items-center py-20">
-              <Loader2 className="animate-spin text-muted" />
-            </div>
-          ) : (
-            <pre className="whitespace-pre-wrap break-words font-serif text-[15px] leading-7 text-ink md:text-base md:leading-8">
-              {pageText}
-            </pre>
-          )}
-          {text != null && documentId && (
-            <AnnotationLayer
-              pageNumber={safePage}
-              items={annotations}
-              containerRef={pageWrapRef}
-              currentUserId={currentUserId ?? null}
-              placing={placing}
-              comments={comments}
-              onCreate={createAnnotation}
-              onDelete={deleteAnnotation}
-              onUpdate={updateAnnotation}
-              onReply={onReplyToAnnotation ?? (() => {})}
-              onReport={onReport ?? (() => {})}
-              onPlaced={() => setPlacing(false)}
-              hidden={!showAnnotations}
-            />
-          )}
-          <SelectionLookup containerRef={pageWrapRef} language={language} suppressed={placing} />
+          <div
+            ref={contentRef}
+            className={`relative px-5 py-6 md:px-10 md:py-8 ${placing ? "cursor-crosshair" : ""}`}
+          >
+            {text == null ? (
+              <div className="grid place-items-center py-20">
+                <Loader2 className="animate-spin text-muted" />
+              </div>
+            ) : (
+              <pre className="whitespace-pre-wrap break-words font-serif text-[15px] leading-7 text-ink md:text-base md:leading-8">
+                {pageText}
+              </pre>
+            )}
+            {text != null && documentId && (
+              <AnnotationLayer
+                pageNumber={safePage}
+                items={annotations}
+                containerRef={contentRef}
+                currentUserId={currentUserId ?? null}
+                placing={placing}
+                comments={comments}
+                onCreate={createAnnotation}
+                onDelete={deleteAnnotation}
+                onUpdate={updateAnnotation}
+                onReply={onReplyToAnnotation ?? (() => {})}
+                onReport={onReport ?? (() => {})}
+                onPlaced={() => setPlacing(false)}
+                hidden={!showAnnotations}
+              />
+            )}
+            <SelectionLookup containerRef={contentRef} language={language} suppressed={placing} />
+          </div>
         </div>
         <button
           type="button"
           onClick={() => go(-1)}
-          disabled={safePage <= 1}
+          disabled={safePage <= 1 || placing}
           aria-label="Предыдущий лист"
-          className="group absolute inset-y-0 left-0 z-20 hidden w-14 items-center justify-start disabled:cursor-default md:flex"
+          className="group absolute inset-y-0 left-0 z-10 hidden w-14 items-center justify-start disabled:cursor-default md:flex"
         >
           <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
             <ChevronLeft size={20} />
@@ -370,9 +381,9 @@ export function TxtReader({
         <button
           type="button"
           onClick={() => go(1)}
-          disabled={safePage >= total}
+          disabled={safePage >= total || placing}
           aria-label="Следующий лист"
-          className="group absolute inset-y-0 right-0 z-20 hidden w-14 items-center justify-end disabled:cursor-default md:flex"
+          className="group absolute inset-y-0 right-0 z-10 hidden w-14 items-center justify-end disabled:cursor-default md:flex"
         >
           <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
             <ChevronRight size={20} />

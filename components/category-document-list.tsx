@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Plus, X } from "lucide-react";
+import { ChevronDown, Plus, X } from "lucide-react";
 import { DocumentRow } from "@/components/document-row";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import type { AuthorRow, DocumentRow as DocumentRowType, TagRow } from "@/lib/db/queries";
@@ -49,12 +49,72 @@ function sortDocs(docs: Doc[], sortBy: "title" | "year" | "language") {
   return sorted;
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function MenuSelect({
+  label,
+  value,
+  display,
+  children,
+}: {
+  label: string;
+  value: string;
+  display: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(event: MouseEvent) {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
   return (
-    <label className="flex min-w-[9.5rem] flex-1 flex-col gap-1">
-      <span className="text-[11px] text-muted">{label}</span>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md px-1 py-1 text-left text-sm transition-colors hover:bg-ink/[0.04]"
+        aria-expanded={open}
+      >
+        <span className="text-muted">{label}</span>
+        <span className="truncate font-medium text-ink">{display || value}</span>
+        <ChevronDown size={13} className={`shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-full z-30 mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-ink/12 bg-paper py-1 shadow-lg"
+          onClick={() => setOpen(false)}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OptionButton({
+  active,
+  onClick,
+  children,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`block w-full px-3 py-2 text-left text-sm ${
+        active ? "bg-ink/[0.06] font-medium text-ink" : "text-ink hover:bg-ink/[0.04]"
+      }`}
+    >
       {children}
-    </label>
+    </button>
   );
 }
 
@@ -195,6 +255,13 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
     { kind: "bilingual", label: "Только билингва", ok: hasBilingual && !extras.includes("bilingual") },
   ];
 
+  const authorLabel = authorOptions.find((a) => a.id === authorId)?.name ?? "Все";
+  const tagLabel = tagOptions.find((t) => t.id === tagId)?.name ?? "Все";
+  const sortLabel =
+    sortBy === "year" ? "По году" : sortBy === "language" ? "По языку" : "По алфавиту";
+  const groupLabel =
+    groupBy === "author" ? "По автору" : groupBy === "language" ? "По языку" : "Нет";
+
   if (!showBar) {
     return (
       <div>
@@ -207,138 +274,162 @@ export function CategoryDocumentList({ documents }: { documents: Doc[] }) {
 
   return (
     <div>
-      <div className="mb-5 border border-ink/12 bg-ink/[0.02] p-3 md:p-4" style={{ borderRadius: 8 }}>
-        <div className="flex flex-wrap items-end gap-3">
+      <div className="mb-5 flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-ink/10 pb-3">
+        {usedLanguages.length > 1 && (
+          <MenuSelect
+            label="Язык"
+            value={language}
+            display={language ? languageLabel(language) : "Все"}
+          >
+            <OptionButton active={!language} onClick={() => setLanguage("")}>
+              Все
+            </OptionButton>
+            {usedLanguages.map((lang) => (
+              <OptionButton
+                key={lang.code}
+                active={language === lang.code}
+                onClick={() => setLanguage(lang.code)}
+              >
+                {languageLabel(lang.code)}
+              </OptionButton>
+            ))}
+          </MenuSelect>
+        )}
+
+        <MenuSelect label="Сортировка" value={sortBy} display={sortLabel}>
+          <OptionButton active={sortBy === "title"} onClick={() => setSortBy("title")}>
+            По алфавиту
+          </OptionButton>
+          {hasYears && (
+            <OptionButton active={sortBy === "year"} onClick={() => setSortBy("year")}>
+              По году
+            </OptionButton>
+          )}
           {usedLanguages.length > 1 && (
-            <Field label="Язык">
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
-              >
-                <option value="">Все</option>
-                {usedLanguages.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {languageLabel(lang.code)}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <OptionButton active={sortBy === "language"} onClick={() => setSortBy("language")}>
+              По языку
+            </OptionButton>
           )}
-          <Field label="Сортировка">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
+        </MenuSelect>
+
+        {(authorOptions.length >= 2 || usedLanguages.length > 1) && (
+          <MenuSelect label="Группы" value={groupBy} display={groupLabel}>
+            <OptionButton active={groupBy === "none"} onClick={() => setGroupBy("none")}>
+              Нет
+            </OptionButton>
+            {authorOptions.length >= 2 && (
+              <OptionButton active={groupBy === "author"} onClick={() => setGroupBy("author")}>
+                По автору
+              </OptionButton>
+            )}
+            {usedLanguages.length > 1 && (
+              <OptionButton active={groupBy === "language"} onClick={() => setGroupBy("language")}>
+                По языку
+              </OptionButton>
+            )}
+          </MenuSelect>
+        )}
+
+        {extras.includes("author") && (
+          <div className="inline-flex items-center gap-0.5">
+            <MenuSelect label="Автор" value={authorId} display={authorLabel}>
+              <OptionButton active={!authorId} onClick={() => setAuthorId("")}>
+                Все
+              </OptionButton>
+              {authorOptions.map((a) => (
+                <OptionButton key={a.id} active={authorId === a.id} onClick={() => setAuthorId(a.id)}>
+                  {a.name}
+                </OptionButton>
+              ))}
+            </MenuSelect>
+            <button
+              type="button"
+              className="rounded p-1 text-muted hover:bg-ink/5 hover:text-ink"
+              aria-label="Убрать фильтр автора"
+              onClick={() => removeExtra("author")}
             >
-              <option value="title">По алфавиту</option>
-              {hasYears && <option value="year">По году</option>}
-              {usedLanguages.length > 1 && <option value="language">По языку</option>}
-            </select>
-          </Field>
-          {(authorOptions.length >= 2 || usedLanguages.length > 1) && (
-            <Field label="Группировка">
-              <select
-                value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
-                className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
-              >
-                <option value="none">Нет</option>
-                {authorOptions.length >= 2 && <option value="author">По автору</option>}
-                {usedLanguages.length > 1 && <option value="language">По языку</option>}
-              </select>
-            </Field>
-          )}
+              <X size={12} />
+            </button>
+          </div>
+        )}
 
-          {extras.includes("author") && (
-            <Field label="Автор / тема">
-              <div className="flex items-center gap-1">
-                <select
-                  value={authorId}
-                  onChange={(e) => setAuthorId(e.target.value)}
-                  className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
-                >
-                  <option value="">Все</option>
-                  {authorOptions.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
+        {extras.includes("tag") && (
+          <div className="inline-flex items-center gap-0.5">
+            <MenuSelect label="Метка" value={tagId} display={tagLabel}>
+              <OptionButton active={!tagId} onClick={() => setTagId("")}>
+                Все
+              </OptionButton>
+              {tagOptions.map((t) => (
+                <OptionButton key={t.id} active={tagId === t.id} onClick={() => setTagId(t.id)}>
+                  {t.name}
+                </OptionButton>
+              ))}
+            </MenuSelect>
+            <button
+              type="button"
+              className="rounded p-1 text-muted hover:bg-ink/5 hover:text-ink"
+              aria-label="Убрать фильтр метки"
+              onClick={() => removeExtra("tag")}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        {extras.includes("bilingual") && (
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setBilingualOnly((v) => !v)}
+              className={`rounded-md px-2 py-1 text-sm ${
+                bilingualOnly ? "bg-ink/10 font-medium text-ink" : "text-muted hover:text-ink"
+              }`}
+            >
+              билингва
+            </button>
+            <button
+              type="button"
+              className="rounded p-1 text-muted hover:bg-ink/5 hover:text-ink"
+              aria-label="Убрать фильтр билингвы"
+              onClick={() => removeExtra("bilingual")}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        {availableExtras.some((e) => e.ok) && (
+          <div className="relative" ref={addRef}>
+            <button
+              type="button"
+              onClick={() => setAddOpen((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted hover:bg-ink/[0.04] hover:text-ink"
+            >
+              <Plus size={13} />
+              ещё
+            </button>
+            {addOpen && (
+              <div className="absolute left-0 top-full z-30 mt-1 min-w-[11rem] rounded-lg border border-ink/12 bg-paper py-1 shadow-lg">
+                {availableExtras
+                  .filter((e) => e.ok)
+                  .map((e) => (
+                    <button
+                      key={e.kind}
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-ink/[0.04]"
+                      onClick={() => addExtra(e.kind)}
+                    >
+                      {e.label}
+                    </button>
                   ))}
-                </select>
-                <button type="button" className="icon-button !size-9" aria-label="Убрать" onClick={() => removeExtra("author")}>
-                  <X size={13} />
-                </button>
               </div>
-            </Field>
-          )}
+            )}
+          </div>
+        )}
 
-          {extras.includes("tag") && (
-            <Field label="Метка">
-              <div className="flex items-center gap-1">
-                <select
-                  value={tagId}
-                  onChange={(e) => setTagId(e.target.value)}
-                  className="filter-control w-full min-w-[10rem] rounded-md px-3 py-2 text-sm"
-                >
-                  <option value="">Все</option>
-                  {tagOptions.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-                <button type="button" className="icon-button !size-9" aria-label="Убрать" onClick={() => removeExtra("tag")}>
-                  <X size={13} />
-                </button>
-              </div>
-            </Field>
-          )}
-
-          {extras.includes("bilingual") && (
-            <div className="flex items-end gap-1 pb-0.5">
-              <label className="flex items-center gap-2 rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm">
-                <input type="checkbox" checked={bilingualOnly} onChange={(e) => setBilingualOnly(e.target.checked)} />
-                только билингва
-              </label>
-              <button type="button" className="icon-button !size-9" aria-label="Убрать" onClick={() => removeExtra("bilingual")}>
-                <X size={13} />
-              </button>
-            </div>
-          )}
-
-          {availableExtras.some((e) => e.ok) && (
-            <div className="relative" ref={addRef}>
-              <button
-                type="button"
-                onClick={() => setAddOpen((v) => !v)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-ink/25 px-3 py-2 text-sm text-muted hover:border-ink/40 hover:text-ink"
-              >
-                <Plus size={14} />
-                Фильтр
-              </button>
-              {addOpen && (
-                <div className="absolute left-0 top-full z-30 mt-1 min-w-[11rem] rounded-md border border-ink/15 bg-paper py-1 shadow-lg">
-                  {availableExtras
-                    .filter((e) => e.ok)
-                    .map((e) => (
-                      <button
-                        key={e.kind}
-                        type="button"
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-ink/[0.05]"
-                        onClick={() => addExtra(e.kind)}
-                      >
-                        {e.label}
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <span className="ml-auto self-end pb-2 font-mono text-[10px] text-muted">
-            {filtered.length}/{documents.length}
-          </span>
-        </div>
+        <span className="ml-auto font-mono text-[10px] text-muted">
+          {filtered.length}/{documents.length}
+        </span>
       </div>
 
       {filtered.length === 0 && (

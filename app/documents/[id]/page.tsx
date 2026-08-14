@@ -242,6 +242,8 @@ export default async function DocumentPage({
         <DocumentWorkspace
           documentId={document.id}
           documentTitle={document.title}
+          documentAuthors={authorNames}
+          catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
           fileUrl={document.fileUrl}
           fileType={document.fileType}
           comments={comments}
@@ -253,6 +255,24 @@ export default async function DocumentPage({
         />
 
         <RelatedTexts documents={related} />
+
+        <section className="mt-10 rounded-2xl border border-ink/10 p-5">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-serif text-2xl tracking-tight">Шире одной страницы</h2>
+              <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted">
+                Комментарии ниже книги — к месту в тексте. Общий раздел «Обсуждения» —
+                для сквозных тем и параллелей с другими книгами.
+              </p>
+            </div>
+            <Link
+              href={`/discuss?documentId=${document.id}&title=${encodeURIComponent(document.title)}`}
+              className="button-secondary"
+            >
+              Открыть тему
+            </Link>
+          </div>
+        </section>
 
         {publicReviews.length > 0 && (
           <section className="mt-12 rounded-2xl border border-ink/10 p-5">

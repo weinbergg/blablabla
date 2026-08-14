@@ -65,6 +65,8 @@ type CurrentUser = { id: string; name: string; role: string } | null;
 export function DocumentWorkspace({
   documentId,
   documentTitle,
+  documentAuthors,
+  catalogHref,
   fileUrl,
   fileType,
   comments,
@@ -76,6 +78,8 @@ export function DocumentWorkspace({
 }: {
   documentId: string;
   documentTitle?: string;
+  documentAuthors?: string;
+  catalogHref?: string | null;
   fileUrl: string | null;
   fileType: string;
   comments: CommentItem[];
@@ -233,28 +237,64 @@ export function DocumentWorkspace({
 
   return (
     <div>
-      <div className={fullscreen ? "fixed inset-0 z-50 flex flex-col bg-paper" : ""}>
-        {canFullscreen && (
-          <div
-            className={
-              fullscreen
-                ? "flex items-center justify-between border-b border-ink/10 px-4 py-1.5 md:px-8"
-                : "mb-3 flex justify-end"
-            }
-          >
-            {fullscreen && (
-              <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-                Полноэкранное чтение · Esc — выйти
-              </span>
+      {!fullscreen && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink/10 bg-ink/[0.02] px-3.5 py-2.5">
+          <div className="min-w-0 flex-1">
+            {catalogHref && (
+              <a
+                href={catalogHref}
+                className="mb-0.5 inline-flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-ink"
+              >
+                <ArrowRight size={11} className="rotate-180" />
+                К каталогу
+              </a>
             )}
+            <p className="truncate font-serif text-lg leading-tight tracking-tight md:text-xl">
+              {documentTitle || "Текст"}
+            </p>
+            <p className="truncate text-xs text-muted">
+              {documentAuthors || "Автор не указан"}
+              {(isPdf || isEpub || isTxt) && numPages > 0 && (
+                <>
+                  {" · "}
+                  {isEpub ? "глава" : isTxt ? "лист" : "стр."} {page}
+                  {numPages ? ` / ${numPages}` : ""}
+                </>
+              )}
+            </p>
+          </div>
+          {canFullscreen && (
             <button
               type="button"
-              onClick={() => setFullscreen((f) => !f)}
-              className="icon-button"
-              aria-label={fullscreen ? "Свернуть на весь экран" : "Развернуть на весь экран"}
-              title={fullscreen ? "Свернуть" : "Читать на весь экран"}
+              onClick={() => setFullscreen(true)}
+              className="icon-button shrink-0"
+              aria-label="Развернуть на весь экран"
+              title="Читать на весь экран"
             >
-              {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+              <Maximize2 size={15} />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className={fullscreen ? "fixed inset-0 z-50 flex flex-col bg-paper" : ""}>
+        {fullscreen && (
+          <div className="flex items-center justify-between gap-3 border-b border-ink/10 px-4 py-2 md:px-8">
+            <div className="min-w-0">
+              <p className="truncate font-serif text-base">{documentTitle || "Текст"}</p>
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
+                Esc — выйти
+                {numPages > 0 &&
+                  ` · ${isEpub ? "глава" : isTxt ? "лист" : "стр."} ${page}/${numPages}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFullscreen(false)}
+              className="icon-button"
+              aria-label="Свернуть"
+            >
+              <Minimize2 size={15} />
             </button>
           </div>
         )}

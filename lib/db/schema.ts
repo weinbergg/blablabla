@@ -502,3 +502,38 @@ export const glossaryEntries = sqliteTable("glossary_entries", {
   glossaryIdx: index("glossary_entries_glossary_idx").on(table.glossaryId),
   termIdx: index("glossary_entries_term_idx").on(table.normalizedTerm),
 }));
+
+/** Public discussion rooms — separate from private DMs and per-document comments.
+ * Empty by design until readers start threads; no seeded fake forums. */
+export const forumTopics = sqliteTable("forum_topics", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Optional link to a catalog text — intertextual anchor for the thread. */
+  documentId: text("document_id").references(() => documents.id, {
+    onDelete: "set null",
+  }),
+  locked: integer("locked").notNull().default(0),
+  ...timestamps,
+}, (table) => ({
+  createdIdx: index("forum_topics_created_idx").on(table.createdAt),
+  documentIdx: index("forum_topics_document_idx").on(table.documentId),
+}));
+
+export const forumPosts = sqliteTable("forum_posts", {
+  id: text("id").primaryKey(),
+  topicId: text("topic_id")
+    .notNull()
+    .references(() => forumTopics.id, { onDelete: "cascade" }),
+  parentId: text("parent_id"),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  ...timestamps,
+}, (table) => ({
+  topicIdx: index("forum_posts_topic_idx").on(table.topicId),
+}));

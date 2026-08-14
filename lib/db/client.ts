@@ -30,6 +30,37 @@ ensureColumn("feedback", "admin_reply", "admin_reply TEXT");
 ensureColumn("feedback", "replied_at", "replied_at TEXT");
 ensureColumn("feedback", "replied_by", "replied_by TEXT");
 
+function ensureForumTables() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS forum_topics (
+      id TEXT PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+      locked INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS forum_topics_created_idx ON forum_topics(created_at);
+    CREATE INDEX IF NOT EXISTS forum_topics_document_idx ON forum_topics(document_id);
+    CREATE TABLE IF NOT EXISTS forum_posts (
+      id TEXT PRIMARY KEY NOT NULL,
+      topic_id TEXT NOT NULL REFERENCES forum_topics(id) ON DELETE CASCADE,
+      parent_id TEXT,
+      author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS forum_posts_topic_idx ON forum_posts(topic_id);
+  `);
+}
+
+try {
+  ensureForumTables();
+} catch {
+  /* users/documents may not exist yet on a blank install */
+}
+
 if (process.env.NODE_ENV !== "production") {
   global.__sqlite = sqlite;
 }

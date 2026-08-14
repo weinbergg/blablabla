@@ -7,6 +7,7 @@ import {
   BookOpen,
   Menu,
   MessageCircleQuestion,
+  MessagesSquare,
   Network,
   Settings,
   StickyNote,
@@ -44,6 +45,14 @@ export function MobileMenu({
           <nav className="flex flex-col gap-4 text-sm">
             <Link href="/#catalog" onClick={() => setOpen(false)} className="text-ink">
               Каталог
+            </Link>
+            <Link
+              href="/discuss"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-1.5 text-ink"
+            >
+              <MessagesSquare size={14} />
+              Обсуждения
             </Link>
             <Link
               href="/graph"

@@ -14,14 +14,15 @@ import { isWideGridTail } from "@/lib/category-style";
 export const dynamic = "force-dynamic";
 
 function flattenCategories(nodes: Awaited<ReturnType<typeof getCategoryTree>>) {
-  const map = new Map<string, { name: string; slug: string }>();
-  const walk = (list: typeof nodes) => {
+  const map = new Map<string, { name: string; slug: string; path: string }>();
+  const walk = (list: typeof nodes, trail: string[]) => {
     for (const node of list) {
-      map.set(node.id, { name: node.name, slug: node.slug });
-      walk(node.children);
+      const next = [...trail, node.name];
+      map.set(node.id, { name: node.name, slug: node.slug, path: next.join(" · ") });
+      walk(node.children, next);
     }
   };
-  walk(nodes);
+  walk(nodes, []);
   return map;
 }
 
@@ -43,7 +44,9 @@ export default async function Home() {
     title: doc.title,
     alternateTitle: doc.alternateTitle,
     authorNames: doc.authors.map((a) => a.name).join(", "),
+    subjectNames: doc.subjects.map((s) => s.name).join(", "),
     categoryName: categoryById.get(doc.categoryId)?.name ?? "",
+    categoryPath: categoryById.get(doc.categoryId)?.path ?? "",
     tagNames: doc.tags.map((t) => t.name).join(", "),
     language: doc.language,
   }));

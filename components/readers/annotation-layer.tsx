@@ -796,6 +796,28 @@ export function AnnotationLayer({
     return drawingVisibleOnScreen(drawing, screenKey);
   });
 
+  const pinOffsetById = new Map<string, { dx: number; dy: number }>();
+  {
+    const buckets = new Map<string, string[]>();
+    for (const item of pageItems) {
+      if (item.shape === "drawing" && parseDrawing(item.body)?.fullPage) continue;
+      const key = `${Math.round(item.x / 28)}:${Math.round(item.y / 28)}`;
+      const list = buckets.get(key) ?? [];
+      list.push(item.id);
+      buckets.set(key, list);
+    }
+    for (const ids of buckets.values()) {
+      if (ids.length < 2) continue;
+      ids.forEach((id, index) => {
+        const angle = (index / ids.length) * Math.PI * 2;
+        pinOffsetById.set(id, {
+          dx: Math.round(Math.cos(angle) * 14),
+          dy: Math.round(Math.sin(angle) * 14),
+        });
+      });
+    }
+  }
+
   async function submitDraft() {
     if (!draft || !pageNumber) return;
     setSaving(true);
@@ -886,7 +908,11 @@ export function AnnotationLayer({
             )}
             <div
               className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${item.x / 10}%`, top: `${item.y / 10}%` }}
+              style={{
+                left: `calc(${item.x / 10}% + ${pinOffsetById.get(item.id)?.dx ?? 0}px)`,
+                top: `calc(${item.y / 10}% + ${pinOffsetById.get(item.id)?.dy ?? 0}px)`,
+                zIndex: isOpen ? 40 : 10,
+              }}
             >
               <button
                 type="button"
@@ -907,9 +933,9 @@ export function AnnotationLayer({
                 <div
                   data-annotation-ui
                   onClick={(event) => event.stopPropagation()}
-                  className={`sticker-panel absolute top-full z-20 mt-2 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl border border-ink/10 bg-white p-3.5 text-left shadow-xl ${
+                  className={`sticker-panel absolute z-50 w-72 max-w-[calc(100vw-2rem)] max-h-[min(22rem,60vh)] overflow-y-auto rounded-xl border border-ink/10 bg-white p-3.5 text-left shadow-xl ${
                     flip ? "right-0" : "left-0"
-                  }`}
+                  } ${item.y > 620 ? "bottom-full mb-2" : "top-full mt-2"}`}
                 >
                   <div className="mb-2 flex items-center justify-between text-xs text-muted">
                     <span className="font-medium text-ink">{item.authorName}</span>

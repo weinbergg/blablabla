@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { BookOpen, MessageCircleQuestion, Network, StickyNote, Tag } from "lucide-react";
+import { MessagesSquare, Network } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { AntoineMark } from "@/components/antoine-mark";
 import { HeaderAccount } from "@/components/header-account";
+import { HeaderMoreNav } from "@/components/header-more-nav";
 import { MobileMenu } from "@/components/mobile-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getTotalUnreadCount } from "@/lib/db/messages";
@@ -29,7 +30,7 @@ export async function Header() {
           </span>
         </Link>
 
-        <nav className="flex items-center gap-6 text-sm">
+        <nav className="flex items-center gap-5 text-sm md:gap-6">
           <Link
             href="/#catalog"
             className="hidden text-muted transition-colors hover:text-ink sm:block"
@@ -37,40 +38,20 @@ export async function Header() {
             Каталог
           </Link>
           <Link
-            href="/graph"
+            href="/discuss"
             className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink sm:flex"
+          >
+            <MessagesSquare size={14} />
+            Обсуждения
+          </Link>
+          <Link
+            href="/graph"
+            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink md:flex"
           >
             <Network size={14} />
             Связи
           </Link>
-          <Link
-            href="/notes"
-            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink lg:flex"
-          >
-            <StickyNote size={14} />
-            Пометки
-          </Link>
-          <Link
-            href="/glossaries"
-            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink lg:flex"
-          >
-            <BookOpen size={14} />
-            Словари
-          </Link>
-          <Link
-            href="/tags"
-            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink lg:flex"
-          >
-            <Tag size={14} />
-            Метки
-          </Link>
-          <Link
-            href="/feedback"
-            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink lg:flex"
-          >
-            <MessageCircleQuestion size={14} />
-            Обратная связь
-          </Link>
+          <HeaderMoreNav />
           <ThemeToggle className="hidden sm:grid" />
           <HeaderAccount
             user={user}
