@@ -35,13 +35,15 @@ export default async function DiscussTopicPage({
         </Link>
 
         <article className="max-w-3xl">
-          <h1 className="font-serif text-3xl tracking-tight md:text-4xl">{topic.title}</h1>
+          <div className="topic-card">
+            <h1 className="font-serif text-3xl tracking-tight md:text-4xl">{topic.title}</h1>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
             <UserAvatar
               userId={topic.authorId}
               avatarKey={topic.authorAvatarKey}
+              avatarColor={topic.authorAvatarColor}
               name={topic.authorName}
-              size={22}
+              size={32}
             />
             <span className="font-medium text-ink">{topic.authorName}</span>
             <RoleBadge role={topic.authorRole} />
@@ -56,6 +58,7 @@ export default async function DiscussTopicPage({
             )}
           </div>
           <MathText source={topic.body} className="mt-6 text-base leading-7" />
+          </div>
 
           <div className="mt-10 space-y-6 border-t border-ink/10 pt-8">
             <h2 className="font-serif text-2xl tracking-tight">Ответы</h2>

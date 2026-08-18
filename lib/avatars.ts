@@ -52,3 +52,40 @@ export function avatarKeyFor(userId: string, stored?: string | null): AvatarKey 
 export function avatarGlyph(key: AvatarKey) {
   return AVATARS.find((a) => a.key === key)?.glyph ?? "α";
 }
+
+export type AvatarColor =
+  | "ink"
+  | "rust"
+  | "ochre"
+  | "olive"
+  | "sea"
+  | "slate"
+  | "plum"
+  | "wine"
+  | "copper"
+  | "forest";
+
+export const AVATAR_COLORS: { key: AvatarColor; label: string }[] = [
+  { key: "ink", label: "Чернила" },
+  { key: "rust", label: "Терракота" },
+  { key: "ochre", label: "Охра" },
+  { key: "olive", label: "Олива" },
+  { key: "forest", label: "Лес" },
+  { key: "sea", label: "Море" },
+  { key: "slate", label: "Грифель" },
+  { key: "plum", label: "Слива" },
+  { key: "wine", label: "Вино" },
+  { key: "copper", label: "Медь" },
+];
+
+const COLOR_KEYS = new Set(AVATAR_COLORS.map((c) => c.key));
+
+export function isAvatarColor(value: string | null | undefined): value is AvatarColor {
+  return Boolean(value && COLOR_KEYS.has(value as AvatarColor));
+}
+
+/** Unset colour stays ink — random olive/ochre looked dirty next to grey UI icons. */
+export function avatarColorFor(_userId: string, stored?: string | null): AvatarColor {
+  if (isAvatarColor(stored)) return stored;
+  return "ink";
+}

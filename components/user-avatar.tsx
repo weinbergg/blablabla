@@ -1,25 +1,36 @@
 "use client";
 
-import { AVATARS, avatarGlyph, avatarKeyFor, type AvatarKey } from "@/lib/avatars";
+import {
+  AVATARS,
+  AVATAR_COLORS,
+  avatarColorFor,
+  avatarGlyph,
+  avatarKeyFor,
+  type AvatarColor,
+  type AvatarKey,
+} from "@/lib/avatars";
 import { ROLE_LABELS, type UserRole } from "@/lib/roles";
 
 export function UserAvatar({
   userId,
   avatarKey,
+  avatarColor,
   name,
-  size = 28,
+  size = 40,
 }: {
   userId: string;
   avatarKey?: string | null;
+  avatarColor?: string | null;
   name?: string;
   size?: number;
 }) {
   const key = avatarKeyFor(userId, avatarKey);
+  const tone = avatarColorFor(userId, avatarColor);
   const glyph = avatarGlyph(key);
   return (
     <span
-      className="inline-grid shrink-0 place-items-center rounded-full border border-ink/15 bg-ink/[0.04] font-serif leading-none text-ink"
-      style={{ width: size, height: size, fontSize: Math.max(11, size * 0.42) }}
+      className={`avatar-mark avatar-tone-${tone}`}
+      style={{ width: size, height: size, fontSize: Math.max(15, size * 0.44) }}
       title={name}
       aria-hidden={name ? undefined : true}
     >
@@ -47,29 +58,56 @@ export function RoleBadge({ role }: { role: string }) {
 export function AvatarPicker({
   userId,
   value,
+  color,
   onChange,
 }: {
   userId: string;
   value: string | null;
+  color?: string | null;
   onChange: (key: AvatarKey) => void;
 }) {
   const selected = avatarKeyFor(userId, value);
   return (
-    <div className="grid grid-cols-8 gap-1.5">
+    <div className="grid grid-cols-8 gap-2">
       {AVATARS.map((item) => (
         <button
           key={item.key}
           type="button"
           onClick={() => onChange(item.key)}
-          className={`grid place-items-center rounded-full border p-0.5 ${
-            selected === item.key ? "border-ink bg-ink/10" : "border-ink/10 hover:border-ink/30"
+          className={`grid place-items-center rounded-full p-0.5 ${
+            selected === item.key ? "ring-2 ring-ink ring-offset-2 ring-offset-paper" : "hover:opacity-90"
           }`}
           aria-label={item.label}
           aria-pressed={selected === item.key}
           title={item.label}
         >
-          <UserAvatar userId={userId} avatarKey={item.key} size={32} />
+          <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={44} />
         </button>
+      ))}
+    </div>
+  );
+}
+
+export function AvatarColorPicker({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (key: AvatarColor) => void;
+}) {
+  const selected = avatarColorFor("", value);
+  return (
+    <div className="flex flex-wrap gap-2.5">
+      {AVATAR_COLORS.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          onClick={() => onChange(item.key)}
+          className={`avatar-swatch avatar-tone-${item.key}`}
+          aria-label={item.label}
+          aria-pressed={selected === item.key}
+          title={item.label}
+        />
       ))}
     </div>
   );

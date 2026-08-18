@@ -453,3 +453,135 @@ button:disabled {
   color: #14161c;
   border-color: transparent;
 }
+
+:root {
+  --avatar-ink: #243044;
+  --avatar-ink-bg: #e7e9ee;
+  --avatar-rust: #c85c35;
+  --avatar-rust-bg: #f6e5dc;
+  --avatar-ochre: #a56b1c;
+  --avatar-ochre-bg: #f4e8d2;
+  --avatar-olive: #4f6a32;
+  --avatar-olive-bg: #e4edda;
+  --avatar-forest: #2f6a52;
+  --avatar-forest-bg: #dcebe3;
+  --avatar-sea: #2f6d7a;
+  --avatar-sea-bg: #dcebef;
+  --avatar-slate: #5a6573;
+  --avatar-slate-bg: #e4e7eb;
+  --avatar-plum: #6e4580;
+  --avatar-plum-bg: #eadff0;
+  --avatar-wine: #8a3d4f;
+  --avatar-wine-bg: #f3dde2;
+  --avatar-copper: #9a5532;
+  --avatar-copper-bg: #f3e2d8;
+}
+
+.dark {
+  /* Cool off-white, not the warm paper ink that read as dirty yellow. */
+  --avatar-ink: #e6e9ef;
+  --avatar-ink-bg: #2a2e38;
+  --avatar-rust: #e08657;
+  --avatar-rust-bg: #3a2b26;
+  --avatar-ochre: #e0b05c;
+  --avatar-ochre-bg: #3a3224;
+  --avatar-olive: #9cba6e;
+  --avatar-olive-bg: #2c3426;
+  --avatar-forest: #7fb392;
+  --avatar-forest-bg: #27342e;
+  --avatar-sea: #7eb8c2;
+  --avatar-sea-bg: #273338;
+  --avatar-slate: #b0b8c2;
+  --avatar-slate-bg: #2c3038;
+  --avatar-plum: #c49ad4;
+  --avatar-plum-bg: #342838;
+  --avatar-wine: #d48998;
+  --avatar-wine-bg: #38282c;
+  --avatar-copper: #d49a78;
+  --avatar-copper-bg: #382c26;
+}
+
+.avatar-mark {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 999px;
+  font-family: var(--font-serif);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--avatar-fg);
+  background: var(--avatar-bg);
+  border: 1.5px solid var(--avatar-fg);
+}
+
+.avatar-tone-ink { --avatar-fg: var(--avatar-ink); --avatar-bg: var(--avatar-ink-bg); }
+.avatar-tone-rust { --avatar-fg: var(--avatar-rust); --avatar-bg: var(--avatar-rust-bg); }
+.avatar-tone-ochre { --avatar-fg: var(--avatar-ochre); --avatar-bg: var(--avatar-ochre-bg); }
+.avatar-tone-olive { --avatar-fg: var(--avatar-olive); --avatar-bg: var(--avatar-olive-bg); }
+.avatar-tone-forest { --avatar-fg: var(--avatar-forest); --avatar-bg: var(--avatar-forest-bg); }
+.avatar-tone-sea { --avatar-fg: var(--avatar-sea); --avatar-bg: var(--avatar-sea-bg); }
+.avatar-tone-slate { --avatar-fg: var(--avatar-slate); --avatar-bg: var(--avatar-slate-bg); }
+.avatar-tone-plum { --avatar-fg: var(--avatar-plum); --avatar-bg: var(--avatar-plum-bg); }
+.avatar-tone-wine { --avatar-fg: var(--avatar-wine); --avatar-bg: var(--avatar-wine-bg); }
+.avatar-tone-copper { --avatar-fg: var(--avatar-copper); --avatar-bg: var(--avatar-copper-bg); }
+
+.avatar-swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: var(--avatar-fg);
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.avatar-swatch[aria-pressed="true"] {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink);
+}
+
+.chat-bubble {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  background: var(--paper);
+  padding: 0.95rem 1.05rem;
+}
+
+.dark .chat-bubble {
+  background: #1a1d24;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.chat-bubble-own {
+  border-color: rgba(200, 92, 53, 0.45);
+  background: #fbf4ef;
+}
+
+.dark .chat-bubble-own {
+  border-color: rgba(224, 134, 87, 0.45);
+  background: #241c18;
+}
+
+.chat-bubble-compact {
+  padding: 0.6rem 0.85rem;
+}
+
+.topic-card {
+  display: block;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(var(--ink-rgb), 0.14);
+  background: var(--paper);
+  padding: 1.05rem 1.15rem;
+  transition: border-color 160ms ease;
+}
+
+.dark .topic-card {
+  background: #1a1d24;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.topic-card:hover {
+  border-color: var(--rust);
+}

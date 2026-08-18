@@ -10,6 +10,7 @@ export type ChatAuthor = {
   name: string;
   role?: string | null;
   avatarKey?: string | null;
+  avatarColor?: string | null;
 };
 
 export type ChatMessageItem = {
@@ -67,12 +68,13 @@ export function ChatMessage({
   }
 
   return (
-    <div className="group flex items-start gap-2.5">
+    <div className={`chat-bubble group ${isOwn ? "chat-bubble-own" : ""} ${compact ? "chat-bubble-compact" : ""}`}>
       <UserAvatar
         userId={item.author.id}
         avatarKey={item.author.avatarKey}
+        avatarColor={item.author.avatarColor}
         name={item.author.name}
-        size={28}
+        size={compact ? 32 : 42}
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
@@ -101,7 +103,7 @@ export function ChatMessage({
               className="ml-auto opacity-0 transition-opacity hover:text-rust group-hover:opacity-100"
               aria-label="Пожаловаться"
             >
-              <TriangleAlert size={12} />
+              <TriangleAlert size={15} />
             </button>
           )}
         </div>
@@ -122,21 +124,21 @@ export function ChatMessage({
               className="flex-1 rounded-lg border border-ink/15 bg-paper px-3 py-2 text-sm outline-none focus:border-ink/40"
             />
             <button type="submit" className="icon-button" disabled={busy} aria-label="Сохранить">
-              <Send size={13} />
+              <Send size={16} />
             </button>
           </form>
         ) : (
           <MathText source={item.body} className="mt-1.5 text-sm leading-6" />
         )}
         {!compact && !editing && (onReply || onEdit || onDelete) && (
-          <div className="mt-1.5 flex gap-3">
+          <div className="mt-2 flex gap-3">
             {onReply && (
               <button
                 type="button"
                 onClick={onReply}
-                className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-ink"
+                className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-ink"
               >
-                <Reply size={12} />
+                <Reply size={15} />
                 Ответить
               </button>
             )}
@@ -147,9 +149,9 @@ export function ChatMessage({
                   setDraft(item.body);
                   setEditing(true);
                 }}
-                className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-ink"
+                className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-ink"
               >
-                <Pencil size={12} />
+                <Pencil size={15} />
                 Изменить
               </button>
             )}
@@ -157,9 +159,9 @@ export function ChatMessage({
               <button
                 type="button"
                 onClick={() => void onDelete()}
-                className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-rust"
+                className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-rust"
               >
-                <Trash2 size={12} />
+                <Trash2 size={15} />
                 Удалить
               </button>
             )}

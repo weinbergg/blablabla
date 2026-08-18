@@ -15,7 +15,7 @@ export default async function AccountPage() {
 
   return (
     <main className="grid min-h-screen place-items-center px-5 py-12">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-lg">
         <Link
           href="/"
           className="mb-8 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
@@ -32,10 +32,15 @@ export default async function AccountPage() {
           </p>
           <h1 className="font-serif text-4xl tracking-tight">Настройки аккаунта</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            Знак в обсуждениях — без пароля. Почту и пароль можно сменить ниже,
-            для этого понадобится текущий пароль.
+            Знак и цвет сохраняются сразу. Текущий пароль нужен только если меняете
+            почту (логин) или пароль.
           </p>
-          <AccountForm email={user.email} userId={user.id} avatarKey={user.avatarKey} />
+          <AccountForm
+            email={user.email}
+            userId={user.id}
+            avatarKey={user.avatarKey}
+            avatarColor={user.avatarColor}
+          />
           <Link
             href={`/users/${user.id}`}
             className="mt-6 block text-center text-sm text-muted underline underline-offset-2 hover:text-ink"

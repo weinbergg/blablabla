@@ -15,6 +15,7 @@ export type ForumPostItem = {
   authorName: string;
   authorRole: string;
   authorAvatarKey: string | null;
+  authorAvatarColor: string | null;
 };
 
 export function ForumThread({
@@ -56,7 +57,7 @@ export function ForumThread({
     return (
       <div
         key={post.id}
-        className={depth === 0 ? "border-t border-ink/10 pt-4" : "mt-4 border-l border-ink/10 pl-4"}
+        className={depth === 0 ? "" : "ml-4"}
       >
         <ChatMessage
           item={{
@@ -69,6 +70,7 @@ export function ForumThread({
               name: post.authorName,
               role: post.authorRole,
               avatarKey: post.authorAvatarKey,
+              avatarColor: post.authorAvatarColor,
             },
           }}
           currentUserId={currentUserId}
@@ -78,7 +80,11 @@ export function ForumThread({
         {replyTo === post.id && currentUserId && !locked && (
           <ForumReplyForm topicId={topicId} parentId={post.id} compact onDone={() => setReplyTo(null)} />
         )}
-        {children.map((child) => render(child, depth + 1))}
+        {children.map((child) => (
+          <div key={child.id} className="mt-3">
+            {render(child, depth + 1)}
+          </div>
+        ))}
       </div>
     );
   }
@@ -88,5 +94,5 @@ export function ForumThread({
     return <p className="text-sm text-muted">Пока тихо — можно ответить первым.</p>;
   }
 
-  return <div className="space-y-1">{roots.map((post) => render(post, 0))}</div>;
+  return <div className="space-y-3">{roots.map((post) => render(post, 0))}</div>;
 }

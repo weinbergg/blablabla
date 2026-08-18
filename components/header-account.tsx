@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { ArrowUpRight, BookMarked, LogOut, Mail, Users } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 
-type User = { id: string; name: string; role: string; avatarKey?: string | null } | null;
+type User = {
+  id: string;
+  name: string;
+  role: string;
+  avatarKey?: string | null;
+  avatarColor?: string | null;
+} | null;
 
 export function HeaderAccount({
   user,
@@ -55,7 +61,7 @@ export function HeaderAccount({
         aria-label="Моя полка"
         title="Моя полка"
       >
-        <BookMarked size={16} />
+        <BookMarked size={20} />
       </Link>
       <Link
         href="/friends"
@@ -63,7 +69,7 @@ export function HeaderAccount({
         aria-label="Друзья"
         title="Друзья"
       >
-        <Users size={16} />
+        <Users size={20} />
         {incomingFriendRequests > 0 && (
           <span className="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-full bg-rust text-[8px] font-semibold text-white">
             {incomingFriendRequests > 9 ? "9+" : incomingFriendRequests}
@@ -76,7 +82,7 @@ export function HeaderAccount({
         aria-label="Сообщения"
         title="Сообщения"
       >
-        <Mail size={16} />
+        <Mail size={20} />
         {unreadMessages > 0 && (
           <span className="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-full bg-rust text-[8px] font-semibold text-white">
             {unreadMessages > 9 ? "9+" : unreadMessages}
@@ -87,7 +93,13 @@ export function HeaderAccount({
         href="/account"
         className="hidden items-center gap-2 text-muted transition-colors hover:text-ink sm:flex"
       >
-        <UserAvatar userId={user.id} avatarKey={user.avatarKey} name={user.name} size={22} />
+        <UserAvatar
+          userId={user.id}
+          avatarKey={user.avatarKey}
+          avatarColor={user.avatarColor}
+          name={user.name}
+          size={32}
+        />
         {user.name}
       </Link>
       <Link
@@ -95,7 +107,13 @@ export function HeaderAccount({
         className="text-muted transition-colors hover:text-ink sm:hidden"
         aria-label="Настройки аккаунта"
       >
-        <UserAvatar userId={user.id} avatarKey={user.avatarKey} name={user.name} size={22} />
+        <UserAvatar
+          userId={user.id}
+          avatarKey={user.avatarKey}
+          avatarColor={user.avatarColor}
+          name={user.name}
+          size={32}
+        />
       </Link>
       <button
         type="button"
@@ -103,7 +121,7 @@ export function HeaderAccount({
         className="flex items-center gap-1.5 text-muted transition-colors hover:text-ink"
         aria-label="Выйти"
       >
-        <LogOut size={15} />
+        <LogOut size={18} />
       </button>
     </div>
   );

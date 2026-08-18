@@ -39,22 +39,20 @@ export default async function DiscussPage({
                 </p>
               </div>
             ) : (
-              <ul className="divide-y divide-ink/10">
+              <ul className="space-y-3">
                 {topics.map((topic) => (
                   <li key={topic.id}>
-                    <Link
-                      href={`/discuss/${topic.id}`}
-                      className="group block py-4 transition-colors hover:text-rust"
-                    >
-                      <span className="block font-serif text-xl leading-snug tracking-tight group-hover:underline group-hover:underline-offset-2">
+                    <Link href={`/discuss/${topic.id}`} className="topic-card group hover:text-ink">
+                      <span className="block font-serif text-xl leading-snug tracking-tight group-hover:text-rust">
                         {topic.title}
                       </span>
-                      <span className="mt-1.5 flex items-center gap-2 text-xs text-muted">
+                      <span className="mt-2 flex items-center gap-2.5 text-xs text-muted">
                         <UserAvatar
                           userId={topic.authorId}
                           avatarKey={topic.authorAvatarKey}
+                          avatarColor={topic.authorAvatarColor}
                           name={topic.authorName}
-                          size={18}
+                          size={28}
                         />
                         {topic.authorName}
                         {" · "}

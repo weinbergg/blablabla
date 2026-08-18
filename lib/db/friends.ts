@@ -5,7 +5,7 @@ import { and, count, eq, inArray, or } from "drizzle-orm";
 import { db, sqlite } from "@/lib/db/client";
 import { friendships, users } from "@/lib/db/schema";
 
-export type FriendUser = { id: string; name: string; role: string; avatarKey: string | null };
+export type FriendUser = { id: string; name: string; role: string; avatarKey: string | null; avatarColor: string | null };
 
 export type FriendsData = {
   friends: (FriendUser & { friendshipId: string })[];
@@ -28,7 +28,7 @@ export async function getFriendsData(userId: string): Promise<FriendsData> {
 
   const otherUserIds = rows.map((row) => (row.requesterId === userId ? row.addresseeId : row.requesterId));
   const userRows = await db
-    .select({ id: users.id, name: users.name, role: users.role, avatarKey: users.avatarKey })
+    .select({ id: users.id, name: users.name, role: users.role, avatarKey: users.avatarKey, avatarColor: users.avatarColor })
     .from(users)
     .where(inArray(users.id, otherUserIds));
   const userById = new Map(userRows.map((row) => [row.id, row]));
@@ -64,7 +64,7 @@ export async function getIncomingFriendRequestCount(userId: string) {
 
 export async function getUserPublicInfo(userId: string): Promise<FriendUser | null> {
   const [row] = await db
-    .select({ id: users.id, name: users.name, role: users.role, avatarKey: users.avatarKey })
+    .select({ id: users.id, name: users.name, role: users.role, avatarKey: users.avatarKey, avatarColor: users.avatarColor })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -77,6 +77,7 @@ export type PublicProfile = {
   role: string;
   createdAt: string;
   avatarKey: string | null;
+  avatarColor: string | null;
 };
 
 export async function getPublicProfile(userId: string): Promise<PublicProfile | null> {
@@ -87,6 +88,7 @@ export async function getPublicProfile(userId: string): Promise<PublicProfile | 
       role: users.role,
       createdAt: users.createdAt,
       avatarKey: users.avatarKey,
+      avatarColor: users.avatarColor,
     })
     .from(users)
     .where(eq(users.id, userId))

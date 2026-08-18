@@ -41,7 +41,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 
         <div className="mb-10 flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-4">
-            <UserAvatar userId={profile.id} avatarKey={profile.avatarKey} name={profile.name} size={56} />
+            <UserAvatar
+              userId={profile.id}
+              avatarKey={profile.avatarKey}
+              avatarColor={profile.avatarColor}
+              name={profile.name}
+              size={72}
+            />
             <div>
               <p className="eyebrow mb-3">Профиль читателя</p>
               <h1 className="mb-2 font-serif text-4xl tracking-tight">{profile.name}</h1>

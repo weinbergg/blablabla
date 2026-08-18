@@ -490,6 +490,7 @@ export async function getDocumentComments(documentId: string) {
       authorName: users.name,
       authorRole: users.role,
       authorAvatarKey: users.avatarKey,
+      authorAvatarColor: users.avatarColor,
     })
     .from(comments)
     .innerJoin(users, eq(comments.authorId, users.id))

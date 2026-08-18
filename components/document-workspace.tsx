@@ -59,9 +59,16 @@ export type CommentItem = {
   authorName: string;
   authorRole?: string | null;
   authorAvatarKey?: string | null;
+  authorAvatarColor?: string | null;
 };
 
-type CurrentUser = { id: string; name: string; role: string; avatarKey?: string | null } | null;
+type CurrentUser = {
+  id: string;
+  name: string;
+  role: string;
+  avatarKey?: string | null;
+  avatarColor?: string | null;
+} | null;
 
 export function DocumentWorkspace({
   documentId,
@@ -515,6 +522,7 @@ function CommentThread({
         name: comment.authorName,
         role: comment.authorRole,
         avatarKey: comment.authorAvatarKey,
+        avatarColor: comment.authorAvatarColor,
       },
     };
   }
@@ -525,7 +533,7 @@ function CommentThread({
     const repliesCollapsed = collapsed[`replies:${comment.id}`] ?? true;
     const isOwn = currentUser?.id === comment.authorId;
     return (
-      <div key={comment.id} className="border-t border-ink/10 pt-3">
+      <div key={comment.id} className="pt-2">
         <div className="flex items-start gap-2">
           <button
             type="button"
@@ -717,7 +725,7 @@ function CommentThread({
                 )}
                 <span className="ml-auto font-mono text-[10px] text-muted">{section.items.length}</span>
               </button>
-              {open && <div className="space-y-1 px-3.5 pb-3">{section.items.map(renderThread)}</div>}
+              {open && <div className="space-y-2 px-3.5 pb-3">{section.items.map(renderThread)}</div>}
             </section>
           );
         })}

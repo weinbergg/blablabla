@@ -30,6 +30,7 @@ ensureColumn("feedback", "admin_reply", "admin_reply TEXT");
 ensureColumn("feedback", "replied_at", "replied_at TEXT");
 ensureColumn("feedback", "replied_by", "replied_by TEXT");
 ensureColumn("users", "avatar_key", "avatar_key TEXT");
+ensureColumn("users", "avatar_color", "avatar_color TEXT");
 ensureColumn("forum_posts", "updated_at", "updated_at TEXT");
 
 function ensureWorkTables() {

@@ -14,6 +14,7 @@ export async function listForumTopics(limit = 40) {
       authorName: users.name,
       authorRole: users.role,
       authorAvatarKey: users.avatarKey,
+      authorAvatarColor: users.avatarColor,
       documentId: forumTopics.documentId,
       documentTitle: documents.title,
       replyCount: sql<number>`(select count(*) from forum_posts where topic_id = ${forumTopics.id})`,
@@ -38,6 +39,7 @@ export async function getForumTopic(id: string) {
       authorName: users.name,
       authorRole: users.role,
       authorAvatarKey: users.avatarKey,
+      authorAvatarColor: users.avatarColor,
       documentId: forumTopics.documentId,
       documentTitle: documents.title,
     })
@@ -59,6 +61,7 @@ export async function getForumTopic(id: string) {
       authorName: users.name,
       authorRole: users.role,
       authorAvatarKey: users.avatarKey,
+      authorAvatarColor: users.avatarColor,
     })
     .from(forumPosts)
     .innerJoin(users, eq(forumPosts.authorId, users.id))

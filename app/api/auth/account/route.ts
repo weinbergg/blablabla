@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq, ne, and } from "drizzle-orm";
 import { getCurrentUser, hashPassword, verifyPassword } from "@/lib/auth";
-import { isAvatarKey } from "@/lib/avatars";
+import { isAvatarColor, isAvatarKey } from "@/lib/avatars";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 
@@ -16,18 +16,30 @@ export async function PATCH(request: Request) {
     newEmail?: unknown;
     newPassword?: unknown;
     avatarKey?: unknown;
+    avatarColor?: unknown;
   } | null;
 
   const avatarKey = typeof body?.avatarKey === "string" ? body.avatarKey : "";
+  const avatarColor = typeof body?.avatarColor === "string" ? body.avatarColor : "";
   const currentPassword = typeof body?.currentPassword === "string" ? body.currentPassword : "";
   const newEmail = typeof body?.newEmail === "string" ? body.newEmail.trim().toLowerCase() : "";
   const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
 
-  if (avatarKey && !currentPassword && !newEmail && !newPassword) {
-    if (!isAvatarKey(avatarKey)) {
-      return NextResponse.json({ error: "Неизвестный знак." }, { status: 400 });
+  if ((avatarKey || avatarColor) && !currentPassword && !newEmail && !newPassword) {
+    const update: { avatarKey?: string; avatarColor?: string } = {};
+    if (avatarKey) {
+      if (!isAvatarKey(avatarKey)) {
+        return NextResponse.json({ error: "Неизвестный знак." }, { status: 400 });
+      }
+      update.avatarKey = avatarKey;
     }
-    await db.update(users).set({ avatarKey }).where(eq(users.id, current.id));
+    if (avatarColor) {
+      if (!isAvatarColor(avatarColor)) {
+        return NextResponse.json({ error: "Неизвестный цвет." }, { status: 400 });
+      }
+      update.avatarColor = avatarColor;
+    }
+    await db.update(users).set(update).where(eq(users.id, current.id));
     return NextResponse.json({ ok: true });
   }
 

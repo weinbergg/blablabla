@@ -53,6 +53,7 @@ export async function getCurrentUser() {
       status: users.status,
       strikes: users.strikes,
       avatarKey: users.avatarKey,
+      avatarColor: users.avatarColor,
       expiresAt: sessions.expiresAt,
     })
     .from(sessions)
@@ -81,6 +82,7 @@ export async function getCurrentUser() {
     role: session.role,
     strikes: session.strikes,
     avatarKey: session.avatarKey,
+    avatarColor: session.avatarColor,
   };
 }
 

@@ -31,6 +31,8 @@ export const users = sqliteTable("users", {
     .default("active"),
   /** Built-in SVG/glyph mark from lib/avatars — no uploaded images. */
   avatarKey: text("avatar_key"),
+  /** Palette key from lib/avatars AVATAR_COLORS. */
+  avatarColor: text("avatar_color"),
   ...timestamps,
 }, (table) => ({
   emailIdx: uniqueIndex("users_email_idx").on(table.email),
