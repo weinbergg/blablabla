@@ -238,6 +238,40 @@ export const documentTags = sqliteTable("document_tags", {
   pairIdx: uniqueIndex("document_tags_pair_idx").on(table.documentId, table.tagId),
 }));
 
+/** A conceptual work (the Iliad) as distinct from files/editions/translations. */
+export const works = sqliteTable("works", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  authorId: text("author_id").references(() => authors.id, {
+    onDelete: "set null",
+  }),
+  source: text("source", { enum: ["auto", "manual"] })
+    .notNull()
+    .default("auto"),
+  ...timestamps,
+}, (table) => ({
+  slugIdx: uniqueIndex("works_slug_idx").on(table.slug),
+  authorIdx: index("works_author_idx").on(table.authorId),
+}));
+
+export const workDocuments = sqliteTable("work_documents", {
+  workId: text("work_id")
+    .notNull()
+    .references(() => works.id, { onDelete: "cascade" }),
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  role: text("role", {
+    enum: ["original", "translation", "edition", "commentary", "reference"],
+  })
+    .notNull()
+    .default("edition"),
+}, (table) => ({
+  documentIdx: uniqueIndex("work_documents_document_idx").on(table.documentId),
+  workIdx: index("work_documents_work_idx").on(table.workId),
+}));
+
 /** Change log for collaborative metadata editing (phase 1: history, not real-time). */
 export const documentEdits = sqliteTable("document_edits", {
   id: text("id").primaryKey(),

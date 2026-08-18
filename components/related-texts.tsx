@@ -17,8 +17,8 @@ export function RelatedTexts({ documents }: { documents: RelatedDoc[] }) {
     <section className="mt-12 border-t border-ink/10 pt-10">
       <h2 className="font-serif text-2xl tracking-tight">Рядом по смыслу</h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
-        Тот же автор, общий предмет или метка — и отдельно: переводы и другие издания,
-        если совпадают автор и название.
+        Другие произведения того же автора или общий предмет. Переводы и издания этой
+        же книги собраны блоком выше, а не смешаны с соседями по полке.
       </p>
       <ul className="mt-6 divide-y divide-ink/10">
         {documents.map((doc) => {

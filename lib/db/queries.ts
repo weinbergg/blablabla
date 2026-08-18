@@ -21,6 +21,7 @@ import {
 } from "./schema";
 import { normalizeForSearch } from "@/lib/transliterate";
 import { searchTermGroups } from "@/lib/search";
+import { siblingDocumentIds } from "@/lib/db/works";
 
 export type CategoryRow = typeof categories.$inferSelect;
 export type DocumentRow = typeof documents.$inferSelect;
@@ -345,16 +346,18 @@ export async function getAuthorBySlug(slug: string) {
 
 /**
  * Intertextual neighbours: same authors, shared subjects, or shared tags.
- * Same-shelf neighbours are too noisy (Gutenberg dumps), so they are not used.
- * Title overlap with a shared author is treated as a translation / other edition.
+ * Editions/translations of the same Work are listed separately and excluded here.
  */
 export async function getRelatedDocuments(documentId: string, limit = 8) {
   const doc = await getDocumentById(documentId);
   if (!doc) return [];
 
+  const skip = await siblingDocumentIds(documentId);
+  skip.add(documentId);
+
   const scores = new Map<string, { score: number; why: string }>();
   const bump = (id: string, weight: number, why: string) => {
-    if (id === documentId) return;
+    if (skip.has(id)) return;
     const prev = scores.get(id);
     scores.set(id, {
       score: (prev?.score ?? 0) + weight,
@@ -413,9 +416,8 @@ export async function getRelatedDocuments(documentId: string, limit = 8) {
       const otherTokens = new Set(searchTermGroups(`${row.title} ${row.alternateTitle ?? ""}`).flat());
       const overlap = [...selfTokens].some((t) => t.length >= 4 && otherTokens.has(t));
       if (overlap && doc.authors.some((a) => row.authors.some((b) => b.id === a.id))) {
-        score += 8;
-        why =
-          row.language && doc.language && row.language !== doc.language ? "перевод" : "другое издание";
+        score += 2;
+        why = "близкое название";
       }
       return { row, score, why };
     })

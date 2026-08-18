@@ -32,6 +32,7 @@ echo "== build into ${BUILD_DIR} (live .next untouched) =="
 rm -rf "${BUILD_DIR}"
 NEXT_DIST_DIR="${BUILD_DIR}" npm run build
 npm run db:push || true
+npx tsx scripts/link-works.ts || true
 
 BUILD_ID=$(cat "${BUILD_DIR}/BUILD_ID")
 CSS_FILE=$(ls -1 "${BUILD_DIR}/static/css/"*.css | head -1)

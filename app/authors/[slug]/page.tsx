@@ -3,8 +3,10 @@ import { ArrowLeft, Network } from "lucide-react";
 import { notFound } from "next/navigation";
 import { DocumentRow } from "@/components/document-row";
 import { Header } from "@/components/header";
+import { WorkEditions } from "@/components/work-editions";
 import { countLabel } from "@/lib/pluralize";
 import { getAuthorBySlug, getRelatedAuthors } from "@/lib/db/queries";
+import { getWorksForAuthor } from "@/lib/db/works";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,12 @@ export default async function AuthorPage({
   if (!resolved) notFound();
 
   const { author, documents } = resolved;
-  const related = await getRelatedAuthors(author.id, author.id);
+  const [related, workGroups] = await Promise.all([
+    getRelatedAuthors(author.id, author.id),
+    getWorksForAuthor(author.id),
+  ]);
+  const groupedIds = new Set(workGroups.flatMap((work) => work.editions.map((item) => item.id)));
+  const ungrouped = documents.filter((doc) => !groupedIds.has(doc.id));
 
   return (
     <>
@@ -72,17 +79,28 @@ export default async function AuthorPage({
               {countLabel(documents.length, ["текст", "текста", "текстов"])}
             </span>
           </div>
-          {documents.length ? (
-            documents.map((document) => (
-              <DocumentRow
-                key={document.id}
-                document={document}
-                category={document.category ?? undefined}
-                showCategory
-              />
-            ))
-          ) : (
-            <p className="border-t border-ink/10 py-7 text-sm text-muted">
+          {workGroups.map((work) => (
+            <div key={work.id} className="mb-6">
+              <WorkEditions work={work} compact />
+            </div>
+          ))}
+          {ungrouped.length > 0 && (
+            <>
+              {workGroups.length > 0 && (
+                <p className="eyebrow mb-3 mt-4">Другие тексты</p>
+              )}
+              {ungrouped.map((document) => (
+                <DocumentRow
+                  key={document.id}
+                  document={document}
+                  category={document.category ?? undefined}
+                  showCategory
+                />
+              ))}
+            </>
+          )}
+          {documents.length === 0 && (
+            <p className="border-t border-ink/10 py-7 text-sm leading-6 text-muted">
               У этого автора пока нет материалов на сайте.
             </p>
           )}

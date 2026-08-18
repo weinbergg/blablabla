@@ -32,6 +32,28 @@ ensureColumn("feedback", "replied_by", "replied_by TEXT");
 ensureColumn("users", "avatar_key", "avatar_key TEXT");
 ensureColumn("forum_posts", "updated_at", "updated_at TEXT");
 
+function ensureWorkTables() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS works (
+      id TEXT PRIMARY KEY NOT NULL,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author_id TEXT REFERENCES authors(id) ON DELETE SET NULL,
+      source TEXT NOT NULL DEFAULT 'auto',
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS works_slug_idx ON works(slug);
+    CREATE INDEX IF NOT EXISTS works_author_idx ON works(author_id);
+    CREATE TABLE IF NOT EXISTS work_documents (
+      work_id TEXT NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'edition'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS work_documents_document_idx ON work_documents(document_id);
+    CREATE INDEX IF NOT EXISTS work_documents_work_idx ON work_documents(work_id);
+  `);
+}
+
 function ensureForumTables() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS forum_topics (
@@ -59,6 +81,7 @@ function ensureForumTables() {
 
 try {
   ensureForumTables();
+  ensureWorkTables();
 } catch {
   /* users/documents may not exist yet on a blank install */
 }

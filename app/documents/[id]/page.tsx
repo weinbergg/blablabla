@@ -8,6 +8,7 @@ import { LibraryButton } from "@/components/library-button";
 import { RateReviewPanel, StarRating } from "@/components/rate-review";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import { RelatedTexts } from "@/components/related-texts";
+import { WorkEditions } from "@/components/work-editions";
 import { getCurrentUser } from "@/lib/auth";
 import { getLibraryStatusForDocument, getPublicReviews, getRatingSummary } from "@/lib/db/library";
 import {
@@ -20,6 +21,7 @@ import {
   getDocumentEditHistory,
   getRelatedDocuments,
 } from "@/lib/db/queries";
+import { getWorkForDocument } from "@/lib/db/works";
 import { languageLabel } from "@/lib/languages";
 import { isAdminRole } from "@/lib/roles";
 
@@ -48,7 +50,7 @@ export default async function DocumentPage({
 
   const currentUser = await getCurrentUser();
 
-  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related] =
+  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work] =
     await Promise.all([
       getCategoryTrail(document.categoryId),
       getDocumentComments(document.id),
@@ -59,6 +61,7 @@ export default async function DocumentPage({
       getRatingSummary(document.id),
       getPublicReviews(document.id, currentUser?.id ?? null),
       getRelatedDocuments(document.id, 8),
+      getWorkForDocument(document.id),
     ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -253,6 +256,8 @@ export default async function DocumentPage({
           onShelf={Boolean(libraryItem)}
           initialCloudPage={libraryItem?.progressPage ?? null}
         />
+
+        {work && <WorkEditions work={work} currentDocumentId={document.id} />}
 
         <RelatedTexts documents={related} />
 
