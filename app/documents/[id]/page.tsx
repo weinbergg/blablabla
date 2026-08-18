@@ -41,16 +41,44 @@ const FIELD_LABELS: Record<string, string> = {
 
 export default async function DocumentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ with?: string; panel?: string }>;
 }) {
   const { id } = await params;
+  const query = await searchParams;
+  const embed = query.panel === "1";
   const document = await getDocumentById(id);
   if (!document) notFound();
 
   const currentUser = await getCurrentUser();
 
-  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work] =
+  if (embed) {
+    const annotations = await getDocumentAnnotations(document.id, currentUser?.id ?? null);
+    const authorNames = document.authors.map((a) => a.name).join(", ");
+    return (
+      <div className="min-h-screen bg-paper p-3 md:p-4">
+        <DocumentWorkspace
+          documentId={document.id}
+          documentTitle={document.title}
+          documentAuthors={authorNames}
+          catalogHref={null}
+          fileUrl={document.fileUrl}
+          fileType={document.fileType}
+          comments={[]}
+          annotations={annotations}
+          currentUser={currentUser}
+          language={document.language}
+          embed
+        />
+      </div>
+    );
+  }
+
+  const companionId = query.with && query.with !== document.id ? query.with : null;
+
+  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work, companion] =
     await Promise.all([
       getCategoryTrail(document.categoryId),
       getDocumentComments(document.id),
@@ -62,6 +90,7 @@ export default async function DocumentPage({
       getPublicReviews(document.id, currentUser?.id ?? null),
       getRelatedDocuments(document.id, 8),
       getWorkForDocument(document.id),
+      companionId ? getDocumentById(companionId) : Promise.resolve(null),
     ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -242,20 +271,58 @@ export default async function DocumentPage({
           </div>
         </div>
 
-        <DocumentWorkspace
-          documentId={document.id}
-          documentTitle={document.title}
-          documentAuthors={authorNames}
-          catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
-          fileUrl={document.fileUrl}
-          fileType={document.fileType}
-          comments={comments}
-          annotations={annotations}
-          currentUser={currentUser}
-          language={document.language}
-          onShelf={Boolean(libraryItem)}
-          initialCloudPage={libraryItem?.progressPage ?? null}
-        />
+        {companion ? (
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <DocumentWorkspace
+              documentId={document.id}
+              documentTitle={document.title}
+              documentAuthors={authorNames}
+              catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
+              fileUrl={document.fileUrl}
+              fileType={document.fileType}
+              comments={comments}
+              annotations={annotations}
+              currentUser={currentUser}
+              language={document.language}
+              onShelf={Boolean(libraryItem)}
+              initialCloudPage={libraryItem?.progressPage ?? null}
+              editions={work?.editions ?? []}
+              companionId={companion.id}
+            />
+            <div className="xl:sticky xl:top-4 xl:self-start">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="min-w-0 truncate text-sm text-muted">{companion.title}</p>
+                <Link
+                  href={`/documents/${document.id}`}
+                  className="shrink-0 text-xs text-muted hover:text-ink"
+                >
+                  Закрыть
+                </Link>
+              </div>
+              <iframe
+                title={companion.title}
+                src={`/documents/${companion.id}?panel=1`}
+                className="h-[min(85vh,1100px)] min-h-[28rem] w-full rounded-2xl border border-ink/10 bg-paper"
+              />
+            </div>
+          </div>
+        ) : (
+          <DocumentWorkspace
+            documentId={document.id}
+            documentTitle={document.title}
+            documentAuthors={authorNames}
+            catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
+            fileUrl={document.fileUrl}
+            fileType={document.fileType}
+            comments={comments}
+            annotations={annotations}
+            currentUser={currentUser}
+            language={document.language}
+            onShelf={Boolean(libraryItem)}
+            initialCloudPage={libraryItem?.progressPage ?? null}
+            editions={work?.editions ?? []}
+          />
+        )}
 
         {work && <WorkEditions work={work} currentDocumentId={document.id} />}
 

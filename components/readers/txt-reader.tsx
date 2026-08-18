@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  List,
   Loader2,
   MapPin,
 } from "lucide-react";
@@ -23,46 +24,10 @@ import {
   type AnnotationUpdate,
 } from "./annotation-layer";
 import { PageJumpInput } from "./page-jump-input";
+import { ReaderToc } from "./reader-toc";
 import { SelectionLookup } from "./selection-lookup";
 import { addBookmark } from "@/lib/bookmarks";
-
-const CHARS_PER_PAGE = 3200;
-
-function splitIntoPages(source: string): string[] {
-  const normalized = source.replace(/\r\n/g, "\n").trim();
-  if (!normalized) return [""];
-
-  const paragraphs = normalized.split(/\n{2,}/);
-  const pages: string[] = [];
-  let buf = "";
-
-  function flush() {
-    const trimmed = buf.trim();
-    if (trimmed) pages.push(trimmed);
-    buf = "";
-  }
-
-  for (const para of paragraphs) {
-    const block = para.trim();
-    if (!block) continue;
-    const candidate = buf ? `${buf}\n\n${block}` : block;
-    if (candidate.length > CHARS_PER_PAGE && buf) {
-      flush();
-      if (block.length > CHARS_PER_PAGE * 1.4) {
-        // Hard-split a giant paragraph so one "page" stays readable.
-        for (let i = 0; i < block.length; i += CHARS_PER_PAGE) {
-          pages.push(block.slice(i, i + CHARS_PER_PAGE).trim());
-        }
-      } else {
-        buf = block;
-      }
-    } else {
-      buf = candidate;
-    }
-  }
-  flush();
-  return pages.length ? pages : [normalized];
-}
+import { splitTxtPages, txtTableOfContents } from "@/lib/txt-structure";
 
 export function TxtReader({
   url,
@@ -129,7 +94,9 @@ export function TxtReader({
     };
   }, [url]);
 
-  const pages = useMemo(() => (text == null ? [] : splitIntoPages(text)), [text]);
+  const [tocOpen, setTocOpen] = useState(true);
+  const pages = useMemo(() => (text == null ? [] : splitTxtPages(text)), [text]);
+  const toc = useMemo(() => txtTableOfContents(pages), [pages]);
   const total = pages.length;
   const safePage = total > 0 ? Math.min(Math.max(1, page), total) : 1;
   const pageText = pages[safePage - 1] ?? "";
@@ -271,6 +238,20 @@ export function TxtReader({
           >
             <ChevronRight size={16} />
           </button>
+          {text != null && (
+            <button
+              type="button"
+              onClick={() => setTocOpen((o) => !o)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs ${
+                tocOpen ? "border-rust text-rust" : "border-ink/15 text-muted hover:text-ink"
+              }`}
+              aria-label="Оглавление"
+              title="Оглавление"
+            >
+              <List size={14} />
+              Оглавление
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
@@ -319,6 +300,22 @@ export function TxtReader({
         </p>
       )}
 
+      <div className="md:flex md:items-start md:gap-3">
+        <ReaderToc
+          open={Boolean(tocOpen && text != null)}
+          items={toc.map((item, i) => ({
+            id: `${item.page}-${i}`,
+            label: item.title,
+            hint: `лист ${item.page}`,
+            active: item.page === safePage,
+          }))}
+          empty="В этом файле нет явных заголовков глав или песней. Листы экрана не равны песням Гомера — не выдумываем оглавление из пустого текста."
+          onSelect={(id) => {
+            const page = Number.parseInt(id, 10);
+            if (Number.isFinite(page)) jumpToPage(page);
+          }}
+        />
+        <div className="min-w-0 flex-1">
       {total > 0 && (
         <div className={`${fullscreen ? "mb-2" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
           <div
@@ -389,6 +386,8 @@ export function TxtReader({
             <ChevronRight size={20} />
           </span>
         </button>
+      </div>
+        </div>
       </div>
     </div>
   );

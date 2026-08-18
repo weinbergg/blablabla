@@ -530,6 +530,27 @@ button:disabled {
 .avatar-tone-wine { --avatar-fg: var(--avatar-wine); --avatar-bg: var(--avatar-wine-bg); }
 .avatar-tone-copper { --avatar-fg: var(--avatar-copper); --avatar-bg: var(--avatar-copper-bg); }
 
+.avatar-pick {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  transition: box-shadow 0.12s ease;
+}
+
+.avatar-pick:hover {
+  box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.35);
+}
+
+.avatar-pick[aria-pressed="true"] {
+  box-shadow: 0 0 0 1.5px var(--rust);
+}
+
 .avatar-swatch {
   width: 1.75rem;
   height: 1.75rem;

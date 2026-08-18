@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import {
   AVATAR_COLORS,
   AVATAR_SECTIONS,
@@ -177,30 +179,64 @@ export function AvatarPicker({
   onChange: (key: AvatarKey) => void;
 }) {
   const selected = avatarKeyFor(userId, value);
+  const selectedSection = avatarDef(selected).section;
+  const [menuOpen, setMenuOpen] = useState(true);
+  const [open, setOpen] = useState<Record<string, boolean>>({ [selectedSection]: true });
+
   return (
-    <div className="space-y-4">
-      {AVATAR_SECTIONS.map((section) => (
-        <div key={section.id}>
-          <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-muted">{section.label}</p>
-          <div className="grid grid-cols-8 gap-2">
-            {avatarsInSection(section.id).map((item) => (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 rounded-xl border border-ink/10 px-3 py-2 text-left"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((current) => !current)}
+      >
+        <UserAvatar userId={userId} avatarKey={selected} avatarColor={color} size={28} />
+        <span className="min-w-0 flex-1 text-sm">
+          {menuOpen ? "Свернуть знаки" : "Показать знаки"}
+        </span>
+        <ChevronDown
+          size={16}
+          className={`shrink-0 text-muted transition-transform ${menuOpen ? "rotate-0" : "-rotate-90"}`}
+        />
+      </button>
+      {menuOpen &&
+        AVATAR_SECTIONS.map((section) => {
+          const expanded = Boolean(open[section.id]);
+          return (
+            <div key={section.id} className="rounded-xl border border-ink/10">
               <button
-                key={item.key}
                 type="button"
-                onClick={() => onChange(item.key as AvatarKey)}
-                className={`grid place-items-center rounded-full p-0.5 ${
-                  selected === item.key ? "ring-2 ring-ink ring-offset-2 ring-offset-paper" : "hover:opacity-90"
-                }`}
-                aria-label={item.label}
-                aria-pressed={selected === item.key}
-                title={item.label}
+                className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
+                aria-expanded={expanded}
+                onClick={() => setOpen((current) => ({ ...current, [section.id]: !current[section.id] }))}
               >
-                <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={46} />
+                <span className="text-[10px] uppercase tracking-[0.14em] text-muted">{section.label}</span>
+                <ChevronDown
+                  size={14}
+                  className={`shrink-0 text-muted transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`}
+                />
               </button>
-            ))}
-          </div>
-        </div>
-      ))}
+              {expanded && (
+                <div className="grid grid-cols-10 gap-1 px-2 pb-2 sm:grid-cols-12">
+                  {avatarsInSection(section.id).map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => onChange(item.key as AvatarKey)}
+                      className="avatar-pick"
+                      aria-label={item.label}
+                      aria-pressed={selected === item.key}
+                      title={item.label}
+                    >
+                      <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={24} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
     </div>
   );
 }

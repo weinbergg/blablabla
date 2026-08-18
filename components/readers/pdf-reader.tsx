@@ -31,6 +31,7 @@ import {
   type StrokeWidthPreset,
 } from "./annotation-layer";
 import { PageJumpInput } from "./page-jump-input";
+import { ReaderToc } from "./reader-toc";
 import { SelectionLookup } from "./selection-lookup";
 import { isTypingTarget } from "@/lib/reader-keys";
 import { addBookmark, loadBookmarks } from "@/lib/bookmarks";
@@ -190,7 +191,7 @@ export function PdfReader({
   const [drawVisibility, setDrawVisibility] = useState<AnnotationVisibility>("public");
   const [drawSaving, setDrawSaving] = useState(false);
   const [toc, setToc] = useState<{ title: string; page: number }[]>([]);
-  const [tocOpen, setTocOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(true);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [bookmarkFlash, setBookmarkFlash] = useState(false);
   const pageRef = useRef(page);
@@ -674,15 +675,18 @@ export function PdfReader({
           >
             <ChevronRight size={16} />
           </button>
-          {toc.length > 0 && (
+          {!loading && (
             <button
               type="button"
               onClick={() => setTocOpen((o) => !o)}
-              className={`icon-button ${tocOpen ? "border-rust text-rust" : ""}`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs ${
+                tocOpen ? "border-rust text-rust" : "border-ink/15 text-muted hover:text-ink"
+              }`}
               aria-label="Оглавление"
               title="Оглавление"
             >
               <List size={14} />
+              Оглавление
             </button>
           )}
         </div>
@@ -769,31 +773,6 @@ export function PdfReader({
         </div>
       </div>
 
-      {tocOpen && toc.length > 0 && (
-        <div className="mb-3 max-h-48 overflow-y-auto rounded-xl border border-ink/10 bg-paper p-2">
-          <p className="mb-1 px-2 font-mono text-[10px] uppercase tracking-widest text-muted">
-            Оглавление
-          </p>
-          <ul className="columns-1 gap-x-4 sm:columns-2">
-            {toc.map((item, i) => (
-              <li key={`${item.page}-${i}`} className="break-inside-avoid">
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-ink/[0.04]"
-                  onClick={() => {
-                    onPageChange(item.page, numPages);
-                    setTocOpen(false);
-                  }}
-                >
-                  <span className="text-ink">{item.title}</span>
-                  <span className="ml-2 font-mono text-[10px] text-muted">стр. {item.page}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {placing && (
         <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">
           Выделите фрагмент текста (необязательно), затем кликните в нужном месте, чтобы поставить пометку.
@@ -805,6 +784,22 @@ export function PdfReader({
         </p>
       )}
 
+      <div className="md:flex md:items-start md:gap-3">
+        <ReaderToc
+          open={tocOpen && !loading}
+          items={toc.map((item, i) => ({
+            id: `${item.page}-${i}`,
+            label: item.title,
+            hint: `стр. ${item.page}`,
+            active: item.page === leftPageNumber,
+          }))}
+          empty="В этом PDF нет встроенного оглавления — только страницы файла."
+          onSelect={(id) => {
+            const page = Number.parseInt(id, 10);
+            if (Number.isFinite(page)) onPageChange(page, numPages);
+          }}
+        />
+        <div className="min-w-0 flex-1">
       {numPages > 0 && (
         <div className={`${fullscreen ? "mb-2" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
           <div
@@ -886,6 +881,8 @@ export function PdfReader({
             </div>
           </>
         )}
+      </div>
+        </div>
       </div>
     </div>
   );

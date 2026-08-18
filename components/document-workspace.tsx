@@ -8,6 +8,7 @@ import {
   Bookmark,
   ChevronDown,
   ChevronRight,
+  Columns2,
   Filter,
   Maximize2,
   MessageSquare,
@@ -33,6 +34,7 @@ import {
   type ReadingProgressKind,
 } from "@/lib/reading-progress";
 import { canAnnotateFiles } from "@/lib/roles";
+import { languageLabel } from "@/lib/languages";
 
 const PdfReader = dynamic(
   () => import("@/components/readers/pdf-reader").then((m) => m.PdfReader),
@@ -70,6 +72,13 @@ type CurrentUser = {
   avatarColor?: string | null;
 } | null;
 
+export type CompanionEdition = {
+  id: string;
+  title: string;
+  roleLabel: string;
+  language: string | null;
+};
+
 export function DocumentWorkspace({
   documentId,
   documentTitle,
@@ -83,6 +92,9 @@ export function DocumentWorkspace({
   language,
   onShelf = false,
   initialCloudPage = null,
+  embed = false,
+  editions = [],
+  companionId = null,
 }: {
   documentId: string;
   documentTitle?: string;
@@ -98,6 +110,10 @@ export function DocumentWorkspace({
   /** When true, rare cloud sync of progress is allowed (shelf-only). */
   onShelf?: boolean;
   initialCloudPage?: number | null;
+  /** Reader-only pane for parallel viewing (no comments, no chrome). */
+  embed?: boolean;
+  editions?: CompanionEdition[];
+  companionId?: string | null;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
@@ -114,6 +130,15 @@ export function DocumentWorkspace({
   const isTxt = fileType === "TXT";
   const canFullscreen = Boolean(fileUrl) && (isPdf || isEpub || isTxt);
   const canAnnotate = canAnnotateFiles(currentUser?.role);
+  const otherEditions = editions.filter((item) => item.id !== documentId);
+
+  function setCompanion(nextId: string) {
+    const url = new URL(window.location.href);
+    if (nextId) url.searchParams.set("with", nextId);
+    else url.searchParams.delete("with");
+    router.push(`${url.pathname}${url.search}`);
+  }
+
   const progressKind: ReadingProgressKind | null = isPdf
     ? "pdf"
     : isEpub
@@ -245,7 +270,12 @@ export function DocumentWorkspace({
 
   return (
     <div>
-      {!fullscreen && (
+      {embed && (
+        <p className="mb-3 truncate font-serif text-base leading-tight tracking-tight">
+          {documentTitle || "Текст"}
+        </p>
+      )}
+      {!embed && !fullscreen && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink/10 bg-ink/[0.02] px-3.5 py-2.5">
           <div className="min-w-0 flex-1">
             {catalogHref && (
@@ -271,17 +301,38 @@ export function DocumentWorkspace({
               )}
             </p>
           </div>
-          {canFullscreen && (
-            <button
-              type="button"
-              onClick={() => setFullscreen(true)}
-              className="icon-button shrink-0"
-              aria-label="Развернуть на весь экран"
-              title="Читать на весь экран"
-            >
-              <Maximize2 size={15} />
-            </button>
-          )}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {otherEditions.length > 0 && (
+              <label className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
+                <Columns2 size={14} className="shrink-0" />
+                <span className="hidden sm:inline">Рядом</span>
+                <select
+                  className="max-w-[14rem] truncate rounded-full border border-ink/15 bg-transparent px-2.5 py-1.5 text-xs text-ink"
+                  value={companionId ?? ""}
+                  onChange={(event) => setCompanion(event.target.value)}
+                >
+                  <option value="">Одно окно</option>
+                  {otherEditions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.roleLabel}
+                      {item.language ? ` · ${languageLabel(item.language)}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {canFullscreen && (
+              <button
+                type="button"
+                onClick={() => setFullscreen(true)}
+                className="icon-button shrink-0"
+                aria-label="Развернуть на весь экран"
+                title="Читать на весь экран"
+              >
+                <Maximize2 size={15} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -367,6 +418,7 @@ export function DocumentWorkspace({
             </p>
           )}
 
+          {!embed && (
           <div className="mx-auto mt-10 max-w-3xl space-y-6">
             {(isPdf || isEpub || isTxt) && (
               <BookmarksPanel
@@ -405,6 +457,7 @@ export function DocumentWorkspace({
               />
             )}
           </div>
+          )}
         </div>
       </div>
       <ReportDialog

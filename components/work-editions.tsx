@@ -21,27 +21,34 @@ export function WorkEditions({
       <h2 className="font-serif text-2xl tracking-tight">Издания и переводы</h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
         Одно произведение — «{work.title}». Файлы не склеены: каждый перевод и каждое
-        издание остаются отдельной книгой.
+        издание остаются отдельной книгой. «Рядом» открывает второе окно на той же
+        странице.
       </p>
       <ul className="mt-6 divide-y divide-ink/10">
         {others.map((item) => (
-          <li key={item.id}>
+          <li key={item.id} className="flex items-baseline justify-between gap-4 py-3.5">
             <Link
               href={`/documents/${item.id}`}
-              className="group flex items-baseline justify-between gap-4 py-3.5 transition-colors hover:text-rust"
+              className="group min-w-0 transition-colors hover:text-rust"
             >
-              <span className="min-w-0">
-                <span className="block font-medium leading-snug group-hover:underline group-hover:underline-offset-2">
-                  {item.title}
-                </span>
-                <span className="mt-0.5 block truncate text-xs text-muted">
-                  {item.roleLabel}
-                  {item.language ? ` · ${languageLabel(item.language)}` : ""}
-                  {` · ${item.fileType}`}
-                  {item.year ? `, ${item.year}` : ""}
-                </span>
+              <span className="block font-medium leading-snug group-hover:underline group-hover:underline-offset-2">
+                {item.title}
+              </span>
+              <span className="mt-0.5 block truncate text-xs text-muted">
+                {item.roleLabel}
+                {item.language ? ` · ${languageLabel(item.language)}` : ""}
+                {` · ${item.fileType}`}
+                {item.year ? `, ${item.year}` : ""}
               </span>
             </Link>
+            {currentDocumentId && (
+              <Link
+                href={`/documents/${currentDocumentId}?with=${item.id}`}
+                className="shrink-0 text-xs text-muted hover:text-ink"
+              >
+                Рядом
+              </Link>
+            )}
           </li>
         ))}
       </ul>

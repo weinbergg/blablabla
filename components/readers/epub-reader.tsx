@@ -17,8 +17,15 @@ import {
   type StrokeWidthPreset,
 } from "./annotation-layer";
 import { PageJumpInput } from "./page-jump-input";
+import { ReaderToc } from "./reader-toc";
 import { SelectionLookup } from "./selection-lookup";
 import { addBookmark } from "@/lib/bookmarks";
+import {
+  displayCandidates,
+  gutenbergIdFromHref,
+  isExternalHttp,
+  isIgnorableHref,
+} from "@/lib/epub-links";
 import { isTypingTarget } from "@/lib/reader-keys";
 
 type TocItem = { label: string; href: string };
@@ -74,6 +81,8 @@ export function EpubReader({
   const renditionRef = useRef<import("epubjs").Rendition | null>(null);
   const sectionRef = useRef(1);
   const screenKeyRef = useRef("1:1");
+  const documentIdRef = useRef(documentId);
+  documentIdRef.current = documentId;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [section, setSection] = useState(1);
@@ -101,7 +110,8 @@ export function EpubReader({
   const [drawVisibility, setDrawVisibility] = useState<AnnotationVisibility>("public");
   const [drawSaving, setDrawSaving] = useState(false);
   const [toc, setToc] = useState<TocItem[]>([]);
-  const [tocOpen, setTocOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(true);
+  const [linkNote, setLinkNote] = useState<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [bookmarkFlash, setBookmarkFlash] = useState(false);
   const [stubWarning, setStubWarning] = useState(false);
@@ -169,6 +179,100 @@ export function EpubReader({
           const contentsList = rendition.getContents() as unknown as { document: Document }[];
           setSelectionDoc(contentsList[0]?.document ?? null);
         }
+
+        async function displayInternal(href: string) {
+          if (href.startsWith("#") && href.length > 1) {
+            const id = decodeURIComponent(href.slice(1));
+            const contents = rendition.getContents() as unknown as { document?: Document }[] | { document?: Document };
+            const docs = Array.isArray(contents) ? contents : contents ? [contents] : [];
+            for (const item of docs) {
+              const doc = item.document;
+              if (!doc) continue;
+              const el =
+                doc.getElementById(id) ||
+                doc.querySelector(`[name="${CSS.escape(id)}"]`);
+              if (el) {
+                el.scrollIntoView({ block: "start" });
+                return true;
+              }
+            }
+          }
+          const bookPath = (rendition.book as unknown as { path?: { relative: (value: string) => string } }).path;
+          const extras: string[] = [];
+          try {
+            const relative = bookPath?.relative(href);
+            if (relative) extras.push(relative);
+          } catch {
+            /* ignore */
+          }
+          for (const candidate of [...extras, ...displayCandidates(href)]) {
+            try {
+              await rendition.display(candidate);
+              return true;
+            } catch {
+              /* try next */
+            }
+          }
+          return false;
+        }
+
+        async function followHref(raw: string) {
+          const href = raw.trim();
+          if (!href || isIgnorableHref(href)) return;
+          setLinkNote(null);
+          const hash = href.includes("#") ? href.slice(href.indexOf("#")) : "";
+
+          const gutenbergId = gutenbergIdFromHref(href);
+          if (gutenbergId) {
+            try {
+              const response = await fetch(`/api/catalog/gutenberg/${gutenbergId}`);
+              if (response.ok) {
+                const found = (await response.json()) as { documentId: string; title: string };
+                if (found.documentId === documentIdRef.current) {
+                  if (hash && (await displayInternal(hash))) return;
+                  return;
+                }
+                const target = window.top ?? window;
+                target.location.assign(`/documents/${found.documentId}`);
+                return;
+              }
+            } catch {
+              /* stay in the book */
+            }
+            if (hash && (await displayInternal(hash))) return;
+            setLinkNote("Этой книги нет в каталоге — ссылка никуда не ведёт, остаёмся в текущем тексте.");
+            return;
+          }
+
+          if (isExternalHttp(href)) {
+            if (hash && (await displayInternal(hash))) return;
+            setLinkNote("Внешние ссылки из EPUB не открываем, чтобы не уходить со страницы.");
+            return;
+          }
+
+          if (href.startsWith("/documents/")) {
+            const target = window.top ?? window;
+            target.location.assign(href);
+            return;
+          }
+
+          const ok = await displayInternal(href);
+          if (ok) return;
+          if (hash && (await displayInternal(hash))) return;
+          setLinkNote("Эта ссылка внутри файла никуда не ведёт.");
+        }
+
+        function onIframeClick(event: MouseEvent) {
+          const anchor = (event.target as Element | null)?.closest?.("a[href]");
+          if (!anchor) return;
+          event.preventDefault();
+          event.stopPropagation();
+          void followHref(anchor.getAttribute("href") || "");
+        }
+
+        rendition.hooks.content.register((contents: { document: Document }) => {
+          contents.document.addEventListener("click", onIframeClick, true);
+        });
 
         rendition.on(
           "relocated",
@@ -436,15 +540,18 @@ export function EpubReader({
           <button type="button" onClick={() => renditionRef.current?.next()} className="icon-button" aria-label="Следующая страница">
             <ChevronRight size={16} />
           </button>
-          {toc.length > 0 && (
+          {!loading && (
             <button
               type="button"
               onClick={() => setTocOpen((o) => !o)}
-              className={`icon-button ${tocOpen ? "border-rust text-rust" : ""}`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs ${
+                tocOpen ? "border-rust text-rust" : "border-ink/15 text-muted hover:text-ink"
+              }`}
               aria-label="Оглавление"
               title="Оглавление"
             >
               <List size={14} />
+              Оглавление
             </button>
           )}
         </div>
@@ -502,35 +609,17 @@ export function EpubReader({
         </div>
       </div>
 
-      {tocOpen && toc.length > 0 && (
-        <div className="mb-3 max-h-48 overflow-y-auto rounded-xl border border-ink/10 bg-paper p-2">
-          <p className="mb-1 px-2 font-mono text-[10px] uppercase tracking-widest text-muted">
-            Оглавление — выберите главу
-          </p>
-          <ul className="columns-1 gap-x-4 sm:columns-2">
-            {toc.map((item, i) => (
-              <li key={`${item.href}-${i}`} className="break-inside-avoid">
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-ink/[0.04]"
-                  onClick={() => {
-                    renditionRef.current?.display(item.href);
-                    setTocOpen(false);
-                  }}
-                >
-                  {item.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {linkNote && (
+        <p className="mb-3 rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2 text-xs leading-5 text-muted">
+          {linkNote}
+        </p>
       )}
-
       {stubWarning && (
         <p className="mb-3 rounded-lg border border-rust/25 bg-rust/10 px-3 py-2 text-xs leading-5 text-rust">
           Похоже, в этом EPUB почти нет сплошного текста — только оглавление со ссылками
-          (часто так устроены «пустые» файлы с Gutenberg). Откройте оглавление слева или
-          скачайте книгу: если есть TXT/другая редакция, в ней текст обычно полный.
+          (часто так устроены «пустые» файлы с Gutenberg). Ссылки из книги остаются
+          внутри читалки: главы открываются здесь, чужие сайты не открываем. Если есть
+          TXT или другое издание в каталоге — откройте его рядом.
         </p>
       )}
       {placing && (
@@ -544,7 +633,21 @@ export function EpubReader({
         </p>
       )}
 
-      <div ref={wrapRef} className="relative" style={{ height, minHeight: 240 }}>
+      <div className="md:flex md:items-start md:gap-3">
+        <ReaderToc
+          open={tocOpen && !loading}
+          items={toc.map((item, i) => ({
+            id: `${item.href}-${i}`,
+            label: item.label,
+          }))}
+          empty="В этом EPUB нет навигации по главам."
+          onSelect={(id) => {
+            const href = id.replace(/-\d+$/, "");
+            const item = toc.find((entry, i) => `${entry.href}-${i}` === id);
+            void renditionRef.current?.display(item?.href ?? href);
+          }}
+        />
+        <div ref={wrapRef} className="relative min-w-0 flex-1" style={{ height, minHeight: 240 }}>
         {loading && (
           <div className="absolute inset-0 z-10 grid place-items-center">
             <Loader2 className="animate-spin text-muted" />
@@ -601,6 +704,7 @@ export function EpubReader({
           suppressed={placing || drawMode}
           language={language}
         />
+      </div>
       </div>
     </div>
   );
