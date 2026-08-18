@@ -37,11 +37,12 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  overflow-anchor: none;
 }
 
 body {
   min-width: 320px;
+  overflow-anchor: none;
   background:
     radial-gradient(circle at 18% 0%, rgba(200, 92, 53, 0.045), transparent 30rem),
     var(--paper);
@@ -533,8 +534,8 @@ button:disabled {
 .avatar-pick {
   display: grid;
   place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 2.55rem;
+  height: 2.55rem;
   padding: 0;
   border: none;
   border-radius: 999px;

@@ -302,12 +302,12 @@ export function DocumentWorkspace({
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {otherEditions.length > 0 && (
-              <label className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
-                <Columns2 size={14} className="shrink-0" />
-                <span className="hidden sm:inline">Рядом</span>
+            {otherEditions.length > 0 ? (
+              <label className="flex min-w-0 items-center gap-2 rounded-full border border-rust/35 bg-rust/10 px-3 py-1.5 text-xs text-ink">
+                <Columns2 size={15} className="shrink-0 text-rust" />
+                <span className="hidden font-medium sm:inline">Два текста</span>
                 <select
-                  className="max-w-[14rem] truncate rounded-full border border-ink/15 bg-transparent px-2.5 py-1.5 text-xs text-ink"
+                  className="max-w-[16rem] truncate bg-transparent text-xs text-ink outline-none"
                   value={companionId ?? ""}
                   onChange={(event) => setCompanion(event.target.value)}
                 >
@@ -320,6 +320,10 @@ export function DocumentWorkspace({
                   ))}
                 </select>
               </label>
+            ) : (
+              <span className="hidden max-w-[14rem] text-[11px] leading-4 text-muted lg:inline">
+                Два текста: откройте издание ниже кнопкой «Рядом», либо соседнюю книгу.
+              </span>
             )}
             {canFullscreen && (
               <button

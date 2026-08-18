@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 
 type RelatedDoc = {
   id: string;
@@ -10,7 +9,13 @@ type RelatedDoc = {
 };
 
 /** Nearby texts by author / tags / subject — not the whole Gutenberg shelf. */
-export function RelatedTexts({ documents }: { documents: RelatedDoc[] }) {
+export function RelatedTexts({
+  documents,
+  currentDocumentId,
+}: {
+  documents: RelatedDoc[];
+  currentDocumentId?: string;
+}) {
   if (!documents.length) return null;
 
   return (
@@ -24,26 +29,28 @@ export function RelatedTexts({ documents }: { documents: RelatedDoc[] }) {
         {documents.map((doc) => {
           const authorNames = doc.authors.map((a) => a.name).join(", ");
           return (
-            <li key={doc.id}>
+            <li key={doc.id} className="flex items-baseline justify-between gap-4 py-3.5">
               <Link
                 href={`/documents/${doc.id}`}
-                className="group flex items-baseline justify-between gap-4 py-3.5 transition-colors hover:text-rust"
+                className="group min-w-0 transition-colors hover:text-rust"
               >
-                <span className="min-w-0">
-                  <span className="block font-medium leading-snug group-hover:underline group-hover:underline-offset-2">
-                    {doc.title}
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-muted">
-                    {doc.relation ? `${doc.relation} · ` : ""}
-                    {authorNames || "Автор не указан"}
-                    {doc.year ? `, ${doc.year}` : ""}
-                  </span>
+                <span className="block font-medium leading-snug group-hover:underline group-hover:underline-offset-2">
+                  {doc.title}
                 </span>
-                <ArrowUpRight
-                  size={15}
-                  className="mt-1 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100"
-                />
+                <span className="mt-0.5 block truncate text-xs text-muted">
+                  {doc.relation ? `${doc.relation} · ` : ""}
+                  {authorNames || "Автор не указан"}
+                  {doc.year ? `, ${doc.year}` : ""}
+                </span>
               </Link>
+              {currentDocumentId && (
+                <Link
+                  href={`/documents/${currentDocumentId}?with=${doc.id}`}
+                  className="shrink-0 text-xs text-muted hover:text-ink"
+                >
+                  Рядом
+                </Link>
+              )}
             </li>
           );
         })}

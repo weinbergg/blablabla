@@ -1,5 +1,7 @@
 /** Split long TXT into stable "листы" and pick out chapter/song headings. */
 
+import { buildTextToc } from "./toc-from-text";
+
 export const CHARS_PER_PAGE = 3200;
 
 const HEADING =
@@ -50,7 +52,7 @@ function looksLikeHeading(line: string) {
   return false;
 }
 
-export function txtTableOfContents(pages: string[]): { title: string; page: number }[] {
+export function headingTocItems(pages: string[]): { title: string; page: number }[] {
   const items: { title: string; page: number }[] = [];
   const seen = new Set<string>();
   pages.forEach((pageText, index) => {
@@ -64,5 +66,27 @@ export function txtTableOfContents(pages: string[]): { title: string; page: numb
       break;
     }
   });
-  return items.length >= 2 ? items : [];
+  return items;
+}
+
+export function txtTableOfContents(pages: string[]): {
+  title: string;
+  page: number;
+  kind?: "contents";
+}[] {
+  const built = buildTextToc(pages, headingTocItems(pages));
+  const items: { title: string; page: number; kind?: "contents" }[] = [];
+  if (built.contentsPage) {
+    items.push({
+      title: "Страница оглавления",
+      page: built.contentsPage,
+      kind: "contents",
+    });
+  }
+  for (const item of built.items) {
+    if (!item.page) continue;
+    if (built.contentsPage && item.page === built.contentsPage) continue;
+    items.push({ title: item.title, page: item.page });
+  }
+  return items;
 }

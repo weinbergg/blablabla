@@ -5,6 +5,7 @@ export type ReaderTocItem = {
   label: string;
   hint?: string;
   active?: boolean;
+  kind?: "contents";
 };
 
 export function ReaderToc({
@@ -36,7 +37,9 @@ export function ReaderToc({
                 onClick={() => onSelect(item.id)}
               >
                 {item.label}
-                {item.hint ? (
+                {item.kind === "contents" ? (
+                  <span className="mt-0.5 block font-mono text-[10px] text-rust">страница оглавления</span>
+                ) : item.hint ? (
                   <span className="mt-0.5 block font-mono text-[10px] text-muted">{item.hint}</span>
                 ) : null}
               </button>

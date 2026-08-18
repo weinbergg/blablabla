@@ -33,6 +33,7 @@ import {
 import { PageJumpInput } from "./page-jump-input";
 import { ReaderToc } from "./reader-toc";
 import { SelectionLookup } from "./selection-lookup";
+import { buildTextToc } from "@/lib/toc-from-text";
 import { isTypingTarget } from "@/lib/reader-keys";
 import { addBookmark, loadBookmarks } from "@/lib/bookmarks";
 
@@ -190,7 +191,7 @@ export function PdfReader({
   const [drawStrokeWidth, setDrawStrokeWidth] = useState<StrokeWidthPreset>("medium");
   const [drawVisibility, setDrawVisibility] = useState<AnnotationVisibility>("public");
   const [drawSaving, setDrawSaving] = useState(false);
-  const [toc, setToc] = useState<{ title: string; page: number }[]>([]);
+  const [toc, setToc] = useState<{ title: string; page: number; kind?: "contents" }[]>([]);
   const [tocOpen, setTocOpen] = useState(true);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [bookmarkFlash, setBookmarkFlash] = useState(false);
@@ -241,8 +242,8 @@ export function PdfReader({
 
         try {
           const outline = await doc.getOutline();
-          if (!cancelled && outline?.length) {
-            const flat: { title: string; page: number }[] = [];
+          const flat: { title: string; page: number; kind?: "contents" }[] = [];
+          if (outline?.length) {
             async function walk(
               items: { title: string; dest: string | unknown[] | null; items?: unknown[] }[],
             ) {
@@ -263,8 +264,40 @@ export function PdfReader({
               }
             }
             await walk(outline);
-            if (!cancelled) setToc(flat.slice(0, 200));
           }
+
+          const textPages: string[] = [];
+          const scan = Math.min(16, doc.numPages);
+          for (let i = 1; i <= scan; i += 1) {
+            try {
+              const pdfPage = await doc.getPage(i);
+              const content = await pdfPage.getTextContent();
+              textPages.push(
+                (content.items as { str?: string }[]).map((item) => item.str ?? "").join(" "),
+              );
+            } catch {
+              textPages.push("");
+            }
+          }
+          const scanned = buildTextToc(textPages, []);
+          const merged: { title: string; page: number; kind?: "contents" }[] = [];
+          if (scanned.contentsPage) {
+            merged.push({
+              title: "Страница оглавления",
+              page: scanned.contentsPage,
+              kind: "contents",
+            });
+          }
+          if (flat.length) {
+            merged.push(...flat);
+          } else {
+            for (const item of scanned.items) {
+              if (item.page && item.page >= 1 && item.page <= doc.numPages) {
+                merged.push({ title: item.title, page: item.page });
+              }
+            }
+          }
+          if (!cancelled) setToc(merged.slice(0, 200));
         } catch {
           /* outline optional */
         }
@@ -790,7 +823,8 @@ export function PdfReader({
           items={toc.map((item, i) => ({
             id: `${item.page}-${i}`,
             label: item.title,
-            hint: `стр. ${item.page}`,
+            hint: item.kind === "contents" ? undefined : `стр. ${item.page}`,
+            kind: item.kind,
             active: item.page === leftPageNumber,
           }))}
           empty="В этом PDF нет встроенного оглавления — только страницы файла."

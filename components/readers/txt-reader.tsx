@@ -306,7 +306,8 @@ export function TxtReader({
           items={toc.map((item, i) => ({
             id: `${item.page}-${i}`,
             label: item.title,
-            hint: `лист ${item.page}`,
+            hint: item.kind === "contents" ? undefined : `лист ${item.page}`,
+            kind: item.kind,
             active: item.page === safePage,
           }))}
           empty="В этом файле нет явных заголовков глав или песней. Листы экрана не равны песням Гомера — не выдумываем оглавление из пустого текста."

@@ -28,7 +28,7 @@ import {
 } from "@/lib/epub-links";
 import { isTypingTarget } from "@/lib/reader-keys";
 
-type TocItem = { label: string; href: string };
+type TocItem = { label: string; href: string; kind?: "contents" };
 /**
  * EPUB annotations are keyed by spine section index rather than a PDF-style
  * pixel-accurate page, since reflowable content has no such stable concept
@@ -321,6 +321,44 @@ export function EpubReader({
             }
           }
           walk((nav?.toc ?? []) as { label?: string; href?: string; subitems?: unknown[] }[]);
+
+          const spine = book.spine as unknown as {
+            length?: number;
+            get: (index: number) => { href?: string } | null;
+          };
+          let contentsHref =
+            flat.find((item) => /contents|оглавление|содержание|toc\b/i.test(item.label))?.href ?? null;
+          if (!contentsHref) {
+            for (let i = 0; i < Math.min(spine.length ?? 0, 12); i += 1) {
+              const href = spine.get(i)?.href ?? "";
+              if (/toc|nav|contents|oglav/i.test(href)) {
+                contentsHref = href;
+                break;
+              }
+            }
+          }
+          if (contentsHref && !flat.some((item) => item.kind === "contents")) {
+            flat.unshift({ label: "Страница оглавления", href: contentsHref, kind: "contents" });
+          }
+          if (flat.filter((item) => item.kind !== "contents").length < 2 && contentsHref) {
+            try {
+              const loaded = await book.load(contentsHref);
+              const doc =
+                typeof loaded === "string"
+                  ? new DOMParser().parseFromString(loaded, "text/html")
+                  : (loaded as Document);
+              const seen = new Set(flat.map((item) => item.href));
+              for (const anchor of Array.from(doc.querySelectorAll("a[href]"))) {
+                const href = anchor.getAttribute("href");
+                const label = (anchor.textContent || "").replace(/\s+/g, " ").trim();
+                if (!href || !label || label.length > 120 || seen.has(href)) continue;
+                seen.add(href);
+                flat.push({ label, href });
+              }
+            } catch {
+              /* keep whatever nav we have */
+            }
+          }
           if (!cancelled) setToc(flat);
 
           // Prefer landing on the first real chapter: Gutenberg EPUBs often open
@@ -639,6 +677,7 @@ export function EpubReader({
           items={toc.map((item, i) => ({
             id: `${item.href}-${i}`,
             label: item.label,
+            kind: item.kind,
           }))}
           empty="В этом EPUB нет навигации по главам."
           onSelect={(id) => {

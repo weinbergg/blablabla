@@ -191,7 +191,7 @@ export function AvatarPicker({
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((current) => !current)}
       >
-        <UserAvatar userId={userId} avatarKey={selected} avatarColor={color} size={28} />
+        <UserAvatar userId={userId} avatarKey={selected} avatarColor={color} size={36} />
         <span className="min-w-0 flex-1 text-sm">
           {menuOpen ? "Свернуть знаки" : "Показать знаки"}
         </span>
@@ -218,7 +218,7 @@ export function AvatarPicker({
                 />
               </button>
               {expanded && (
-                <div className="grid grid-cols-10 gap-1 px-2 pb-2 sm:grid-cols-12">
+                <div className="grid grid-cols-8 gap-1.5 px-2.5 pb-2.5 sm:grid-cols-10">
                   {avatarsInSection(section.id).map((item) => (
                     <button
                       key={item.key}
@@ -229,7 +229,7 @@ export function AvatarPicker({
                       aria-pressed={selected === item.key}
                       title={item.label}
                     >
-                      <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={24} />
+                      <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={38} />
                     </button>
                   ))}
                 </div>

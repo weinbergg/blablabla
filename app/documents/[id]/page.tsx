@@ -94,6 +94,24 @@ export default async function DocumentPage({
     ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
+  const companionChoices = [
+    ...(work?.editions ?? [])
+      .filter((item) => item.id !== document.id)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        roleLabel: item.roleLabel,
+        language: item.language,
+      })),
+    ...related
+      .filter((item) => !(work?.editions ?? []).some((edition) => edition.id === item.id))
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        roleLabel: `${item.relation ?? "рядом"} · ${item.title}`,
+        language: item.language ?? null,
+      })),
+  ];
   const categoryOptions = flattenCategoryOptions(tree);
 
   function pathForCategoryId(id: string, nodes = tree, trailSoFar: string[] = []): string[] | null {
@@ -286,7 +304,7 @@ export default async function DocumentPage({
               language={document.language}
               onShelf={Boolean(libraryItem)}
               initialCloudPage={libraryItem?.progressPage ?? null}
-              editions={work?.editions ?? []}
+              editions={companionChoices}
               companionId={companion.id}
             />
             <div className="xl:sticky xl:top-4 xl:self-start">
@@ -320,13 +338,13 @@ export default async function DocumentPage({
             language={document.language}
             onShelf={Boolean(libraryItem)}
             initialCloudPage={libraryItem?.progressPage ?? null}
-            editions={work?.editions ?? []}
+            editions={companionChoices}
           />
         )}
 
         {work && <WorkEditions work={work} currentDocumentId={document.id} />}
 
-        <RelatedTexts documents={related} />
+        <RelatedTexts documents={related} currentDocumentId={document.id} />
 
         <section className="mt-10 rounded-2xl border border-ink/10 p-5">
           <div className="flex flex-wrap items-end justify-between gap-3">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HomeLogoLink } from "@/components/home-logo-link";
 import { MessagesSquare, Network } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { AntoineMark } from "@/components/antoine-mark";
@@ -18,7 +19,7 @@ export async function Header() {
   return (
     <header className="relative border-b border-ink/10">
       <div className="shell flex h-20 items-center justify-between">
-        <Link href="/" className="group flex items-center gap-3">
+        <HomeLogoLink className="group flex items-center gap-3">
           <AntoineMark className="size-9 shrink-0" />
           <span className="leading-tight">
             <span className="block text-sm font-semibold tracking-tight">
@@ -28,7 +29,7 @@ export async function Header() {
               библиотека
             </span>
           </span>
-        </Link>
+        </HomeLogoLink>
 
         <nav className="flex items-center gap-5 text-sm md:gap-6">
           <Link
