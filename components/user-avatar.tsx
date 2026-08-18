@@ -1,15 +1,125 @@
 "use client";
 
 import {
-  AVATARS,
   AVATAR_COLORS,
+  AVATAR_SECTIONS,
   avatarColorFor,
-  avatarGlyph,
+  avatarDef,
   avatarKeyFor,
+  avatarsInSection,
   type AvatarColor,
+  type AvatarDef,
   type AvatarKey,
+  type AvatarShape,
 } from "@/lib/avatars";
 import { ROLE_LABELS, type UserRole } from "@/lib/roles";
+
+function polar(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return `${cx + r * Math.cos(rad)} ${cy + r * Math.sin(rad)}`;
+}
+
+function regularPolygon(sides: number, r: number, rotation = 0) {
+  const pts = Array.from({ length: sides }, (_, i) => polar(12, 12, r, rotation + (360 / sides) * i));
+  return pts.join(" ");
+}
+
+function starPoints(points = 5, outer = 7.2, inner = 3.15) {
+  const pts: string[] = [];
+  for (let i = 0; i < points * 2; i += 1) {
+    pts.push(polar(12, 12, i % 2 === 0 ? outer : inner, (360 / (points * 2)) * i));
+  }
+  return pts.join(" ");
+}
+
+function Shape({ kind }: { kind: AvatarShape }) {
+  const stroke = { fill: "none" as const, stroke: "currentColor", strokeWidth: 1.7, strokeLinejoin: "round" as const };
+  switch (kind) {
+    case "circle":
+      return <circle cx="12" cy="12" r="6.2" {...stroke} />;
+    case "ring":
+      return (
+        <>
+          <circle cx="12" cy="12" r="7" {...stroke} />
+          <circle cx="12" cy="12" r="3.2" {...stroke} />
+        </>
+      );
+    case "square":
+      return <rect x="5.6" y="5.6" width="12.8" height="12.8" rx="0.6" {...stroke} />;
+    case "diamond":
+      return <polygon points="12 4.8, 19.2 12, 12 19.2, 4.8 12" {...stroke} />;
+    case "triangle":
+      return <polygon points={regularPolygon(3, 7.4)} {...stroke} />;
+    case "pentagon":
+      return <polygon points={regularPolygon(5, 7.2)} {...stroke} />;
+    case "hexagon":
+      return <polygon points={regularPolygon(6, 7.1, 30)} {...stroke} />;
+    case "plus":
+      return (
+        <>
+          <path d="M12 5.2v13.6" {...stroke} />
+          <path d="M5.2 12h13.6" {...stroke} />
+        </>
+      );
+    case "cross":
+      return (
+        <>
+          <path d="M7.1 7.1l9.8 9.8" {...stroke} />
+          <path d="M16.9 7.1l-9.8 9.8" {...stroke} />
+        </>
+      );
+    case "star":
+      return <polygon points={starPoints()} {...stroke} />;
+    case "sun":
+      return (
+        <>
+          <circle cx="12" cy="12" r="3.1" {...stroke} />
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => {
+            const a = ((deg - 90) * Math.PI) / 180;
+            const x1 = 12 + Math.cos(a) * 5.1;
+            const y1 = 12 + Math.sin(a) * 5.1;
+            const x2 = 12 + Math.cos(a) * 7.6;
+            const y2 = 12 + Math.sin(a) * 7.6;
+            return <path key={deg} d={`M${x1} ${y1}L${x2} ${y2}`} {...stroke} />;
+          })}
+        </>
+      );
+    case "moon":
+      return (
+        <path
+          d="M13.2 5.2a7 7 0 1 0 5.4 11.6 5.6 5.6 0 1 1-5.4-11.6z"
+          {...stroke}
+        />
+      );
+    default:
+      return <circle cx="12" cy="12" r="6" {...stroke} />;
+  }
+}
+
+function Glyph({ def }: { def: AvatarDef }) {
+  if (def.shape) {
+    return (
+      <svg viewBox="0 0 24 24" className="avatar-glyph" aria-hidden>
+        <Shape kind={def.shape} />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className="avatar-glyph" aria-hidden>
+      <text
+        x={12 + (def.dx ?? 0)}
+        y={12 + (def.dy ?? 0)}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={def.font ?? 14}
+        fontFamily='Georgia, "Times New Roman", serif'
+        fill="currentColor"
+      >
+        {def.glyph}
+      </text>
+    </svg>
+  );
+}
 
 export function UserAvatar({
   userId,
@@ -26,15 +136,15 @@ export function UserAvatar({
 }) {
   const key = avatarKeyFor(userId, avatarKey);
   const tone = avatarColorFor(userId, avatarColor);
-  const glyph = avatarGlyph(key);
+  const def = avatarDef(key);
   return (
     <span
       className={`avatar-mark avatar-tone-${tone}`}
-      style={{ width: size, height: size, fontSize: Math.max(15, size * 0.44) }}
+      style={{ width: size, height: size }}
       title={name}
       aria-hidden={name ? undefined : true}
     >
-      {glyph}
+      <Glyph def={def} />
     </span>
   );
 }
@@ -68,21 +178,28 @@ export function AvatarPicker({
 }) {
   const selected = avatarKeyFor(userId, value);
   return (
-    <div className="grid grid-cols-8 gap-2">
-      {AVATARS.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          onClick={() => onChange(item.key)}
-          className={`grid place-items-center rounded-full p-0.5 ${
-            selected === item.key ? "ring-2 ring-ink ring-offset-2 ring-offset-paper" : "hover:opacity-90"
-          }`}
-          aria-label={item.label}
-          aria-pressed={selected === item.key}
-          title={item.label}
-        >
-          <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={44} />
-        </button>
+    <div className="space-y-4">
+      {AVATAR_SECTIONS.map((section) => (
+        <div key={section.id}>
+          <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-muted">{section.label}</p>
+          <div className="grid grid-cols-8 gap-2">
+            {avatarsInSection(section.id).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => onChange(item.key as AvatarKey)}
+                className={`grid place-items-center rounded-full p-0.5 ${
+                  selected === item.key ? "ring-2 ring-ink ring-offset-2 ring-offset-paper" : "hover:opacity-90"
+                }`}
+                aria-label={item.label}
+                aria-pressed={selected === item.key}
+                title={item.label}
+              >
+                <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={46} />
+              </button>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );

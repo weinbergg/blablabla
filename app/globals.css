@@ -505,13 +505,18 @@ button:disabled {
   display: inline-grid;
   place-items: center;
   flex-shrink: 0;
+  overflow: hidden;
   border-radius: 999px;
-  font-family: var(--font-serif);
-  font-weight: 500;
-  line-height: 1;
   color: var(--avatar-fg);
   background: var(--avatar-bg);
   border: 1.5px solid var(--avatar-fg);
+}
+
+.avatar-glyph {
+  width: 68%;
+  height: 68%;
+  display: block;
+  overflow: visible;
 }
 
 .avatar-tone-ink { --avatar-fg: var(--avatar-ink); --avatar-bg: var(--avatar-ink-bg); }

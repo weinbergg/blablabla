@@ -95,7 +95,8 @@ export function AccountForm({
       <div>
         <p className="mb-3 text-sm font-medium">Знак в обсуждениях</p>
         <p className="mb-3 text-xs leading-5 text-muted">
-          Без загруженных фотографий. Сохраняется сразу, пароль не нужен.
+          Греческие буквы, геометрия и математические знаки. Буквы с хвостом
+          чуть сдвинуты, чтобы сидеть в круге ровнее. Сохраняется сразу, пароль не нужен.
         </p>
         <AvatarPicker
           userId={userId}

@@ -15,7 +15,7 @@ export default async function AccountPage() {
 
   return (
     <main className="grid min-h-screen place-items-center px-5 py-12">
-      <div className="w-full max-w-lg">
+      <div className="w-full max-w-xl">
         <Link
           href="/"
           className="mb-8 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
