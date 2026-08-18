@@ -67,6 +67,7 @@ export default async function AdminPage() {
     confidence: doc.confidence,
     language: doc.language ?? "",
     secondaryLanguage: doc.secondaryLanguage ?? "",
+    sourceNote: doc.sourceNote ?? null,
   }));
 
   return (

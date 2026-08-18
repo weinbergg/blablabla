@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Ban,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Crown,
   ExternalLink,
@@ -51,6 +53,7 @@ export type AdminDocument = {
   confidence: string;
   language: string;
   secondaryLanguage: string;
+  sourceNote: string | null;
 };
 
 export type AdminInvite = {
@@ -179,7 +182,13 @@ export function AdminDashboard({
         {tab === "Загрузка" && <BulkImportTab categoryOptions={categoryOptions} />}
         {tab === "Разделы" && <CategoriesTab tree={categoryTree} />}
         {tab === "Приглашения" && <InvitesTab invites={invites} />}
-        {tab === "Модерация" && <ModerationTab feed={moderationFeed} reports={openReports} />}
+        {tab === "Модерация" && (
+          <ModerationTab
+            feed={moderationFeed}
+            reports={openReports}
+            catalogQueue={documents.filter((d) => d.confidence === "low")}
+          />
+        )}
         {tab === "Рефералы" && (
           <ReferralsTab
             stats={referralStats}
@@ -846,7 +855,162 @@ function InviteLink({ code }: { code: string }) {
   );
 }
 
-function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: ReportRow[] }) {
+function CatalogReviewQueue({ items }: { items: AdminDocument[] }) {
+  const router = useRouter();
+  const [index, setIndex] = useState(0);
+  const [skipped, setSkipped] = useState<Set<string>>(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("");
+
+  const categories = useMemo(() => {
+    const names = [...new Set(items.map((d) => d.categoryName).filter(Boolean))];
+    return names.sort((a, b) => a.localeCompare(b, "ru"));
+  }, [items]);
+
+  const queue = useMemo(
+    () =>
+      items.filter((d) => {
+        if (skipped.has(d.id)) return false;
+        if (categoryFilter && d.categoryName !== categoryFilter) return false;
+        return true;
+      }),
+    [items, skipped, categoryFilter],
+  );
+
+  const current = queue[Math.min(index, Math.max(0, queue.length - 1))] ?? null;
+
+  useEffect(() => {
+    if (index >= queue.length && queue.length > 0) setIndex(queue.length - 1);
+  }, [index, queue.length]);
+
+  async function confirmCurrent() {
+    if (!current) return;
+    setBusy(true);
+    const response = await fetch(`/api/documents/${current.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confidence: "confirmed" }),
+    });
+    setBusy(false);
+    if (!response.ok) {
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      window.alert(result.error || "Не удалось подтвердить.");
+      return;
+    }
+    setSkipped((prev) => new Set(prev).add(current.id));
+    router.refresh();
+  }
+
+  function deferCurrent() {
+    if (!current) return;
+    setSkipped((prev) => new Set(prev).add(current.id));
+  }
+
+  if (items.length === 0) {
+    return (
+      <section className="rounded-2xl border border-ink/10 p-6">
+        <h2 className="font-serif text-2xl">Очередь каталога</h2>
+        <p className="mt-2 text-sm text-muted">Нет материалов с пометкой «непроверено».</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-ink/10 p-6">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-serif text-2xl">Очередь каталога</h2>
+          <p className="mt-1 text-sm text-muted">
+            Массовый импорт помечает записи как непроверенные. Подтверждение не удаляет файл
+            и не сливает дубли — только снимает флаг.
+          </p>
+        </div>
+        <span className="font-mono text-xs text-muted">
+          {queue.length ? `${Math.min(index, queue.length - 1) + 1}/${queue.length}` : "0"} · всего {items.length}
+        </span>
+      </div>
+
+      <label className="mb-4 flex max-w-xs flex-col gap-1 text-[11px] text-muted">
+        Раздел
+        <select
+          value={categoryFilter}
+          onChange={(event) => {
+            setCategoryFilter(event.target.value);
+            setIndex(0);
+          }}
+          className="filter-control rounded-md px-3 py-2 text-sm"
+        >
+          <option value="">Все</option>
+          {categories.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {!current ? (
+        <p className="text-sm text-muted">В этой сессии очередь разобрана. Обновите страницу, чтобы вернуть отложенные.</p>
+      ) : (
+        <div className="rounded-xl border border-ink/10 bg-ink/[0.02] p-4">
+          <p className="font-serif text-xl leading-snug tracking-tight">{current.title}</p>
+          <p className="mt-1 text-sm text-muted">
+            {current.authorNames || "Автор не указан"}
+            {current.categoryName ? ` · ${current.categoryName}` : ""}
+            {current.language ? ` · ${languageLabel(current.language)}` : ""}
+            {` · ${current.fileType}`}
+          </p>
+          {current.sourceNote && (
+            <p className="mt-3 text-xs leading-5 text-muted">
+              Почему в очереди: {current.sourceNote}
+            </p>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="icon-button"
+              disabled={index <= 0 || busy}
+              onClick={() => setIndex((i) => Math.max(0, i - 1))}
+              aria-label="Предыдущая запись"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              disabled={index >= queue.length - 1 || busy}
+              onClick={() => setIndex((i) => Math.min(queue.length - 1, i + 1))}
+              aria-label="Следующая запись"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button type="button" className="button-primary" disabled={busy} onClick={confirmCurrent}>
+              <Check size={14} />
+              Подтвердить
+            </button>
+            <button type="button" className="button-secondary" disabled={busy} onClick={deferCurrent}>
+              Отложить
+            </button>
+            <Link href={`/documents/${current.id}`} className="button-secondary" target="_blank">
+              <ExternalLink size={14} />
+              Открыть
+            </Link>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ModerationTab({
+  feed,
+  reports,
+  catalogQueue,
+}: {
+  feed: ModerationItem[];
+  reports: ReportRow[];
+  catalogQueue: AdminDocument[];
+}) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [onlyReported, setOnlyReported] = useState(reports.length > 0);
@@ -915,6 +1079,8 @@ function ModerationTab({ feed, reports }: { feed: ModerationItem[]; reports: Rep
 
   return (
     <div className="space-y-8">
+      <CatalogReviewQueue items={catalogQueue} />
+
       {reports.length > 0 && (
         <section className="rounded-2xl border border-rust/30 bg-rust/[0.04] p-6">
           <div className="mb-4 flex items-center gap-2">
