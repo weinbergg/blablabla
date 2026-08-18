@@ -32,10 +32,10 @@ export default async function AccountPage() {
           </p>
           <h1 className="font-serif text-4xl tracking-tight">Настройки аккаунта</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            Здесь можно сменить почту (логин) и пароль. Для подтверждения
-            понадобится ввести текущий пароль.
+            Знак в обсуждениях — без пароля. Почту и пароль можно сменить ниже,
+            для этого понадобится текущий пароль.
           </p>
-          <AccountForm email={user.email} />
+          <AccountForm email={user.email} userId={user.id} avatarKey={user.avatarKey} />
           <Link
             href={`/users/${user.id}`}
             className="mt-6 block text-center text-sm text-muted underline underline-offset-2 hover:text-ink"

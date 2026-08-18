@@ -5,6 +5,38 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
 import { comments, reports } from "@/lib/db/schema";
 
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
+  }
+
+  const { id } = await context.params;
+  const [comment] = await db.select().from(comments).where(eq(comments.id, id)).limit(1);
+  if (!comment) {
+    return NextResponse.json({ error: "Комментарий не найден" }, { status: 404 });
+  }
+  if (comment.authorId !== user.id && user.role !== "admin") {
+    return NextResponse.json({ error: "Нет прав." }, { status: 403 });
+  }
+
+  const payload = (await request.json().catch(() => null)) as { body?: unknown } | null;
+  const text = typeof payload?.body === "string" ? payload.body.trim() : "";
+  if (!text || text.length > 8000) {
+    return NextResponse.json({ error: "Пустой или слишком длинный комментарий." }, { status: 400 });
+  }
+
+  await db
+    .update(comments)
+    .set({ body: text, updatedAt: new Date().toISOString() })
+    .where(eq(comments.id, id));
+  revalidatePath(`/documents/${comment.documentId}`);
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> },

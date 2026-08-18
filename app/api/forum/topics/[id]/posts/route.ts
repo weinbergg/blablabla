@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
@@ -32,14 +33,24 @@ export async function POST(
     return NextResponse.json({ error: "Сообщение слишком короткое или длинное." }, { status: 400 });
   }
 
+  const parentId = payload?.parentId?.trim() || null;
+  if (parentId) {
+    const [parent] = await db.select({ id: forumPosts.id, topicId: forumPosts.topicId }).from(forumPosts).where(eq(forumPosts.id, parentId)).limit(1);
+    if (!parent || parent.topicId !== topicId) {
+      return NextResponse.json({ error: "Родительское сообщение не найдено." }, { status: 400 });
+    }
+  }
+
   const id = randomUUID();
   await db.insert(forumPosts).values({
     id,
     topicId,
-    parentId: payload?.parentId?.trim() || null,
+    parentId,
     authorId: user.id,
     body: text,
   });
 
+  revalidatePath(`/discuss/${topicId}`);
+  revalidatePath("/discuss");
   return NextResponse.json({ id });
 }

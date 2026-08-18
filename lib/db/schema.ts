@@ -29,6 +29,8 @@ export const users = sqliteTable("users", {
   status: text("status", { enum: ["active", "banned"] })
     .notNull()
     .default("active"),
+  /** Built-in SVG/glyph mark from lib/avatars — no uploaded images. */
+  avatarKey: text("avatar_key"),
   ...timestamps,
 }, (table) => ({
   emailIdx: uniqueIndex("users_email_idx").on(table.email),
@@ -533,7 +535,9 @@ export const forumPosts = sqliteTable("forum_posts", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
+  updatedAt: text("updated_at"),
   ...timestamps,
 }, (table) => ({
   topicIdx: index("forum_posts_topic_idx").on(table.topicId),
 }));
+

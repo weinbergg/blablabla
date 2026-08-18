@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Header } from "@/components/header";
 import { ForumReplyForm } from "@/components/forum-reply-form";
+import { ForumThread } from "@/components/forum-thread";
 import { MathText } from "@/components/math-text";
+import { RoleBadge, UserAvatar } from "@/components/user-avatar";
 import { getCurrentUser } from "@/lib/auth";
 import { getForumTopic } from "@/lib/db/forum";
 
@@ -34,36 +36,35 @@ export default async function DiscussTopicPage({
 
         <article className="max-w-3xl">
           <h1 className="font-serif text-3xl tracking-tight md:text-4xl">{topic.title}</h1>
-          <p className="mt-3 text-sm text-muted">
-            {topic.authorName}
-            {" · "}
-            {new Date(topic.createdAt).toLocaleString("ru-RU")}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
+            <UserAvatar
+              userId={topic.authorId}
+              avatarKey={topic.authorAvatarKey}
+              name={topic.authorName}
+              size={22}
+            />
+            <span className="font-medium text-ink">{topic.authorName}</span>
+            <RoleBadge role={topic.authorRole} />
+            <span>· {new Date(topic.createdAt).toLocaleString("ru-RU")}</span>
             {topic.documentId && topic.documentTitle && (
               <>
-                {" · "}
+                <span>·</span>
                 <Link href={`/documents/${topic.documentId}`} className="text-ink underline-offset-2 hover:underline">
                   {topic.documentTitle}
                 </Link>
               </>
             )}
-          </p>
+          </div>
           <MathText source={topic.body} className="mt-6 text-base leading-7" />
 
           <div className="mt-10 space-y-6 border-t border-ink/10 pt-8">
             <h2 className="font-serif text-2xl tracking-tight">Ответы</h2>
-            {posts.length === 0 && (
-              <p className="text-sm text-muted">Пока тихо — можно ответить первым.</p>
-            )}
-            {posts.map((post) => (
-              <div key={post.id} className="border-t border-ink/10 pt-4 first:border-t-0 first:pt-0">
-                <p className="text-xs text-muted">
-                  <span className="font-medium text-ink">{post.authorName}</span>
-                  {" · "}
-                  {new Date(post.createdAt).toLocaleString("ru-RU")}
-                </p>
-                <MathText source={post.body} className="mt-2 text-sm leading-6" />
-              </div>
-            ))}
+            <ForumThread
+              topicId={topic.id}
+              posts={posts}
+              currentUserId={user?.id ?? null}
+              locked={Boolean(topic.locked)}
+            />
           </div>
 
           {user ? (

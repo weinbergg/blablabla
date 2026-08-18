@@ -12,14 +12,12 @@ import {
   Maximize2,
   MessageSquare,
   Minimize2,
-  Reply,
   Send,
   StickyNote,
   Trash2,
-  TriangleAlert,
 } from "lucide-react";
+import { ChatMessage } from "@/components/chat-message";
 import type { AnnotationItem } from "@/components/readers/annotation-layer";
-import { MathText } from "@/components/math-text";
 import { ReportDialog } from "@/components/report-dialog";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import { countLabel } from "@/lib/pluralize";
@@ -56,11 +54,14 @@ export type CommentItem = {
   page: number | null;
   body: string;
   createdAt: string;
+  updatedAt?: string | null;
   authorId: string;
   authorName: string;
+  authorRole?: string | null;
+  authorAvatarKey?: string | null;
 };
 
-type CurrentUser = { id: string; name: string; role: string } | null;
+type CurrentUser = { id: string; name: string; role: string; avatarKey?: string | null } | null;
 
 export function DocumentWorkspace({
   documentId,
@@ -487,10 +488,42 @@ function CommentThread({
     }
   }
 
+  async function editComment(id: string, text: string) {
+    const response = await fetch(`/api/comments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: text }),
+    });
+    if (response.ok) router.refresh();
+  }
+
+  async function deleteComment(id: string) {
+    if (!window.confirm("Удалить комментарий?")) return;
+    const response = await fetch(`/api/comments/${id}`, { method: "DELETE" });
+    if (response.ok) router.refresh();
+  }
+
+  function toChatItem(comment: CommentItem) {
+    return {
+      id: comment.id,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      page: comment.page,
+      author: {
+        id: comment.authorId,
+        name: comment.authorName,
+        role: comment.authorRole,
+        avatarKey: comment.authorAvatarKey,
+      },
+    };
+  }
+
   function renderThread(comment: CommentItem) {
     const replies = repliesByParent.get(comment.id) ?? [];
     const bodyCollapsed = collapsed[`body:${comment.id}`] ?? false;
     const repliesCollapsed = collapsed[`replies:${comment.id}`] ?? true;
+    const isOwn = currentUser?.id === comment.authorId;
     return (
       <div key={comment.id} className="border-t border-ink/10 pt-3">
         <div className="flex items-start gap-2">
@@ -506,13 +539,16 @@ function CommentThread({
             {bodyCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
           </button>
           <div className="min-w-0 flex-1">
-            <CommentBubble
-              comment={comment}
+            <ChatMessage
+              item={toChatItem(comment)}
               currentUserId={currentUser?.id ?? null}
               pageLabel={pageLabel}
               onJumpToPage={onJumpToPage}
               onReport={onReport}
               compact={bodyCollapsed}
+              onReply={currentUser && !bodyCollapsed ? () => setReplyTo(comment.id) : undefined}
+              onEdit={isOwn && !bodyCollapsed ? (text) => editComment(comment.id, text) : undefined}
+              onDelete={isOwn && !bodyCollapsed ? () => deleteComment(comment.id) : undefined}
             />
             {!bodyCollapsed && replies.length > 0 && (
               <div className="mt-2">
@@ -532,52 +568,44 @@ function CommentThread({
                     : `Свернуть ответы (${replies.length})`}
                 </button>
                 {!repliesCollapsed &&
-                  replies.map((reply) => (
-                    <div key={reply.id} className="ml-3 mt-3 border-l border-ink/10 pl-3">
-                      <CommentBubble
-                        comment={reply}
-                        currentUserId={currentUser?.id ?? null}
-                        pageLabel={pageLabel}
-                        onJumpToPage={onJumpToPage}
-                        onReport={onReport}
-                      />
-                    </div>
-                  ))}
+                  replies.map((reply) => {
+                    const replyOwn = currentUser?.id === reply.authorId;
+                    return (
+                      <div key={reply.id} className="ml-3 mt-3 border-l border-ink/10 pl-3">
+                        <ChatMessage
+                          item={toChatItem(reply)}
+                          currentUserId={currentUser?.id ?? null}
+                          pageLabel={pageLabel}
+                          onJumpToPage={onJumpToPage}
+                          onReport={onReport}
+                          onEdit={replyOwn ? (text) => editComment(reply.id, text) : undefined}
+                          onDelete={replyOwn ? () => deleteComment(reply.id) : undefined}
+                        />
+                      </div>
+                    );
+                  })}
               </div>
             )}
-            {!bodyCollapsed && currentUser && (
-              <div className="mt-2">
-                {replyTo === comment.id ? (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (!replyBody.trim()) return;
-                      postComment(replyBody.trim(), null, comment.id);
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <input
-                      value={replyBody}
-                      onChange={(event) => setReplyBody(event.target.value)}
-                      placeholder="Ответить…"
-                      className="flex-1 rounded-lg border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
-                      autoFocus
-                    />
-                    <button type="submit" className="icon-button" disabled={busy} aria-label="Отправить ответ">
-                      <Send size={13} />
-                    </button>
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setReplyTo(comment.id)}
-                    className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
-                  >
-                    <Reply size={13} />
-                    Ответить
-                  </button>
-                )}
-              </div>
+            {!bodyCollapsed && currentUser && replyTo === comment.id && (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!replyBody.trim()) return;
+                  postComment(replyBody.trim(), null, comment.id);
+                }}
+                className="mt-2 flex items-center gap-2"
+              >
+                <input
+                  value={replyBody}
+                  onChange={(event) => setReplyBody(event.target.value)}
+                  placeholder="Ответить…"
+                  className="flex-1 rounded-lg border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
+                  autoFocus
+                />
+                <button type="submit" className="icon-button" disabled={busy} aria-label="Отправить ответ">
+                  <Send size={13} />
+                </button>
+              </form>
             )}
           </div>
         </div>
@@ -695,61 +723,6 @@ function CommentThread({
         })}
       </div>
     </aside>
-  );
-}
-
-function CommentBubble({
-  comment,
-  currentUserId,
-  pageLabel = "стр.",
-  onJumpToPage,
-  onReport,
-  compact = false,
-}: {
-  comment: CommentItem;
-  currentUserId: string | null;
-  pageLabel?: string;
-  onJumpToPage?: (page: number) => void;
-  onReport?: (commentId: string) => void;
-  compact?: boolean;
-}) {
-  return (
-    <div className="group">
-      <div className="flex items-center gap-2 text-xs text-muted">
-        <span className="font-medium text-ink">{comment.authorName}</span>
-        {comment.page &&
-          (onJumpToPage ? (
-            <button
-              type="button"
-              onClick={() => onJumpToPage(comment.page!)}
-              className="rounded-md bg-ink/5 px-2 py-0.5 font-mono text-[10px] transition-colors hover:bg-rust/15 hover:text-rust"
-              title={`Открыть ${pageLabel} ${comment.page}`}
-            >
-              {pageLabel} {comment.page}
-            </button>
-          ) : (
-            <span className="rounded-md bg-ink/5 px-2 py-0.5 font-mono text-[10px]">
-              {pageLabel} {comment.page}
-            </span>
-          ))}
-        <span>{new Date(comment.createdAt).toLocaleDateString("ru-RU")}</span>
-        {comment.authorId !== currentUserId && onReport && (
-          <button
-            type="button"
-            onClick={() => onReport(comment.id)}
-            className="ml-auto opacity-0 transition-opacity hover:text-rust group-hover:opacity-100"
-            aria-label="Пожаловаться на комментарий"
-          >
-            <TriangleAlert size={12} />
-          </button>
-        )}
-      </div>
-      {compact ? (
-        <p className="mt-1 truncate text-sm text-ink/70">{comment.body.replace(/\s+/g, " ")}</p>
-      ) : (
-        <MathText source={comment.body} className="mt-1.5 text-sm leading-6" />
-      )}
-    </div>
   );
 }
 

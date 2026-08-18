@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, BookMarked, LogOut, Mail, Settings, Users } from "lucide-react";
+import { ArrowUpRight, BookMarked, LogOut, Mail, Users } from "lucide-react";
+import { UserAvatar } from "@/components/user-avatar";
 
-type User = { id: string; name: string; role: string } | null;
+type User = { id: string; name: string; role: string; avatarKey?: string | null } | null;
 
 export function HeaderAccount({
   user,
@@ -84,8 +85,9 @@ export function HeaderAccount({
       </Link>
       <Link
         href="/account"
-        className="hidden text-muted transition-colors hover:text-ink sm:block"
+        className="hidden items-center gap-2 text-muted transition-colors hover:text-ink sm:flex"
       >
+        <UserAvatar userId={user.id} avatarKey={user.avatarKey} name={user.name} size={22} />
         {user.name}
       </Link>
       <Link
@@ -93,7 +95,7 @@ export function HeaderAccount({
         className="text-muted transition-colors hover:text-ink sm:hidden"
         aria-label="Настройки аккаунта"
       >
-        <Settings size={15} />
+        <UserAvatar userId={user.id} avatarKey={user.avatarKey} name={user.name} size={22} />
       </Link>
       <button
         type="button"

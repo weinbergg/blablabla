@@ -20,6 +20,7 @@ import {
   users,
 } from "./schema";
 import { normalizeForSearch } from "@/lib/transliterate";
+import { searchTermGroups } from "@/lib/search";
 
 export type CategoryRow = typeof categories.$inferSelect;
 export type DocumentRow = typeof documents.$inferSelect;
@@ -343,17 +344,22 @@ export async function getAuthorBySlug(slug: string) {
 }
 
 /**
- * Intertextual neighbours: same authors, shared tags, or same primary category.
- * Ranked so co-authorship beats shared tags beats same shelf.
+ * Intertextual neighbours: same authors, shared subjects, or shared tags.
+ * Same-shelf neighbours are too noisy (Gutenberg dumps), so they are not used.
+ * Title overlap with a shared author is treated as a translation / other edition.
  */
 export async function getRelatedDocuments(documentId: string, limit = 8) {
   const doc = await getDocumentById(documentId);
   if (!doc) return [];
 
-  const scores = new Map<string, number>();
-  const bump = (id: string, weight: number) => {
+  const scores = new Map<string, { score: number; why: string }>();
+  const bump = (id: string, weight: number, why: string) => {
     if (id === documentId) return;
-    scores.set(id, (scores.get(id) ?? 0) + weight);
+    const prev = scores.get(id);
+    scores.set(id, {
+      score: (prev?.score ?? 0) + weight,
+      why: prev?.why ?? why,
+    });
   };
 
   const authorIds = doc.authors.map((a) => a.id);
@@ -362,7 +368,7 @@ export async function getRelatedDocuments(documentId: string, limit = 8) {
       .select({ documentId: documentAuthors.documentId })
       .from(documentAuthors)
       .where(inArray(documentAuthors.authorId, authorIds));
-    for (const link of links) bump(link.documentId, 5);
+    for (const link of links) bump(link.documentId, 5, "тот же автор");
   }
 
   const subjectIds = doc.subjects.map((s) => s.id);
@@ -371,7 +377,7 @@ export async function getRelatedDocuments(documentId: string, limit = 8) {
       .select({ documentId: documentSubjects.documentId })
       .from(documentSubjects)
       .where(inArray(documentSubjects.authorId, subjectIds));
-    for (const link of links) bump(link.documentId, 4);
+    for (const link of links) bump(link.documentId, 4, "тот же предмет");
   }
 
   const tagIds = doc.tags.map((t) => t.id);
@@ -380,28 +386,44 @@ export async function getRelatedDocuments(documentId: string, limit = 8) {
       .select({ documentId: documentTags.documentId })
       .from(documentTags)
       .where(inArray(documentTags.tagId, tagIds));
-    for (const link of links) bump(link.documentId, 3);
+    for (const link of links) bump(link.documentId, 3, "общая метка");
   }
 
-  const sameCategory = await db
-    .select({ id: documents.id })
+  const rankedCandidates = [...scores.entries()]
+    .filter(([, v]) => v.score >= 5)
+    .sort((a, b) => b[1].score - a[1].score || a[0].localeCompare(b[0]))
+    .slice(0, Math.max(limit * 3, 24));
+
+  if (!rankedCandidates.length) return [];
+
+  const rows = await db
+    .select()
     .from(documents)
-    .where(eq(documents.categoryId, doc.categoryId));
-  for (const row of sameCategory) bump(row.id, 1);
-
-  const ranked = [...scores.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([id]) => id);
-
-  if (!ranked.length) return [];
-
-  const rows = await db.select().from(documents).where(inArray(documents.id, ranked));
+    .where(inArray(documents.id, rankedCandidates.map(([id]) => id)));
   const withAuthors = await attachAuthors(rows);
   const byId = new Map(withAuthors.map((row) => [row.id, row]));
-  return ranked.map((id) => byId.get(id)).filter(Boolean) as (DocumentRow & {
-    authors: AuthorRow[];
-  })[];
+
+  const selfTokens = new Set(searchTermGroups(`${doc.title} ${doc.alternateTitle ?? ""}`).flat());
+
+  const ranked = rankedCandidates
+    .map(([id, meta]) => {
+      const row = byId.get(id);
+      if (!row) return null;
+      let { score, why } = meta;
+      const otherTokens = new Set(searchTermGroups(`${row.title} ${row.alternateTitle ?? ""}`).flat());
+      const overlap = [...selfTokens].some((t) => t.length >= 4 && otherTokens.has(t));
+      if (overlap && doc.authors.some((a) => row.authors.some((b) => b.id === a.id))) {
+        score += 8;
+        why =
+          row.language && doc.language && row.language !== doc.language ? "перевод" : "другое издание";
+      }
+      return { row, score, why };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b!.score - a!.score)
+    .slice(0, limit) as { row: DocumentRow & { authors: AuthorRow[] }; score: number; why: string }[];
+
+  return ranked.map(({ row, why }) => ({ ...row, relation: why }));
 }
 
 /** Other authors who share at least one category with the given author — used for "related authors" cross-links. */
@@ -464,6 +486,8 @@ export async function getDocumentComments(documentId: string) {
       updatedAt: comments.updatedAt,
       authorId: comments.authorId,
       authorName: users.name,
+      authorRole: users.role,
+      authorAvatarKey: users.avatarKey,
     })
     .from(comments)
     .innerJoin(users, eq(comments.authorId, users.id))

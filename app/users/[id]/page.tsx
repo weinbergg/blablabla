@@ -5,10 +5,10 @@ import { Header } from "@/components/header";
 import { Bookshelf } from "@/components/bookshelf";
 import { FriendActionButton } from "@/components/friend-action-button";
 import { StarRating } from "@/components/rate-review";
+import { RoleBadge, UserAvatar } from "@/components/user-avatar";
 import { getCurrentUser } from "@/lib/auth";
 import { getFriendshipStatus, getPublicProfile } from "@/lib/db/friends";
 import { getLibraryForUser, getLibraryStats, getReviewsByUser } from "@/lib/db/library";
-import { ROLE_LABELS } from "@/lib/roles";
 import { countLabel } from "@/lib/pluralize";
 
 export const dynamic = "force-dynamic";
@@ -40,17 +40,24 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
         </Link>
 
         <div className="mb-10 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="eyebrow mb-3">Профиль читателя</p>
-            <h1 className="mb-2 font-serif text-4xl tracking-tight">{profile.name}</h1>
-            <p className="text-sm text-muted">
-              {ROLE_LABELS[profile.role as keyof typeof ROLE_LABELS] ?? profile.role} · с нами с{" "}
-              {new Date(`${profile.createdAt.replace(" ", "T")}Z`).toLocaleDateString("ru-RU", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}
-            </p>
+          <div className="flex items-start gap-4">
+            <UserAvatar userId={profile.id} avatarKey={profile.avatarKey} name={profile.name} size={56} />
+            <div>
+              <p className="eyebrow mb-3">Профиль читателя</p>
+              <h1 className="mb-2 font-serif text-4xl tracking-tight">{profile.name}</h1>
+              <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                <RoleBadge role={profile.role} />
+                {profile.role === "member" ? "читатель" : null}
+                <span>
+                  с нами с{" "}
+                  {new Date(`${profile.createdAt.replace(" ", "T")}Z`).toLocaleDateString("ru-RU", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </span>
+              </p>
+            </div>
           </div>
           {!isSelf && friendship && <FriendActionButton userId={id} initial={friendship} />}
           {isSelf && (

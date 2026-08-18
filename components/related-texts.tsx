@@ -6,9 +6,10 @@ type RelatedDoc = {
   title: string;
   year: string | null;
   authors: { name: string }[];
+  relation?: string;
 };
 
-/** Nearby texts by author / tags / shelf — invites cross-reading without a fake forum. */
+/** Nearby texts by author / tags / subject — not the whole Gutenberg shelf. */
 export function RelatedTexts({ documents }: { documents: RelatedDoc[] }) {
   if (!documents.length) return null;
 
@@ -16,8 +17,8 @@ export function RelatedTexts({ documents }: { documents: RelatedDoc[] }) {
     <section className="mt-12 border-t border-ink/10 pt-10">
       <h2 className="font-serif text-2xl tracking-tight">Рядом по смыслу</h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
-        Те же авторы, общие теги или соседний раздел — удобная точка, чтобы продолжить
-        разговор между текстами.
+        Тот же автор, общий предмет или метка — и отдельно: переводы и другие издания,
+        если совпадают автор и название.
       </p>
       <ul className="mt-6 divide-y divide-ink/10">
         {documents.map((doc) => {
@@ -33,6 +34,7 @@ export function RelatedTexts({ documents }: { documents: RelatedDoc[] }) {
                     {doc.title}
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-muted">
+                    {doc.relation ? `${doc.relation} · ` : ""}
                     {authorNames || "Автор не указан"}
                     {doc.year ? `, ${doc.year}` : ""}
                   </span>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq, ne, and } from "drizzle-orm";
 import { getCurrentUser, hashPassword, verifyPassword } from "@/lib/auth";
+import { isAvatarKey } from "@/lib/avatars";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 
@@ -14,11 +15,21 @@ export async function PATCH(request: Request) {
     currentPassword?: unknown;
     newEmail?: unknown;
     newPassword?: unknown;
+    avatarKey?: unknown;
   } | null;
 
+  const avatarKey = typeof body?.avatarKey === "string" ? body.avatarKey : "";
   const currentPassword = typeof body?.currentPassword === "string" ? body.currentPassword : "";
   const newEmail = typeof body?.newEmail === "string" ? body.newEmail.trim().toLowerCase() : "";
   const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
+
+  if (avatarKey && !currentPassword && !newEmail && !newPassword) {
+    if (!isAvatarKey(avatarKey)) {
+      return NextResponse.json({ error: "Неизвестный знак." }, { status: 400 });
+    }
+    await db.update(users).set({ avatarKey }).where(eq(users.id, current.id));
+    return NextResponse.json({ ok: true });
+  }
 
   if (!currentPassword) {
     return NextResponse.json({ error: "Введите текущий пароль для подтверждения." }, { status: 400 });

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Header } from "@/components/header";
 import { ForumTopicForm } from "@/components/forum-topic-form";
+import { UserAvatar } from "@/components/user-avatar";
 import { getCurrentUser } from "@/lib/auth";
 import { listForumTopics } from "@/lib/db/forum";
 import { countLabel } from "@/lib/pluralize";
@@ -48,7 +49,13 @@ export default async function DiscussPage({
                       <span className="block font-serif text-xl leading-snug tracking-tight group-hover:underline group-hover:underline-offset-2">
                         {topic.title}
                       </span>
-                      <span className="mt-1.5 block text-xs text-muted">
+                      <span className="mt-1.5 flex items-center gap-2 text-xs text-muted">
+                        <UserAvatar
+                          userId={topic.authorId}
+                          avatarKey={topic.authorAvatarKey}
+                          name={topic.authorName}
+                          size={18}
+                        />
                         {topic.authorName}
                         {" · "}
                         {new Date(topic.createdAt).toLocaleDateString("ru-RU")}
