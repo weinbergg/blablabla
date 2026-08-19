@@ -43,6 +43,12 @@ type EpubSearchBook = {
     get: (target: string | number) => EpubSearchSection | null;
   };
 };
+type EpubBookWithSpine = {
+  spine: {
+    length?: number;
+    get: (target: string | number) => { href?: string } | null;
+  };
+};
 type EpubSearchResult = {
   id: string;
   label: string;
@@ -256,7 +262,7 @@ export function EpubReader({
     }
   }, []);
 
-  const sectionNumberForHref = useCallback((href: string | null | undefined, book?: EpubSearchBook | null) => {
+  const sectionNumberForHref = useCallback((href: string | null | undefined, book?: EpubBookWithSpine | null) => {
     if (!href) return null;
     const baseHref = href.split("#")[0] ?? href;
     const resolvedBase = book ? resolveEpubSpineHref(book.spine, baseHref) ?? baseHref : baseHref;

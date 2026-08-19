@@ -272,19 +272,18 @@ export function TxtReader({
     try {
       const normalizedNeedle = needle.toLowerCase();
       const hits = pages
-        .map((item, index) => {
+        .flatMap((item, index) => {
           const text = normalizeSearchText(item);
-          if (!text || !text.toLowerCase().includes(normalizedNeedle)) return null;
-          return {
+          if (!text || !text.toLowerCase().includes(normalizedNeedle)) return [];
+          return [{
             id: `txt-${index + 1}`,
             page: index + 1,
             label: `Лист ${index + 1}`,
             hint: `лист ${index + 1}`,
             excerpt: buildSearchExcerpt(text, needle),
             active: index + 1 === safePage,
-          } satisfies TxtSearchResult;
+          } satisfies TxtSearchResult];
         })
-        .filter((item): item is TxtSearchResult => Boolean(item))
         .slice(0, 36);
       setSearchResults(hits);
     } finally {
