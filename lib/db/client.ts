@@ -32,6 +32,9 @@ ensureColumn("feedback", "replied_by", "replied_by TEXT");
 ensureColumn("users", "avatar_key", "avatar_key TEXT");
 ensureColumn("users", "avatar_color", "avatar_color TEXT");
 ensureColumn("forum_posts", "updated_at", "updated_at TEXT");
+ensureColumn("annotations", "companion_document_id", "companion_document_id TEXT");
+ensureColumn("annotations", "companion_page", "companion_page INTEGER");
+ensureColumn("annotations", "companion_title", "companion_title TEXT");
 
 function ensureWorkTables() {
   sqlite.exec(`

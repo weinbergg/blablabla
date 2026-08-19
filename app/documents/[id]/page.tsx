@@ -22,6 +22,7 @@ import {
   getRelatedDocuments,
 } from "@/lib/db/queries";
 import { getWorkForDocument } from "@/lib/db/works";
+import { getCompanionSuggestions } from "@/lib/db/companion-suggestions";
 import { languageLabel } from "@/lib/languages";
 import { isAdminRole } from "@/lib/roles";
 
@@ -44,7 +45,7 @@ export default async function DocumentPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ with?: string; panel?: string }>;
+  searchParams: Promise<{ with?: string; panel?: string; withPage?: string; sharedQuote?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -71,14 +72,19 @@ export default async function DocumentPage({
           currentUser={currentUser}
           language={document.language}
           embed
+          sharedQuote={typeof query.sharedQuote === "string" ? query.sharedQuote : null}
         />
       </div>
     );
   }
 
   const companionId = query.with && query.with !== document.id ? query.with : null;
+  const initialCompanionPage =
+    typeof query.withPage === "string" && Number.parseInt(query.withPage, 10) >= 1
+      ? Number.parseInt(query.withPage, 10)
+      : null;
 
-  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work, companion] =
+  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work, companion, suggestions] =
     await Promise.all([
       getCategoryTrail(document.categoryId),
       getDocumentComments(document.id),
@@ -91,6 +97,7 @@ export default async function DocumentPage({
       getRelatedDocuments(document.id, 8),
       getWorkForDocument(document.id),
       companionId ? getDocumentById(companionId) : Promise.resolve(null),
+      getCompanionSuggestions(document.id),
     ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -289,58 +296,26 @@ export default async function DocumentPage({
           </div>
         </div>
 
-        {companion ? (
-          <div className="grid items-start gap-4 xl:grid-cols-2">
-            <DocumentWorkspace
-              documentId={document.id}
-              documentTitle={document.title}
-              documentAuthors={authorNames}
-              catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
-              fileUrl={document.fileUrl}
-              fileType={document.fileType}
-              comments={comments}
-              annotations={annotations}
-              currentUser={currentUser}
-              language={document.language}
-              onShelf={Boolean(libraryItem)}
-              initialCloudPage={libraryItem?.progressPage ?? null}
-              editions={companionChoices}
-              companionId={companion.id}
-            />
-            <div className="xl:sticky xl:top-4 xl:self-start">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="min-w-0 truncate text-sm text-muted">{companion.title}</p>
-                <Link
-                  href={`/documents/${document.id}`}
-                  className="shrink-0 text-xs text-muted hover:text-ink"
-                >
-                  Закрыть
-                </Link>
-              </div>
-              <iframe
-                title={companion.title}
-                src={`/documents/${companion.id}?panel=1`}
-                className="h-[min(85vh,1100px)] min-h-[28rem] w-full rounded-2xl border border-ink/10 bg-paper"
-              />
-            </div>
-          </div>
-        ) : (
-          <DocumentWorkspace
-            documentId={document.id}
-            documentTitle={document.title}
-            documentAuthors={authorNames}
-            catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
-            fileUrl={document.fileUrl}
-            fileType={document.fileType}
-            comments={comments}
-            annotations={annotations}
-            currentUser={currentUser}
-            language={document.language}
-            onShelf={Boolean(libraryItem)}
-            initialCloudPage={libraryItem?.progressPage ?? null}
-            editions={companionChoices}
-          />
-        )}
+        <DocumentWorkspace
+          documentId={document.id}
+          documentTitle={document.title}
+          documentAuthors={authorNames}
+          catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
+          fileUrl={document.fileUrl}
+          fileType={document.fileType}
+          comments={comments}
+          annotations={annotations}
+          currentUser={currentUser}
+          language={document.language}
+          onShelf={Boolean(libraryItem)}
+          initialCloudPage={libraryItem?.progressPage ?? null}
+          editions={companionChoices}
+          companionId={companion?.id ?? null}
+          companionTitle={companion?.title ?? null}
+          initialCompanionPage={initialCompanionPage}
+          suggestions={suggestions}
+          sharedQuote={typeof query.sharedQuote === "string" ? query.sharedQuote : null}
+        />
 
         {work && <WorkEditions work={work} currentDocumentId={document.id} />}
 

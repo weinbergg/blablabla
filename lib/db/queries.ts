@@ -512,6 +512,9 @@ export type MyAnnotationRow = {
   body: string;
   visibility: "public" | "private";
   anchorText: string | null;
+  companionDocumentId: string | null;
+  companionPage: number | null;
+  companionTitle: string | null;
   createdAt: string;
 };
 
@@ -528,6 +531,9 @@ export async function getMyAnnotations(userId: string): Promise<MyAnnotationRow[
       body: annotations.body,
       visibility: annotations.visibility,
       anchorText: annotations.anchorText,
+      companionDocumentId: annotations.companionDocumentId,
+      companionPage: annotations.companionPage,
+      companionTitle: annotations.companionTitle,
       createdAt: annotations.createdAt,
     })
     .from(annotations)
@@ -560,6 +566,9 @@ export async function getDocumentAnnotations(documentId: string, viewerId: strin
       allowDiscussion: annotations.allowDiscussion,
       anchorText: annotations.anchorText,
       anchorRects: annotations.anchorRects,
+      companionDocumentId: annotations.companionDocumentId,
+      companionPage: annotations.companionPage,
+      companionTitle: annotations.companionTitle,
       createdAt: annotations.createdAt,
     })
     .from(annotations)

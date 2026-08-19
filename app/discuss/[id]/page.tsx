@@ -74,7 +74,7 @@ export default async function DiscussTopicPage({
             topic.locked ? (
               <p className="mt-8 text-sm text-muted">Тема закрыта.</p>
             ) : (
-              <ForumReplyForm topicId={topic.id} />
+              <ForumReplyForm topicId={topic.id} composeId="discussion-compose" />
             )
           ) : (
             <p className="mt-8 text-sm text-muted">

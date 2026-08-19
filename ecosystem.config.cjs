@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * PM2 process file. Prefer this over `pm2 start npm -- start`: npm wraps
  * Next.js and leaves orphan `next-server` processes holding port 3000 after

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, CheckCheck, Send } from "lucide-react";
+import { SharedMessageCard } from "@/components/shared-message-card";
+import { parseShareMessage } from "@/lib/share-message";
 
 export type ThreadMessage = {
   id: string;
@@ -95,11 +97,16 @@ export function MessageThread({
         {messages.map((message) => {
           const mine = message.authorId === currentUserId;
           const read = mine && isReadByPeer(message.createdAt, peerLastReadAt);
+          const sharedPayload = parseShareMessage(message.body);
           return (
             <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm ${mine ? "bg-ink text-paper" : "bg-ink/6"}`}>
                 {!mine && <p className="mb-0.5 text-xs font-medium opacity-70">{message.authorName}</p>}
-                <p className="whitespace-pre-wrap leading-6">{message.body}</p>
+                {sharedPayload ? (
+                  <SharedMessageCard payload={sharedPayload} inverted={mine} compact />
+                ) : (
+                  <p className="whitespace-pre-wrap leading-6">{message.body}</p>
+                )}
                 <p
                   className={`mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest ${
                     mine ? "justify-end text-paper/50" : "text-muted"

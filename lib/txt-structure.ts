@@ -1,6 +1,6 @@
 /** Split long TXT into stable "листы" and pick out chapter/song headings. */
 
-import { buildTextToc } from "./toc-from-text";
+import { buildTextToc, qualityTocItems } from "./toc-from-text";
 
 export const CHARS_PER_PAGE = 3200;
 
@@ -83,7 +83,7 @@ export function txtTableOfContents(pages: string[]): {
       kind: "contents",
     });
   }
-  for (const item of built.items) {
+  for (const item of qualityTocItems(built.items)) {
     if (!item.page) continue;
     if (built.contentsPage && item.page === built.contentsPage) continue;
     items.push({ title: item.title, page: item.page });

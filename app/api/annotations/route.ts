@@ -37,6 +37,9 @@ export async function POST(request: Request) {
     allowDiscussion?: unknown;
     anchorText?: unknown;
     anchorRects?: unknown;
+    companionDocumentId?: unknown;
+    companionPage?: unknown;
+    companionTitle?: unknown;
   } | null;
 
   const documentId = typeof body?.documentId === "string" ? body.documentId : "";
@@ -55,6 +58,18 @@ export async function POST(request: Request) {
   const anchorText =
     typeof body?.anchorText === "string" && body.anchorText.trim()
       ? body.anchorText.trim().slice(0, 600)
+      : null;
+  const companionDocumentId =
+    typeof body?.companionDocumentId === "string" && body.companionDocumentId.trim()
+      ? body.companionDocumentId.trim()
+      : null;
+  const companionPage =
+    typeof body?.companionPage === "number" && Number.isFinite(body.companionPage)
+      ? Math.max(1, Math.round(body.companionPage))
+      : null;
+  const companionTitle =
+    typeof body?.companionTitle === "string" && body.companionTitle.trim()
+      ? body.companionTitle.trim().slice(0, 240)
       : null;
 
   let anchorRects: string | null = null;
@@ -84,7 +99,7 @@ export async function POST(request: Request) {
   }
 
   const [document] = await db
-    .select({ id: documents.id })
+    .select({ id: documents.id, title: documents.title })
     .from(documents)
     .where(eq(documents.id, documentId))
     .limit(1);
@@ -93,6 +108,7 @@ export async function POST(request: Request) {
   }
 
   const id = randomUUID();
+  const createdAt = new Date().toISOString();
   await db.insert(annotations).values({
     id,
     documentId,
@@ -107,8 +123,86 @@ export async function POST(request: Request) {
     allowDiscussion,
     anchorText,
     anchorRects,
+    companionDocumentId,
+    companionPage,
+    companionTitle,
+    createdAt,
   });
 
+  let mirror:
+    | {
+        id: string;
+        authorId: string;
+        authorName: string;
+        page: number;
+        x: number;
+        y: number;
+        shape: typeof annotations.$inferInsert.shape;
+        color: string;
+        body: string;
+        visibility: typeof annotations.$inferInsert.visibility;
+        allowDiscussion: boolean;
+        anchorText: null;
+        anchorRects: null;
+        companionDocumentId: string;
+        companionPage: number;
+        companionTitle: string;
+        createdAt: string;
+      }
+    | undefined;
+
+  if (companionDocumentId && companionPage && companionDocumentId !== documentId) {
+    const [companionDocument] = await db
+      .select({ id: documents.id, title: documents.title })
+      .from(documents)
+      .where(eq(documents.id, companionDocumentId))
+      .limit(1);
+
+    if (companionDocument) {
+      const mirrorId = randomUUID();
+      await db.insert(annotations).values({
+        id: mirrorId,
+        documentId: companionDocument.id,
+        authorId: user.id,
+        page: companionPage,
+        x,
+        y,
+        shape: shape as typeof annotations.$inferInsert.shape,
+        color,
+        body: text,
+        visibility: visibility as typeof annotations.$inferInsert.visibility,
+        allowDiscussion,
+        anchorText: null,
+        anchorRects: null,
+        companionDocumentId: documentId,
+        companionPage: page,
+        companionTitle: document.title,
+        createdAt,
+      });
+
+      mirror = {
+        id: mirrorId,
+        authorId: user.id,
+        authorName: user.name,
+        page: companionPage,
+        x,
+        y,
+        shape: shape as typeof annotations.$inferInsert.shape,
+        color,
+        body: text,
+        visibility: visibility as typeof annotations.$inferInsert.visibility,
+        allowDiscussion: Boolean(allowDiscussion),
+        anchorText: null,
+        anchorRects: null,
+        companionDocumentId: documentId,
+        companionPage: page,
+        companionTitle: document.title,
+        createdAt,
+      };
+      revalidatePath(`/documents/${companionDocument.id}`);
+    }
+  }
+
   revalidatePath(`/documents/${documentId}`);
-  return NextResponse.json({ ok: true, id }, { status: 201 });
+  return NextResponse.json({ ok: true, id, mirror }, { status: 201 });
 }

@@ -2,8 +2,26 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
+import { listForumTopics } from "@/lib/db/forum";
 import { db } from "@/lib/db/client";
 import { documents, forumTopics } from "@/lib/db/schema";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const rawLimit = Number.parseInt(searchParams.get("limit") ?? "8", 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(12, Math.max(1, rawLimit)) : 8;
+  const topics = await listForumTopics(limit);
+  return NextResponse.json({
+    topics: topics
+      .filter((topic) => !topic.locked)
+      .map((topic) => ({
+        id: topic.id,
+        title: topic.title,
+        documentId: topic.documentId,
+        documentTitle: topic.documentTitle,
+      })),
+  });
+}
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();

@@ -15,6 +15,7 @@ import {
   List,
   Loader2,
   MapPin,
+  Search,
 } from "lucide-react";
 import {
   AnnotationLayer,
@@ -24,10 +25,24 @@ import {
   type AnnotationUpdate,
 } from "./annotation-layer";
 import { PageJumpInput } from "./page-jump-input";
+import { ReaderSearchPanel } from "./reader-search-panel";
 import { ReaderToc } from "./reader-toc";
 import { SelectionLookup } from "./selection-lookup";
+import { ZoomControls } from "./zoom-controls";
+import { buildSearchExcerpt, normalizeSearchText } from "@/lib/reader-search";
 import { addBookmark } from "@/lib/bookmarks";
 import { splitTxtPages, txtTableOfContents } from "@/lib/txt-structure";
+
+const TXT_ZOOM_KEY = "reader:txt-zoom";
+
+type TxtSearchResult = {
+  id: string;
+  label: string;
+  hint?: string;
+  excerpt?: string;
+  page: number;
+  active?: boolean;
+};
 
 export function TxtReader({
   url,
@@ -42,6 +57,11 @@ export function TxtReader({
   onReplyToAnnotation,
   onReport,
   canAnnotate = false,
+  onAnnotationsChange,
+  companionTarget,
+  onOpenLinkedCompanion,
+  onMirrorAnnotationCreated,
+  compact = false,
 }: {
   url: string;
   language?: string | null;
@@ -55,6 +75,16 @@ export function TxtReader({
   onReplyToAnnotation?: (annotationId: string, body: string) => Promise<void> | void;
   onReport?: (targetType: "annotation" | "comment", targetId: string) => void;
   canAnnotate?: boolean;
+  onAnnotationsChange?: (items: AnnotationItem[]) => void;
+  companionTarget?: {
+    documentId: string;
+    page: number | null;
+    pageLabel?: string | null;
+    title?: string | null;
+  } | null;
+  onOpenLinkedCompanion?: (item: AnnotationItem) => void;
+  onMirrorAnnotationCreated?: (item: AnnotationItem) => void;
+  compact?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -65,10 +95,36 @@ export function TxtReader({
   const [placing, setPlacing] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [bookmarkFlash, setBookmarkFlash] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<TxtSearchResult[]>([]);
 
   useEffect(() => {
     setAnnotations(initialAnnotations);
   }, [initialAnnotations]);
+
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchResults([]);
+  }, [url]);
+
+  useEffect(() => {
+    onAnnotationsChange?.(annotations);
+  }, [annotations, onAnnotationsChange]);
+
+  useEffect(() => {
+    const stored = Number.parseFloat(window.localStorage.getItem(TXT_ZOOM_KEY) ?? "");
+    if (Number.isFinite(stored)) {
+      setZoom(Math.min(1.6, Math.max(0.9, stored)));
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(TXT_ZOOM_KEY, String(zoom));
+  }, [zoom]);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +150,7 @@ export function TxtReader({
     };
   }, [url]);
 
-  const [tocOpen, setTocOpen] = useState(true);
+  const [tocOpen, setTocOpen] = useState(false);
   const pages = useMemo(() => (text == null ? [] : splitTxtPages(text)), [text]);
   const toc = useMemo(() => txtTableOfContents(pages), [pages]);
   const total = pages.length;
@@ -102,6 +158,15 @@ export function TxtReader({
   const pageText = pages[safePage - 1] ?? "";
   const onPageChangeRef = useRef(onPageChange);
   onPageChangeRef.current = onPageChange;
+
+  useEffect(() => {
+    setSearchResults((current) =>
+      current.map((item) => {
+        const isActive = item.page === safePage;
+        return item.active === isActive ? item : { ...item, active: isActive };
+      }),
+    );
+  }, [safePage]);
 
   useEffect(() => {
     if (total <= 0) return;
@@ -123,7 +188,8 @@ export function TxtReader({
       body: JSON.stringify({ documentId, ...draft }),
     });
     if (!response.ok) return;
-    const { id } = (await response.json()) as { id: string };
+    const { id, mirror } = (await response.json()) as { id: string; mirror?: AnnotationItem };
+    const createdAt = new Date().toISOString();
     setAnnotations((current) => [
       ...current,
       {
@@ -140,9 +206,13 @@ export function TxtReader({
         allowDiscussion: draft.allowDiscussion,
         anchorText: draft.anchorText,
         anchorRects: draft.anchorRects,
-        createdAt: new Date().toISOString(),
+        companionDocumentId: draft.companionDocumentId ?? null,
+        companionPage: draft.companionPage ?? null,
+        companionTitle: draft.companionTitle ?? null,
+        createdAt,
       },
     ]);
+    if (mirror) onMirrorAnnotationCreated?.(mirror);
   }
 
   async function deleteAnnotation(id: string) {
@@ -192,6 +262,51 @@ export function TxtReader({
     window.dispatchEvent(new CustomEvent("blabla:bookmarks-changed", { detail: { documentId } }));
   }
 
+  async function runSearch() {
+    const needle = searchQuery.trim();
+    if (needle.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const normalizedNeedle = needle.toLowerCase();
+      const hits = pages
+        .map((item, index) => {
+          const text = normalizeSearchText(item);
+          if (!text || !text.toLowerCase().includes(normalizedNeedle)) return null;
+          return {
+            id: `txt-${index + 1}`,
+            page: index + 1,
+            label: `Лист ${index + 1}`,
+            hint: `лист ${index + 1}`,
+            excerpt: buildSearchExcerpt(text, needle),
+            active: index + 1 === safePage,
+          } satisfies TxtSearchResult;
+        })
+        .filter((item): item is TxtSearchResult => Boolean(item))
+        .slice(0, 36);
+      setSearchResults(hits);
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const needle = searchQuery.trim();
+    if (needle.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void runSearch();
+    }, 220);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages, searchOpen, searchQuery]);
+
   if (error) {
     return (
       <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
@@ -205,7 +320,9 @@ export function TxtReader({
       className={
         fullscreen
           ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-2 md:p-3"
-          : "rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-6"
+          : compact
+            ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-3 md:p-4"
+            : "rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-6"
       }
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -226,6 +343,7 @@ export function TxtReader({
               page={safePage}
               total={total}
               display={`лист ${safePage} из ${total}`}
+              compact={compact}
               onJump={jumpToPage}
             />
           )}
@@ -242,7 +360,7 @@ export function TxtReader({
             <button
               type="button"
               onClick={() => setTocOpen((o) => !o)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs ${
+              className={`inline-flex items-center gap-1.5 rounded-full border ${compact ? "px-2 py-1.5" : "px-2.5 py-1.5"} text-xs ${
                 tocOpen ? "border-rust text-rust" : "border-ink/15 text-muted hover:text-ink"
               }`}
               aria-label="Оглавление"
@@ -252,9 +370,24 @@ export function TxtReader({
               Оглавление
             </button>
           )}
+          {text != null && (
+            <button
+              type="button"
+              onClick={() => setSearchOpen((open) => !open)}
+              className={`inline-flex items-center gap-1.5 rounded-full border ${compact ? "px-2 py-1.5" : "px-2.5 py-1.5"} text-xs ${
+                searchOpen ? "border-rust text-rust" : "border-ink/15 text-muted hover:text-ink"
+              }`}
+              aria-label="Поиск по книге"
+              title="Поиск по книге"
+            >
+              <Search size={14} />
+              Поиск
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
+          <ZoomControls value={zoom} min={0.9} max={1.6} onChange={setZoom} compact={compact} />
           <button
             type="button"
             onClick={() => setShowAnnotations((v) => !v)}
@@ -294,13 +427,38 @@ export function TxtReader({
         </div>
       </div>
 
+      <ReaderSearchPanel
+        open={searchOpen}
+        query={searchQuery}
+        loading={searchLoading}
+        results={searchResults}
+        placeholder="Найти слово или фразу в тексте…"
+        empty="В этом тексте совпадений не нашлось."
+        countLabel={
+          searchResults.length
+            ? `Совпадений: ${searchResults.length}${searchResults.length >= 36 ? "+" : ""}`
+            : null
+        }
+        onQueryChange={(value) => {
+          setSearchQuery(value);
+          setSearchResults([]);
+        }}
+        onSubmit={() => void runSearch()}
+        onSelect={(id) => {
+          const item = searchResults.find((entry) => entry.id === id);
+          if (!item) return;
+          jumpToPage(item.page);
+        }}
+        onClose={() => setSearchOpen(false)}
+      />
+
       {placing && (
         <p className="mb-3 rounded-lg bg-rust/10 px-3 py-2 text-xs text-rust">
           Можно выделить фрагмент, затем кликните в нужном месте листа.
         </p>
       )}
 
-      <div className="md:flex md:items-start md:gap-3">
+      <div className="relative">
         <ReaderToc
           open={Boolean(tocOpen && text != null)}
           items={toc.map((item, i) => ({
@@ -311,83 +469,92 @@ export function TxtReader({
             active: item.page === safePage,
           }))}
           empty="В этом файле нет явных заголовков глав или песней. Листы экрана не равны песням Гомера — не выдумываем оглавление из пустого текста."
+          onClose={() => setTocOpen(false)}
           onSelect={(id) => {
             const page = Number.parseInt(id, 10);
-            if (Number.isFinite(page)) jumpToPage(page);
+            if (Number.isFinite(page)) {
+              setTocOpen(false);
+              jumpToPage(page);
+            }
           }}
         />
         <div className="min-w-0 flex-1">
-      {total > 0 && (
-        <div className={`${fullscreen ? "mb-2" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
-          <div
-            className="h-full rounded-full bg-rust transition-[width] duration-300 ease-out"
-            style={{ width: `${(safePage / total) * 100}%` }}
-          />
-        </div>
-      )}
-
-      <div className="relative">
-        <div
-          ref={scrollRef}
-          className="overflow-y-auto rounded-xl bg-paper"
-          style={{ maxHeight: fullscreen ? "calc(100vh - 8rem)" : "70vh" }}
-        >
-          <div
-            ref={contentRef}
-            className={`relative px-5 py-6 md:px-10 md:py-8 ${placing ? "cursor-crosshair" : ""}`}
-          >
-            {text == null ? (
-              <div className="grid place-items-center py-20">
-                <Loader2 className="animate-spin text-muted" />
-              </div>
-            ) : (
-              <pre className="whitespace-pre-wrap break-words font-serif text-[15px] leading-7 text-ink md:text-base md:leading-8">
-                {pageText}
-              </pre>
-            )}
-            {text != null && documentId && (
-              <AnnotationLayer
-                pageNumber={safePage}
-                items={annotations}
-                containerRef={contentRef}
-                currentUserId={currentUserId ?? null}
-                placing={placing}
-                comments={comments}
-                onCreate={createAnnotation}
-                onDelete={deleteAnnotation}
-                onUpdate={updateAnnotation}
-                onReply={onReplyToAnnotation ?? (() => {})}
-                onReport={onReport ?? (() => {})}
-                onPlaced={() => setPlacing(false)}
-                hidden={!showAnnotations}
+          {total > 0 && (
+            <div className={`${fullscreen ? "mb-2" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
+              <div
+                className="h-full rounded-full bg-rust transition-[width] duration-300 ease-out"
+                style={{ width: `${(safePage / total) * 100}%` }}
               />
-            )}
-            <SelectionLookup containerRef={contentRef} language={language} suppressed={placing} />
+            </div>
+          )}
+
+          <div className="relative">
+            <div
+              ref={scrollRef}
+              className="overflow-y-auto rounded-xl bg-paper"
+              style={{ maxHeight: fullscreen ? "calc(100vh - 8rem)" : "70vh" }}
+            >
+              <div
+                ref={contentRef}
+                className={`relative px-5 py-6 md:px-10 md:py-8 ${placing ? "cursor-crosshair" : ""}`}
+              >
+                {text == null ? (
+                  <div className="grid place-items-center py-20">
+                    <Loader2 className="animate-spin text-muted" />
+                  </div>
+                ) : (
+                  <pre
+                    className="whitespace-pre-wrap break-words font-serif text-ink"
+                    style={{ fontSize: `${15 * zoom}px`, lineHeight: 1.9 }}
+                  >
+                    {pageText}
+                  </pre>
+                )}
+                {text != null && documentId && (
+                  <AnnotationLayer
+                    pageNumber={safePage}
+                    items={annotations}
+                    containerRef={contentRef}
+                    currentUserId={currentUserId ?? null}
+                    placing={placing}
+                    comments={comments}
+                    onCreate={createAnnotation}
+                    onDelete={deleteAnnotation}
+                    onUpdate={updateAnnotation}
+                    onReply={onReplyToAnnotation ?? (() => {})}
+                    onReport={onReport ?? (() => {})}
+                    onPlaced={() => setPlacing(false)}
+                    companionTarget={companionTarget}
+                    onOpenLinkedCompanion={onOpenLinkedCompanion}
+                    hidden={!showAnnotations}
+                  />
+                )}
+                <SelectionLookup containerRef={contentRef} language={language} suppressed={placing} />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => go(-1)}
+              disabled={safePage <= 1 || placing}
+              aria-label="Предыдущий лист"
+              className="group absolute inset-y-0 left-0 z-10 hidden w-14 items-center justify-start disabled:cursor-default md:flex"
+            >
+              <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
+                <ChevronLeft size={20} />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => go(1)}
+              disabled={safePage >= total || placing}
+              aria-label="Следующий лист"
+              className="group absolute inset-y-0 right-0 z-10 hidden w-14 items-center justify-end disabled:cursor-default md:flex"
+            >
+              <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
+                <ChevronRight size={20} />
+              </span>
+            </button>
           </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => go(-1)}
-          disabled={safePage <= 1 || placing}
-          aria-label="Предыдущий лист"
-          className="group absolute inset-y-0 left-0 z-10 hidden w-14 items-center justify-start disabled:cursor-default md:flex"
-        >
-          <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
-            <ChevronLeft size={20} />
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => go(1)}
-          disabled={safePage >= total || placing}
-          aria-label="Следующий лист"
-          className="group absolute inset-y-0 right-0 z-10 hidden w-14 items-center justify-end disabled:cursor-default md:flex"
-        >
-          <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
-            <ChevronRight size={20} />
-          </span>
-        </button>
-      </div>
         </div>
       </div>
     </div>

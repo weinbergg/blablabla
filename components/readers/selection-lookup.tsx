@@ -1,13 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { RefObject, useEffect, useState } from "react";
-import { BookMarked, BookOpenText, ExternalLink, Languages, Plus } from "lucide-react";
+import { RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { BookMarked, BookOpenText, ExternalLink, Languages, Plus, X } from "lucide-react";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import type { LookupResult } from "@/lib/lookup";
 import type { GlossaryHit } from "@/lib/db/glossaries";
 
 type LookupPayload = LookupResult & { glossaryHits?: GlossaryHit[] };
+type LookupPanelPos = { top: number; left: number };
+const LOOKUP_SELECTION_LIMIT = 480;
+
+function normalizeSelectedText(text: string) {
+  return text
+    .replace(/\u00ad/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function selectionTokenCount(text: string) {
+  const normalized = normalizeSelectedText(text);
+  return normalized ? normalized.split(/\s+/).length : 0;
+}
 
 /**
  * In-page lookup panel: morphology, definitions, translation, and matches
@@ -34,6 +49,9 @@ export function SelectionLookup({
   const [editTerm, setEditTerm] = useState("");
   const [editDefinition, setEditDefinition] = useState("");
   const [newTitle, setNewTitle] = useState("");
+  const [panelPos, setPanelPos] = useState<LookupPanelPos | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const selectionTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const targetDoc = doc ?? document;
@@ -44,42 +62,65 @@ export function SelectionLookup({
       return;
     }
 
-    function handle() {
+    function clearSelection() {
+      setState(null);
+    }
+
+    function syncSelection() {
       const container = containerRef.current;
       const targetWindow = targetDoc.defaultView;
       const selection = targetWindow?.getSelection();
       if (!container || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-        setState(null);
+        clearSelection();
         return;
       }
       const range = selection.getRangeAt(0);
       const isIframeDoc = doc && doc !== document;
       if (!isIframeDoc && !container.contains(range.commonAncestorContainer)) {
-        setState(null);
+        clearSelection();
         return;
       }
-      const text = selection.toString().trim();
-      if (!text || text.length > 300) {
-        setState(null);
+      const text = normalizeSelectedText(selection.toString());
+      if (!text || text.length > LOOKUP_SELECTION_LIMIT) {
+        clearSelection();
         return;
       }
       const rect = range.getBoundingClientRect();
       if (!rect.width && !rect.height) {
-        setState(null);
+        clearSelection();
         return;
       }
       const frameElement = isIframeDoc ? targetWindow?.frameElement : null;
       const frameOffset = frameElement?.getBoundingClientRect() ?? { top: 0, left: 0 };
       const containerRect = container.getBoundingClientRect();
-      setState({
+      const nextState = {
         text,
         top: frameOffset.top + rect.top - containerRect.top,
         left: frameOffset.left + rect.left - containerRect.left + rect.width / 2,
+      };
+      setState((current) => {
+        if (
+          current &&
+          current.text === nextState.text &&
+          Math.abs(current.top - nextState.top) < 2 &&
+          Math.abs(current.left - nextState.left) < 2
+        ) {
+          return current;
+        }
+        return nextState;
       });
     }
 
+    function handle() {
+      if (selectionTimerRef.current) window.clearTimeout(selectionTimerRef.current);
+      selectionTimerRef.current = window.setTimeout(syncSelection, 90);
+    }
+
     targetDoc.addEventListener("selectionchange", handle);
-    return () => targetDoc.removeEventListener("selectionchange", handle);
+    return () => {
+      if (selectionTimerRef.current) window.clearTimeout(selectionTimerRef.current);
+      targetDoc.removeEventListener("selectionchange", handle);
+    };
   }, [containerRef, suppressed, doc]);
 
   useEffect(() => {
@@ -92,7 +133,7 @@ export function SelectionLookup({
       return;
     }
     setEditTerm(state.text);
-    const wordish = state.text.trim().split(/\s+/).length <= 8;
+    const wordish = selectionTokenCount(state.text) <= 8;
     if (!wordish) {
       setLookup(null);
       setEditDefinition("");
@@ -129,6 +170,34 @@ export function SelectionLookup({
       window.clearTimeout(timer);
     };
   }, [state?.text, language]);
+
+  useLayoutEffect(() => {
+    if (!state || !containerRef.current || !panelRef.current) {
+      setPanelPos(null);
+      return;
+    }
+    const panel = panelRef.current;
+    const container = containerRef.current;
+    const width = panel.offsetWidth;
+    const height = panel.offsetHeight;
+    const gap = 12;
+    const left = Math.max(
+      8,
+      Math.min(state.left - width / 2, container.clientWidth - width - 8),
+    );
+    const openBelow = state.top < height + 40;
+    const top = openBelow
+      ? Math.min(state.top + 18, Math.max(8, container.clientHeight - height - 8))
+      : Math.max(8, state.top - height - gap);
+    setPanelPos({ top, left });
+  }, [containerRef, lookup, myGlossaries.length, pickOpen, saveMsg, state]);
+
+  function closeLookup() {
+    (doc ?? document).defaultView?.getSelection()?.removeAllRanges();
+    setState(null);
+    setLookup(null);
+    setPickOpen(false);
+  }
 
   async function openAddPicker() {
     setPickOpen(true);
@@ -230,34 +299,56 @@ export function SelectionLookup({
   const lemma = lookup?.lemma;
   const parseLine = lookup?.parses[0]?.summary;
   const hits = lookup?.glossaryHits ?? [];
+  const normalizedStateText = normalizeSelectedText(state.text);
+  const tokenCount = selectionTokenCount(state.text);
+  const normalizedLemma = lemma ? normalizeSelectedText(lemma) : "";
+  const showLemma =
+    Boolean(normalizedLemma) &&
+    tokenCount === 1 &&
+    normalizedLemma.toLowerCase() !== normalizedStateText.toLowerCase();
+  const showParseLine = Boolean(parseLine) && tokenCount <= 4;
+  const actionButtonClass =
+    "inline-flex min-h-10 items-center gap-2 rounded-full border border-ink/15 px-3 text-[12px] font-medium text-ink transition-colors hover:border-rust hover:text-rust";
+  const iconActionClass =
+    "inline-grid size-10 place-items-center rounded-full border border-ink/15 text-muted transition-colors hover:border-rust hover:text-rust";
 
   return (
     <div
-      className="sticker-panel absolute z-30 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-full rounded-2xl border border-ink/10 bg-white p-3 shadow-lg"
-      style={{ top: Math.max(0, state.top - 10), left: state.left }}
+      ref={panelRef}
+      className="sticker-panel absolute z-30 w-[min(24rem,calc(100vw-1rem))] max-h-[min(30rem,calc(100vh-1rem))] overflow-y-auto rounded-2xl border border-ink/10 bg-white p-3 shadow-lg"
+      style={{
+        top: panelPos?.top ?? Math.max(8, state.top - 12),
+        left: panelPos?.left ?? Math.max(8, state.left - 160),
+      }}
       onMouseDown={(event) => event.preventDefault()}
     >
-      <p className="mb-1.5 truncate font-mono text-[10px] uppercase tracking-widest text-muted">
-        {state.text}
-      </p>
+      <div className="mb-2 flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Выделение</p>
+          <p className="mt-1 line-clamp-3 text-[15px] font-medium leading-6 text-ink">{state.text}</p>
+        </div>
+        <button
+          type="button"
+          onClick={closeLookup}
+          className="icon-button !size-8 shrink-0"
+          aria-label="Скрыть меню выделения"
+          title="Скрыть"
+        >
+          <X size={13} />
+        </button>
+      </div>
 
       {loading && !lookup && <p className="mb-2 text-xs text-muted">разбор…</p>}
 
       {lookup && (
         <div className="mb-2 space-y-1.5 text-sm leading-snug">
-          {(lemma || parseLine) && (
-            <p>
-              {lemma && lemma !== state.text.trim() && (
-                <span className="font-medium text-ink">→ {lemma}</span>
-              )}
-              {parseLine && (
-                <span className="text-muted">
-                  {lemma && lemma !== state.text.trim() ? " · " : ""}
-                  {parseLine}
-                </span>
-              )}
+          {showLemma && (
+            <p className="rounded-lg bg-ink/[0.04] px-2 py-1.5 text-[13px]">
+              <span className="mr-1 text-muted">Лемма:</span>
+              <span className="font-medium text-ink">{normalizedLemma}</span>
             </p>
           )}
+          {showParseLine && <p className="text-[12px] text-muted">{parseLine}</p>}
           {lookup.translation && (
             <p className="rounded-lg bg-ink/[0.04] px-2 py-1.5 text-[13px]">
               <Languages size={12} className="mr-1 inline opacity-60" />
@@ -291,11 +382,11 @@ export function SelectionLookup({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           onClick={openAddPicker}
-          className="inline-flex items-center gap-1 rounded-full border border-ink/15 px-2.5 py-1 text-[11px] font-medium text-ink hover:border-rust hover:text-rust"
+          className={actionButtonClass}
           title="Сохранить в свой словарь"
         >
           <Plus size={12} />
@@ -303,6 +394,8 @@ export function SelectionLookup({
         </button>
         <ShareWithFriends
           compact
+          buttonLabel="Поделиться"
+          buttonClassName="!min-h-10 !gap-2 !px-3 !text-[12px]"
           payload={{
             kind: "quote",
             title: "Цитата",
@@ -315,7 +408,7 @@ export function SelectionLookup({
         />
         <Link
           href="/glossaries"
-          className="icon-button size-8"
+          className={iconActionClass}
           title="Все словари"
           aria-label="Словари"
         >
@@ -326,7 +419,7 @@ export function SelectionLookup({
             href={`https://${lookup.wiktionaryHost}/wiki/${encodeURIComponent(lookup.wiktionaryTitle)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="icon-button size-8"
+            className={iconActionClass}
             title="Wiktionary (лемма)"
           >
             <BookOpenText size={13} />
@@ -337,7 +430,7 @@ export function SelectionLookup({
             href={lookup.logeionUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="icon-button size-8"
+            className={iconActionClass}
             title="Logeion"
           >
             <ExternalLink size={13} />

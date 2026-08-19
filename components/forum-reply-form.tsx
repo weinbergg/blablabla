@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Send } from "lucide-react";
 
@@ -9,16 +9,36 @@ export function ForumReplyForm({
   parentId = null,
   compact = false,
   onDone,
+  composeId,
 }: {
   topicId: string;
   parentId?: string | null;
   compact?: boolean;
   onDone?: () => void;
+  composeId?: string;
 }) {
   const router = useRouter();
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const composeRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!composeId) return;
+    function handleDiscussionShare(event: Event) {
+      const detail = (event as CustomEvent<{ body?: string }>).detail;
+      const queuedBody = detail?.body?.trim();
+      if (!queuedBody) return;
+      setBody((current) => (current.trim() ? `${current.trim()}\n\n${queuedBody}` : queuedBody));
+      setError(null);
+      window.requestAnimationFrame(() => {
+        composeRef.current?.focus();
+        composeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    }
+    window.addEventListener("blabla:discussion-share", handleDiscussionShare as EventListener);
+    return () => window.removeEventListener("blabla:discussion-share", handleDiscussionShare as EventListener);
+  }, [composeId]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -42,8 +62,9 @@ export function ForumReplyForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className={compact ? "mt-3 space-y-2" : "mt-8 space-y-3"}>
+    <form id={composeId} onSubmit={onSubmit} className={compact ? "mt-3 space-y-2" : "mt-8 space-y-3"}>
       <textarea
+        ref={composeRef}
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder={parentId ? "Ответить в нити…" : "Ответить в теме…"}

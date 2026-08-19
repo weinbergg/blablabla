@@ -2,33 +2,32 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-/** Editable page / chapter counter for PDF & EPUB toolbars. */
+/** Always-visible page field — not a hidden native select. */
 export function PageJumpInput({
   page,
   total,
   label = "стр.",
   display,
   disabled = false,
+  compact = false,
   onJump,
 }: {
   page: number;
   total: number;
   label?: string;
-  /** When set, shown instead of `${label} ${page}` while not editing. */
   display?: string;
   disabled?: boolean;
+  compact?: boolean;
   onJump: (page: number) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(page));
 
   useEffect(() => {
-    if (!editing) setDraft(String(page));
-  }, [page, editing]);
+    setDraft(String(page));
+  }, [page]);
 
   function commit(raw: string) {
     const next = Number.parseInt(raw.trim(), 10);
-    setEditing(false);
     if (!Number.isFinite(next) || next < 1) {
       setDraft(String(page));
       return;
@@ -36,56 +35,42 @@ export function PageJumpInput({
     onJump(Math.min(total || next, Math.max(1, next)));
   }
 
-  const idleLabel = display ?? `${label} ${page}${total ? ` из ${total}` : ""}`;
-
   if (disabled || total < 1) {
     return (
-      <span className="min-w-[9rem] text-center font-mono text-xs text-muted">{idleLabel}</span>
-    );
-  }
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          setDraft(String(page));
-          setEditing(true);
-        }}
-        className="min-w-[9rem] rounded-md px-1.5 py-0.5 text-center font-mono text-xs text-muted transition-colors hover:bg-ink/5 hover:text-ink"
-        title="Нажмите, чтобы ввести номер страницы"
-        aria-label={`${idleLabel}. Нажмите, чтобы перейти`}
-      >
-        {idleLabel}
-      </button>
+      <span className={`rounded-full border border-ink/10 font-mono text-xs text-muted ${compact ? "px-2.5 py-1" : "px-3 py-1.5"}`}>
+        {display ?? `${label} —`}
+      </span>
     );
   }
 
   return (
     <form
-      className="flex min-w-[9rem] items-center justify-center gap-1"
+      className={`flex items-center rounded-full border border-ink/15 bg-paper shadow-[inset_0_0_0_1px_transparent] focus-within:border-rust/50 ${
+        compact ? "gap-1 px-2.5 py-1" : "gap-2 px-3 py-1"
+      }`}
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
         commit(draft);
       }}
     >
-      <span className="font-mono text-[10px] text-muted">{label}</span>
+      {!compact && (
+        <span className="font-mono text-[10px] uppercase tracking-widest text-muted">{label}</span>
+      )}
       <input
-        autoFocus
         inputMode="numeric"
         value={draft}
         onChange={(event) => setDraft(event.target.value.replace(/[^\d]/g, "").slice(0, 5))}
         onBlur={() => commit(draft)}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setEditing(false);
-            setDraft(String(page));
-          }
+          if (event.key === "Escape") setDraft(String(page));
         }}
-        className="w-12 rounded border border-ink/20 bg-paper px-1 py-0.5 text-center font-mono text-xs outline-none focus:border-ink/50"
-        aria-label="Номер страницы"
+        className={`bg-transparent text-center font-serif tabular-nums text-ink outline-none ${
+          compact ? "w-10 text-[15px]" : "w-12 text-base"
+        }`}
+        aria-label={`Номер: ${label}`}
+        title="Введите номер и нажмите Enter"
       />
-      <span className="font-mono text-[10px] text-muted">/ {total}</span>
+      <span className="font-mono text-[10px] text-muted">{compact ? `/${total}` : `из ${total}`}</span>
     </form>
   );
 }

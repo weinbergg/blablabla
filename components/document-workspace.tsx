@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
@@ -8,25 +8,24 @@ import {
   Bookmark,
   ChevronDown,
   ChevronRight,
-  Columns2,
-  Filter,
   Maximize2,
   MessageSquare,
   Minimize2,
+  Quote,
   Send,
-  StickyNote,
   Trash2,
 } from "lucide-react";
 import { ChatMessage } from "@/components/chat-message";
+import { CompanionPicker } from "@/components/companion-picker";
+import { MarksDock, type MarksPlacement } from "@/components/marks-dock";
 import type { AnnotationItem } from "@/components/readers/annotation-layer";
 import { ReportDialog } from "@/components/report-dialog";
-import { ShareWithFriends } from "@/components/share-with-friends";
-import { countLabel } from "@/lib/pluralize";
 import {
   loadBookmarks,
   removeBookmark,
   type ReaderBookmark,
 } from "@/lib/bookmarks";
+import { ShareWithFriends } from "@/components/share-with-friends";
 import {
   loadReadingProgress,
   pruneReadingProgress,
@@ -34,7 +33,7 @@ import {
   type ReadingProgressKind,
 } from "@/lib/reading-progress";
 import { canAnnotateFiles } from "@/lib/roles";
-import { languageLabel } from "@/lib/languages";
+import type { CompanionSuggestions } from "@/lib/db/companion-suggestions";
 
 const PdfReader = dynamic(
   () => import("@/components/readers/pdf-reader").then((m) => m.PdfReader),
@@ -79,6 +78,18 @@ export type CompanionEdition = {
   language: string | null;
 };
 
+function buildDiscussionShareUrl(page?: number | null, hash?: string) {
+  if (typeof window === "undefined") return "/";
+  const url = new URL(window.location.href);
+  if (page != null && page >= 1) {
+    url.searchParams.set("page", String(page));
+  }
+  if (hash) {
+    url.hash = hash;
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 export function DocumentWorkspace({
   documentId,
   documentTitle,
@@ -95,6 +106,10 @@ export function DocumentWorkspace({
   embed = false,
   editions = [],
   companionId = null,
+  companionTitle = null,
+  initialCompanionPage = null,
+  suggestions = { dictionaries: [], references: [], sameAuthor: [], sameSection: [], staffPicks: [] },
+  sharedQuote = null,
 }: {
   documentId: string;
   documentTitle?: string;
@@ -114,6 +129,10 @@ export function DocumentWorkspace({
   embed?: boolean;
   editions?: CompanionEdition[];
   companionId?: string | null;
+  companionTitle?: string | null;
+  initialCompanionPage?: number | null;
+  suggestions?: CompanionSuggestions;
+  sharedQuote?: string | null;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
@@ -128,14 +147,57 @@ export function DocumentWorkspace({
   const isPdf = fileType === "PDF";
   const isEpub = fileType === "EPUB";
   const isTxt = fileType === "TXT";
+  const pageLabel = isEpub ? "глава" : isTxt ? "лист" : "стр.";
   const canFullscreen = Boolean(fileUrl) && (isPdf || isEpub || isTxt);
   const canAnnotate = canAnnotateFiles(currentUser?.role);
   const otherEditions = editions.filter((item) => item.id !== documentId);
+  const [liveAnnotations, setLiveAnnotations] = useState(annotations);
+  const [marksPlace, setMarksPlace] = useState<MarksPlacement>("hidden");
+  const companionFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const pendingCompanionJumpRef = useRef<number | null>(initialCompanionPage);
+  const [companionPage, setCompanionPage] = useState<number | null>(initialCompanionPage);
+  const [companionPageLabel, setCompanionPageLabel] = useState("стр.");
+  const [liveCompanionTitle, setLiveCompanionTitle] = useState<string | null>(companionTitle);
+  const [showSharedQuote, setShowSharedQuote] = useState(Boolean(sharedQuote));
 
-  function setCompanion(nextId: string) {
+  const appendLiveAnnotation = useCallback((item: AnnotationItem) => {
+    setLiveAnnotations((current) => (current.some((existing) => existing.id === item.id) ? current : [...current, item]));
+  }, []);
+
+  useEffect(() => {
+    setLiveAnnotations(annotations);
+  }, [annotations]);
+
+  useEffect(() => {
+    if (liveAnnotations.length === 0 && marksPlace !== "hidden") {
+      setMarksPlace("hidden");
+    }
+  }, [liveAnnotations.length, marksPlace]);
+
+  useEffect(() => {
+    setCompanionPage(initialCompanionPage);
+    setCompanionPageLabel("стр.");
+    setLiveCompanionTitle(companionTitle);
+    pendingCompanionJumpRef.current = initialCompanionPage;
+  }, [companionId, companionTitle, initialCompanionPage]);
+
+  useEffect(() => {
+    setShowSharedQuote(Boolean(sharedQuote));
+  }, [sharedQuote]);
+
+  function setCompanion(nextId: string, nextPage?: number | null) {
     const url = new URL(window.location.href);
-    if (nextId) url.searchParams.set("with", nextId);
-    else url.searchParams.delete("with");
+    if (nextId) {
+      url.searchParams.set("with", nextId);
+      if (nextPage && nextPage >= 1) {
+        url.searchParams.set("withPage", String(nextPage));
+      } else {
+        url.searchParams.delete("withPage");
+      }
+    } else {
+      url.searchParams.delete("with");
+      url.searchParams.delete("withPage");
+    }
     router.push(`${url.pathname}${url.search}`);
   }
 
@@ -170,7 +232,7 @@ export function DocumentWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId]);
 
-  function syncCloud(nextPage: number, total?: number) {
+  const syncCloud = useCallback((nextPage: number, total?: number) => {
     if (!currentUser || !onShelf || !progressKind) return;
     const now = Date.now();
     if (now - lastCloudSync.current < 60_000) return;
@@ -181,9 +243,9 @@ export function DocumentWorkspace({
       body: JSON.stringify({ page: nextPage, total, kind: progressKind }),
       keepalive: true,
     });
-  }
+  }, [currentUser, documentId, onShelf, progressKind]);
 
-  function persistPosition(nextPage: number, total?: number) {
+  const persistPosition = useCallback((nextPage: number, total?: number) => {
     if (!progressKind) return;
     saveReadingProgress(documentId, {
       kind: progressKind,
@@ -198,7 +260,7 @@ export function DocumentWorkspace({
       /* ignore */
     }
     syncCloud(nextPage, total);
-  }
+  }, [documentId, progressKind, syncCloud]);
 
   useEffect(() => {
     function flush() {
@@ -247,11 +309,65 @@ export function DocumentWorkspace({
     router.refresh();
   }
 
-  function handlePageChange(next: number, total: number) {
+  const handlePageChange = useCallback((next: number, total: number) => {
     setPage(next);
     setNumPages(total);
     persistPosition(next, total);
+  }, [persistPosition]);
+
+  function jumpToReaderPage(target: number, scrollToReader = false) {
+    handlePageChange(target, numPages || target);
+    if (scrollToReader) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
+
+  const syncCompanionPageInUrl = useCallback((nextPage: number) => {
+    if (!companionId) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("with", companionId);
+      url.searchParams.set("withPage", String(nextPage));
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      /* ignore */
+    }
+  }, [companionId]);
+
+  function jumpCompanionPage(target: number) {
+    if (!companionId) return;
+    const nextPage = Math.max(1, Math.round(target));
+    pendingCompanionJumpRef.current = nextPage;
+    setCompanionPage(nextPage);
+    syncCompanionPageInUrl(nextPage);
+    companionFrameRef.current?.contentWindow?.postMessage(
+      { type: "blabla:reader-jump", documentId: companionId, page: nextPage },
+      window.location.origin,
+    );
+  }
+
+  function openLinkedCompanion(item: AnnotationItem) {
+    if (!item.companionDocumentId || !item.companionPage) return;
+    if (companionId === item.companionDocumentId) {
+      jumpCompanionPage(item.companionPage);
+      return;
+    }
+    setCompanion(item.companionDocumentId, item.companionPage);
+  }
+
+  const syncMirrorAnnotation = useCallback(
+    (item: AnnotationItem) => {
+      if (embed && window.parent !== window) {
+        window.parent.postMessage({ type: "blabla:annotation-created", annotation: item }, window.location.origin);
+        return;
+      }
+      companionFrameRef.current?.contentWindow?.postMessage(
+        { type: "blabla:annotation-created", annotation: item },
+        window.location.origin,
+      );
+    },
+    [embed],
+  );
 
   const annotationComments = useMemo(
     () =>
@@ -268,13 +384,120 @@ export function DocumentWorkspace({
     [comments],
   );
 
+  const companionTarget =
+    companionId && companionPage
+      ? {
+          documentId: companionId,
+          page: companionPage,
+          pageLabel: companionPageLabel,
+          title: liveCompanionTitle,
+        }
+      : companionId
+        ? {
+            documentId: companionId,
+            page: null,
+            pageLabel: companionPageLabel,
+            title: liveCompanionTitle,
+          }
+        : null;
+
+  const companionSrc = useMemo(() => {
+    if (!companionId) return "";
+    const params = new URLSearchParams({ panel: "1" });
+    if (initialCompanionPage && initialCompanionPage >= 1) {
+      params.set("page", String(initialCompanionPage));
+    }
+    return `/documents/${companionId}?${params.toString()}`;
+  }, [companionId, initialCompanionPage]);
+
+  useEffect(() => {
+    if (!embed || window.parent === window) return;
+    window.parent.postMessage(
+      {
+        type: "blabla:reader-page",
+        documentId,
+        title: documentTitle ?? null,
+        page,
+        total: numPages,
+        pageLabel,
+      },
+      window.location.origin,
+    );
+  }, [documentId, documentTitle, embed, numPages, page, pageLabel]);
+
+  useEffect(() => {
+    if (!embed) return;
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as {
+        type?: string;
+        documentId?: string;
+        page?: unknown;
+        annotation?: AnnotationItem;
+      } | null;
+      if (!data) return;
+      if (data.type === "blabla:annotation-created" && data.annotation) {
+        appendLiveAnnotation(data.annotation);
+        return;
+      }
+      if (data.type !== "blabla:reader-jump" || data.documentId !== documentId) return;
+      const target =
+        typeof data.page === "number"
+          ? data.page
+          : Number.parseInt(String(data.page ?? ""), 10);
+      if (!Number.isFinite(target) || target < 1) return;
+      handlePageChange(Math.round(target), numPages || Math.round(target));
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [appendLiveAnnotation, documentId, embed, handlePageChange, numPages]);
+
+  useEffect(() => {
+    if (embed || !companionId) return;
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as {
+        type?: string;
+        documentId?: string;
+        page?: unknown;
+        pageLabel?: unknown;
+        title?: unknown;
+        annotation?: AnnotationItem;
+      } | null;
+      if (!data) return;
+      if (data.type === "blabla:annotation-created" && data.annotation) {
+        appendLiveAnnotation(data.annotation);
+        return;
+      }
+      if (data.type !== "blabla:reader-page" || data.documentId !== companionId) return;
+      const nextPage =
+        typeof data.page === "number"
+          ? data.page
+          : Number.parseInt(String(data.page ?? ""), 10);
+      if (Number.isFinite(nextPage) && nextPage >= 1) {
+        pendingCompanionJumpRef.current = null;
+        setCompanionPage(Math.round(nextPage));
+        syncCompanionPageInUrl(Math.round(nextPage));
+      }
+      setCompanionPageLabel(typeof data.pageLabel === "string" && data.pageLabel ? data.pageLabel : "стр.");
+      if (typeof data.title === "string" && data.title.trim()) {
+        setLiveCompanionTitle(data.title.trim());
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [appendLiveAnnotation, companionId, embed, syncCompanionPageInUrl]);
+
+  const showCompanionPanel = Boolean(companionId && !embed && !fullscreen);
+  const effectiveMarksPlace: MarksPlacement =
+    showCompanionPanel && marksPlace === "left" ? "below" : marksPlace;
+  const showLeftMarks = !embed && !fullscreen && effectiveMarksPlace === "left";
+  const marksLayoutClass = showLeftMarks ? "lg:flex lg:items-start lg:gap-3" : "";
+  const canJumpPages = isPdf || isEpub || isTxt;
+  const readerCompact = embed || showCompanionPanel;
+
   return (
     <div>
-      {embed && (
-        <p className="mb-3 truncate font-serif text-base leading-tight tracking-tight">
-          {documentTitle || "Текст"}
-        </p>
-      )}
       {!embed && !fullscreen && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink/10 bg-ink/[0.02] px-3.5 py-2.5">
           <div className="min-w-0 flex-1">
@@ -302,28 +525,13 @@ export function DocumentWorkspace({
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {otherEditions.length > 0 ? (
-              <label className="flex min-w-0 items-center gap-2 rounded-full border border-rust/35 bg-rust/10 px-3 py-1.5 text-xs text-ink">
-                <Columns2 size={15} className="shrink-0 text-rust" />
-                <span className="hidden font-medium sm:inline">Два текста</span>
-                <select
-                  className="max-w-[16rem] truncate bg-transparent text-xs text-ink outline-none"
-                  value={companionId ?? ""}
-                  onChange={(event) => setCompanion(event.target.value)}
-                >
-                  <option value="">Одно окно</option>
-                  {otherEditions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.roleLabel}
-                      {item.language ? ` · ${languageLabel(item.language)}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <span className="hidden max-w-[14rem] text-[11px] leading-4 text-muted lg:inline">
-                Два текста: откройте издание ниже кнопкой «Рядом», либо соседнюю книгу.
-              </span>
+            {!embed && (
+              <CompanionPicker
+                companionId={companionId}
+                editions={otherEditions}
+                suggestions={suggestions}
+                onPick={(id) => setCompanion(id)}
+              />
             )}
             {canFullscreen && (
               <button
@@ -362,105 +570,371 @@ export function DocumentWorkspace({
           </div>
         )}
         <div className={fullscreen ? "min-h-0 flex-1 overflow-y-auto px-4 pb-12 md:px-8" : ""}>
-          {progressReady && fileUrl && isPdf && (
-            <PdfReader
-              url={fileUrl}
-              page={page}
-              onPageChange={handlePageChange}
-              documentId={documentId}
-              currentUserId={currentUser?.id ?? null}
-              initialAnnotations={annotations}
-              comments={annotationComments}
-              onReplyToAnnotation={replyToAnnotation}
-              onReport={(type, id) => setReportTarget({ type, id })}
-              fullscreen={fullscreen}
-              canAnnotate={canAnnotate}
-              language={language}
-            />
-          )}
-          {progressReady && fileUrl && isEpub && (
-            <EpubReader
-              url={fileUrl}
-              page={page}
-              onPageChange={handlePageChange}
-              documentId={documentId}
-              currentUserId={currentUser?.id ?? null}
-              initialAnnotations={annotations}
-              comments={annotationComments}
-              onReplyToAnnotation={replyToAnnotation}
-              onReport={(type, id) => setReportTarget({ type, id })}
-              fullscreen={fullscreen}
-              canAnnotate={canAnnotate}
-              language={language}
-            />
-          )}
-          {progressReady && fileUrl && isTxt && (
-            <TxtReader
-              url={fileUrl}
-              language={language}
-              fullscreen={fullscreen}
-              page={page}
-              onPageChange={handlePageChange}
-              documentId={documentId}
-              currentUserId={currentUser?.id ?? null}
-              initialAnnotations={annotations}
-              comments={annotationComments}
-              onReplyToAnnotation={replyToAnnotation}
-              onReport={(type, id) => setReportTarget({ type, id })}
-              canAnnotate={canAnnotate}
-            />
-          )}
-          {fileUrl && !isPdf && !isEpub && !isTxt && (
-            <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
-              Формат {fileType} пока не открывается прямо в браузере —
-              скачайте файл, чтобы прочитать.
-            </p>
-          )}
-          {!fileUrl && (
-            <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
-              Файл недоступен.
-            </p>
-          )}
+          {showCompanionPanel ? (
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.16fr)_minmax(24rem,0.94fr)] 2xl:grid-cols-[minmax(0,1.08fr)_minmax(28rem,0.92fr)] xl:items-start">
+              <div className="min-w-0">
+                {!embed && !fullscreen && effectiveMarksPlace === "hidden" && (
+                  <MarksDock
+                    annotations={liveAnnotations}
+                    currentUserId={currentUser?.id ?? null}
+                    pageLabel={pageLabel}
+                    canJump={canJumpPages}
+                    onJumpToPage={(target) => jumpToReaderPage(target)}
+                    placement="hidden"
+                    onPlacementChange={setMarksPlace}
+                    onOpenLinkedCompanion={openLinkedCompanion}
+                    allowLeftPlacement={false}
+                  />
+                )}
+                <div className={marksLayoutClass}>
+              {showLeftMarks && (
+                <MarksDock
+                      annotations={liveAnnotations}
+                      currentUserId={currentUser?.id ?? null}
+                      pageLabel={pageLabel}
+                      canJump={canJumpPages}
+                      onJumpToPage={(target) => jumpToReaderPage(target)}
+                      placement="left"
+                      onPlacementChange={setMarksPlace}
+                      onOpenLinkedCompanion={openLinkedCompanion}
+                      allowLeftPlacement={false}
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {progressReady && fileUrl && isPdf && (
+                      <PdfReader
+                        url={fileUrl}
+                        page={page}
+                        onPageChange={handlePageChange}
+                        documentId={documentId}
+                        currentUserId={currentUser?.id ?? null}
+                        initialAnnotations={liveAnnotations}
+                        comments={annotationComments}
+                        onReplyToAnnotation={replyToAnnotation}
+                        onReport={(type, id) => setReportTarget({ type, id })}
+                        fullscreen={fullscreen}
+                        canAnnotate={canAnnotate}
+                        language={language}
+                        onAnnotationsChange={setLiveAnnotations}
+                        companionTarget={companionTarget}
+                        onOpenLinkedCompanion={openLinkedCompanion}
+                        onMirrorAnnotationCreated={syncMirrorAnnotation}
+                        sharedQuote={sharedQuote}
+                        compact={readerCompact}
+                      />
+                    )}
+                    {progressReady && fileUrl && isEpub && (
+                      <EpubReader
+                        url={fileUrl}
+                        page={page}
+                        onPageChange={handlePageChange}
+                        documentId={documentId}
+                        currentUserId={currentUser?.id ?? null}
+                        initialAnnotations={liveAnnotations}
+                        comments={annotationComments}
+                        onReplyToAnnotation={replyToAnnotation}
+                        onReport={(type, id) => setReportTarget({ type, id })}
+                        fullscreen={fullscreen}
+                        canAnnotate={canAnnotate}
+                        language={language}
+                        onAnnotationsChange={setLiveAnnotations}
+                        companionTarget={companionTarget}
+                        onOpenLinkedCompanion={openLinkedCompanion}
+                        onMirrorAnnotationCreated={syncMirrorAnnotation}
+                        compact={readerCompact}
+                      />
+                    )}
+                    {progressReady && fileUrl && isTxt && (
+                      <TxtReader
+                        url={fileUrl}
+                        language={language}
+                        fullscreen={fullscreen}
+                        page={page}
+                        onPageChange={handlePageChange}
+                        documentId={documentId}
+                        currentUserId={currentUser?.id ?? null}
+                        initialAnnotations={liveAnnotations}
+                        comments={annotationComments}
+                        onReplyToAnnotation={replyToAnnotation}
+                        onReport={(type, id) => setReportTarget({ type, id })}
+                        canAnnotate={canAnnotate}
+                        onAnnotationsChange={setLiveAnnotations}
+                        companionTarget={companionTarget}
+                        onOpenLinkedCompanion={openLinkedCompanion}
+                        onMirrorAnnotationCreated={syncMirrorAnnotation}
+                        compact={readerCompact}
+                      />
+                    )}
+                    {fileUrl && !isPdf && !isEpub && !isTxt && (
+                      <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
+                        Формат {fileType} пока не открывается прямо в браузере —
+                        скачайте файл, чтобы прочитать.
+                      </p>
+                    )}
+                    {!fileUrl && (
+                      <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
+                        Файл недоступен.
+                      </p>
+                    )}
+                    {!embed && !fullscreen && effectiveMarksPlace === "below" && (
+                      <MarksDock
+                        annotations={liveAnnotations}
+                        currentUserId={currentUser?.id ?? null}
+                        pageLabel={pageLabel}
+                        canJump={canJumpPages}
+                        onJumpToPage={(target) => jumpToReaderPage(target, true)}
+                        placement="below"
+                        onPlacementChange={setMarksPlace}
+                        onOpenLinkedCompanion={openLinkedCompanion}
+                        allowLeftPlacement={false}
+                      />
+                    )}
+                  </div>
+                </div>
 
-          {!embed && (
-          <div className="mx-auto mt-10 max-w-3xl space-y-6">
-            {(isPdf || isEpub || isTxt) && (
-              <BookmarksPanel
-                documentId={documentId}
-                canJump
-                pageLabel={isEpub ? "глава" : isTxt ? "лист" : "стр."}
-                onJumpToPage={(target) => handlePageChange(target, numPages || target)}
-              />
-            )}
-            <CommentThread
-              documentId={documentId}
-              comments={comments}
-              currentUser={currentUser}
-              currentPage={isPdf || isEpub || isTxt ? page : null}
-              maxPage={numPages}
-              pageLabel={isEpub ? "глава" : isTxt ? "лист" : "стр."}
-              onJumpToPage={
-                isPdf || isEpub || isTxt
-                  ? (target) => {
-                      handlePageChange(target, numPages || target);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
+                {!embed && (
+                  <div className="mx-auto mt-10 max-w-3xl space-y-6">
+                    {canJumpPages && (
+                      <BookmarksPanel
+                        documentId={documentId}
+                        canJump
+                        pageLabel={pageLabel}
+                        onJumpToPage={(target) => handlePageChange(target, numPages || target)}
+                      />
+                    )}
+                    <CommentThread
+                      documentId={documentId}
+                      documentTitle={documentTitle}
+                      comments={comments}
+                      currentUser={currentUser}
+                      currentPage={canJumpPages ? page : null}
+                      maxPage={numPages}
+                      pageLabel={pageLabel}
+                      onJumpToPage={
+                        canJumpPages
+                          ? (target) => {
+                              handlePageChange(target, numPages || target);
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }
+                          : undefined
+                      }
+                      onReport={(id) => setReportTarget({ type: "comment", id })}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <aside className="min-w-0 overflow-hidden rounded-2xl border border-ink/10 bg-ink/[0.02] p-3 md:p-4 xl:sticky xl:top-5">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+                      Параллельное чтение
+                    </p>
+                    <p className="truncate text-sm text-ink">
+                      {liveCompanionTitle || "Вторая книга"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      {companionPage ? `${companionPageLabel} ${companionPage}` : "Страница не выбрана"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCompanion("")}
+                    className="shrink-0 text-xs text-muted hover:text-ink"
+                  >
+                    Скрыть
+                  </button>
+                </div>
+                <iframe
+                  ref={companionFrameRef}
+                  title={liveCompanionTitle || "Параллельный текст"}
+                  src={companionSrc}
+                  loading="lazy"
+                  className="h-[72vh] min-h-[34rem] w-full rounded-2xl border border-ink/10 bg-paper"
+                  onLoad={() => {
+                    const pending = pendingCompanionJumpRef.current ?? companionPage;
+                    if (!companionId || !pending) return;
+                    window.setTimeout(() => {
+                      companionFrameRef.current?.contentWindow?.postMessage(
+                        { type: "blabla:reader-jump", documentId: companionId, page: pending },
+                        window.location.origin,
+                      );
+                    }, 0);
+                  }}
+                />
+              </aside>
+            </div>
+          ) : (
+            <>
+              {!embed && !fullscreen && effectiveMarksPlace === "hidden" && (
+                <MarksDock
+                  annotations={liveAnnotations}
+                  currentUserId={currentUser?.id ?? null}
+                  pageLabel={pageLabel}
+                  canJump={canJumpPages}
+                  onJumpToPage={(target) => jumpToReaderPage(target)}
+                  placement="hidden"
+                  onPlacementChange={setMarksPlace}
+                  onOpenLinkedCompanion={openLinkedCompanion}
+                />
+              )}
+              <div className={marksLayoutClass}>
+                {showLeftMarks && (
+                  <MarksDock
+                    annotations={liveAnnotations}
+                    currentUserId={currentUser?.id ?? null}
+                    pageLabel={pageLabel}
+                    canJump={canJumpPages}
+                    onJumpToPage={(target) => jumpToReaderPage(target)}
+                    placement="left"
+                    onPlacementChange={setMarksPlace}
+                    onOpenLinkedCompanion={openLinkedCompanion}
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  {showSharedQuote && sharedQuote && !embed && (
+                    <div className="mb-4 rounded-2xl border border-rust/20 bg-rust/[0.08] px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        <Quote size={16} className="mt-0.5 shrink-0 text-rust" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] uppercase tracking-[0.22em] text-rust/80">
+                            Открыта присланная цитата
+                          </p>
+                          <p className="mt-1 text-sm leading-6 text-ink">
+                            {sharedQuote}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowSharedQuote(false)}
+                          className="text-xs text-muted hover:text-ink"
+                        >
+                          Скрыть
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {progressReady && fileUrl && isPdf && (
+                    <PdfReader
+                      url={fileUrl}
+                      page={page}
+                      onPageChange={handlePageChange}
+                      documentId={documentId}
+                      currentUserId={currentUser?.id ?? null}
+                      initialAnnotations={liveAnnotations}
+                      comments={annotationComments}
+                      onReplyToAnnotation={replyToAnnotation}
+                      onReport={(type, id) => setReportTarget({ type, id })}
+                      fullscreen={fullscreen}
+                      canAnnotate={canAnnotate}
+                      language={language}
+                      onAnnotationsChange={setLiveAnnotations}
+                      companionTarget={companionTarget}
+                      onOpenLinkedCompanion={openLinkedCompanion}
+                      onMirrorAnnotationCreated={syncMirrorAnnotation}
+                      sharedQuote={sharedQuote}
+                      compact={readerCompact}
+                    />
+                  )}
+                  {progressReady && fileUrl && isEpub && (
+                    <EpubReader
+                      url={fileUrl}
+                      page={page}
+                      onPageChange={handlePageChange}
+                      documentId={documentId}
+                      currentUserId={currentUser?.id ?? null}
+                      initialAnnotations={liveAnnotations}
+                      comments={annotationComments}
+                      onReplyToAnnotation={replyToAnnotation}
+                      onReport={(type, id) => setReportTarget({ type, id })}
+                      fullscreen={fullscreen}
+                      canAnnotate={canAnnotate}
+                      language={language}
+                      onAnnotationsChange={setLiveAnnotations}
+                      companionTarget={companionTarget}
+                      onOpenLinkedCompanion={openLinkedCompanion}
+                      onMirrorAnnotationCreated={syncMirrorAnnotation}
+                      compact={readerCompact}
+                    />
+                  )}
+                  {progressReady && fileUrl && isTxt && (
+                    <TxtReader
+                      url={fileUrl}
+                      language={language}
+                      fullscreen={fullscreen}
+                      page={page}
+                      onPageChange={handlePageChange}
+                      documentId={documentId}
+                      currentUserId={currentUser?.id ?? null}
+                      initialAnnotations={liveAnnotations}
+                      comments={annotationComments}
+                      onReplyToAnnotation={replyToAnnotation}
+                      onReport={(type, id) => setReportTarget({ type, id })}
+                      canAnnotate={canAnnotate}
+                      onAnnotationsChange={setLiveAnnotations}
+                      companionTarget={companionTarget}
+                      onOpenLinkedCompanion={openLinkedCompanion}
+                      onMirrorAnnotationCreated={syncMirrorAnnotation}
+                      compact={readerCompact}
+                    />
+                  )}
+                  {fileUrl && !isPdf && !isEpub && !isTxt && (
+                    <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
+                      Формат {fileType} пока не открывается прямо в браузере —
+                      скачайте файл, чтобы прочитать.
+                    </p>
+                  )}
+                  {!fileUrl && (
+                    <p className="rounded-2xl border border-ink/10 bg-ink/[0.02] p-8 text-center text-sm text-muted">
+                      Файл недоступен.
+                    </p>
+                  )}
+                  {!embed && !fullscreen && effectiveMarksPlace === "below" && (
+                    <MarksDock
+                      annotations={liveAnnotations}
+                      currentUserId={currentUser?.id ?? null}
+                      pageLabel={pageLabel}
+                      canJump={canJumpPages}
+                      onJumpToPage={(target) => jumpToReaderPage(target, true)}
+                      placement="below"
+                      onPlacementChange={setMarksPlace}
+                      onOpenLinkedCompanion={openLinkedCompanion}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {!embed && (
+                <div className="mx-auto mt-10 max-w-3xl space-y-6">
+                  {canJumpPages && (
+                    <BookmarksPanel
+                      documentId={documentId}
+                      canJump
+                      pageLabel={pageLabel}
+                      onJumpToPage={(target) => handlePageChange(target, numPages || target)}
+                    />
+                  )}
+                  <CommentThread
+                    documentId={documentId}
+                    documentTitle={documentTitle}
+                    comments={comments}
+                    currentUser={currentUser}
+                    currentPage={canJumpPages ? page : null}
+                    maxPage={numPages}
+                    pageLabel={pageLabel}
+                    onJumpToPage={
+                      canJumpPages
+                        ? (target) => {
+                            handlePageChange(target, numPages || target);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }
+                        : undefined
                     }
-                  : undefined
-              }
-              onReport={(id) => setReportTarget({ type: "comment", id })}
-            />
-            {annotations.length > 0 && (
-              <AnnotationsIndex
-                annotations={annotations}
-                canJump={isPdf || isEpub || isTxt}
-                onJumpToPage={(target) => handlePageChange(target, numPages || target)}
-                documentId={documentId}
-                documentTitle={documentTitle}
-                canShare={Boolean(currentUser)}
-                pageLabel={isEpub ? "глава" : isTxt ? "лист" : "стр."}
-              />
-            )}
-          </div>
+                    onReport={(id) => setReportTarget({ type: "comment", id })}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -476,6 +950,7 @@ export function DocumentWorkspace({
 
 function CommentThread({
   documentId,
+  documentTitle,
   comments,
   currentUser,
   currentPage,
@@ -485,6 +960,7 @@ function CommentThread({
   onReport,
 }: {
   documentId: string;
+  documentTitle?: string;
   comments: CommentItem[];
   currentUser: CurrentUser;
   currentPage: number | null;
@@ -501,6 +977,7 @@ function CommentThread({
   const [busy, setBusy] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({ general: true });
+  const composeRef = useRef<HTMLTextAreaElement | null>(null);
 
   const pageComments = useMemo(() => comments.filter((c) => !c.annotationId), [comments]);
   const topLevel = useMemo(() => pageComments.filter((c) => !c.parentId), [pageComments]);
@@ -535,6 +1012,24 @@ function CommentThread({
       items: byKey.get(key) ?? [],
     }));
   }, [topLevel, pageLabel]);
+
+  useEffect(() => {
+    function handleDiscussionShare(event: Event) {
+      const detail = (event as CustomEvent<{ body?: string }>).detail;
+      const queuedBody = detail?.body?.trim();
+      if (!queuedBody) return;
+      setBody((current) => (current.trim() ? `${current.trim()}\n\n${queuedBody}` : queuedBody));
+      setReplyBody("");
+      setReplyTo(null);
+      setSectionOpen((current) => ({ ...current, general: true }));
+      window.requestAnimationFrame(() => {
+        composeRef.current?.focus();
+        composeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    }
+    window.addEventListener("blabla:discussion-share", handleDiscussionShare as EventListener);
+    return () => window.removeEventListener("blabla:discussion-share", handleDiscussionShare as EventListener);
+  }, []);
 
   async function postComment(text: string, page: number | null, parentId: string | null) {
     setBusy(true);
@@ -607,6 +1102,7 @@ function CommentThread({
             <ChatMessage
               item={toChatItem(comment)}
               currentUserId={currentUser?.id ?? null}
+              documentTitle={documentTitle}
               pageLabel={pageLabel}
               onJumpToPage={onJumpToPage}
               onReport={onReport}
@@ -640,6 +1136,7 @@ function CommentThread({
                         <ChatMessage
                           item={toChatItem(reply)}
                           currentUserId={currentUser?.id ?? null}
+                          documentTitle={documentTitle}
                           pageLabel={pageLabel}
                           onJumpToPage={onJumpToPage}
                           onReport={onReport}
@@ -680,10 +1177,34 @@ function CommentThread({
 
   return (
     <aside className="rounded-2xl border border-ink/10 bg-paper p-6">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <MessageSquare size={17} />
         <h2 className="font-serif text-2xl">Обсуждение</h2>
-        <span className="ml-auto font-mono text-xs text-muted">{pageComments.length}</span>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <ShareWithFriends
+            compact
+            buttonLabel="Книга"
+            buttonClassName="!min-h-8 !px-3 !text-[11px]"
+            payload={{
+              kind: "book",
+              title: documentTitle || "Книга",
+              url: buildDiscussionShareUrl(),
+            }}
+          />
+          {currentPage != null && (
+            <ShareWithFriends
+              compact
+              buttonLabel={`${pageLabel} ${currentPage}`}
+              buttonClassName="!min-h-8 !px-3 !text-[11px]"
+              payload={{
+                kind: "quote",
+                title: `${documentTitle || "Книга"} · ${pageLabel} ${currentPage}`,
+                url: buildDiscussionShareUrl(currentPage),
+              }}
+            />
+          )}
+          <span className="font-mono text-xs text-muted">{pageComments.length}</span>
+        </div>
       </div>
       <p className="mb-5 max-w-xl text-sm leading-6 text-muted">
         Здесь читают вместе: вопросы к месту в тексте, параллели с другими авторами,
@@ -692,6 +1213,7 @@ function CommentThread({
 
       {currentUser ? (
         <form
+          id="discussion-compose"
           onSubmit={(event) => {
             event.preventDefault();
             if (!body.trim()) return;
@@ -700,6 +1222,7 @@ function CommentThread({
           className="mb-6 space-y-3"
         >
           <textarea
+            ref={composeRef}
             value={body}
             onChange={(event) => setBody(event.target.value)}
             placeholder="Поделитесь мыслью… Можно формулы: $E=mc^2$ или $$\\int f$$"
@@ -784,131 +1307,6 @@ function CommentThread({
               </button>
               {open && <div className="space-y-2 px-3.5 pb-3">{section.items.map(renderThread)}</div>}
             </section>
-          );
-        })}
-      </div>
-    </aside>
-  );
-}
-
-/** Bridges stickers scattered across the reader with the discussion below it — filter by who
- * left a mark and where, then jump straight to that page instead of hunting through it. */
-function AnnotationsIndex({
-  annotations,
-  canJump,
-  onJumpToPage,
-  documentId,
-  documentTitle,
-  canShare,
-  pageLabel = "стр.",
-}: {
-  annotations: AnnotationItem[];
-  canJump: boolean;
-  onJumpToPage: (page: number) => void;
-  documentId: string;
-  documentTitle?: string;
-  canShare?: boolean;
-  pageLabel?: string;
-}) {
-  const [author, setAuthor] = useState("");
-  const [pageFilter, setPageFilter] = useState("");
-
-  const authors = useMemo(
-    () => [...new Set(annotations.map((a) => a.authorName))].sort((a, b) => a.localeCompare(b, "ru")),
-    [annotations],
-  );
-  const pages = useMemo(
-    () => [...new Set(annotations.map((a) => a.page))].sort((a, b) => a - b),
-    [annotations],
-  );
-
-  const filtered = annotations
-    .filter((a) => !author || a.authorName === author)
-    .filter((a) => !pageFilter || a.page === Number(pageFilter))
-    .sort((a, b) => a.page - b.page);
-
-  return (
-    <aside className="rounded-2xl border border-ink/10 bg-paper p-6">
-      <div className="mb-4 flex items-center gap-2">
-        <StickyNote size={17} />
-        <h2 className="font-serif text-xl">Пометки на этих страницах</h2>
-        <span className="ml-auto font-mono text-xs text-muted">{countLabel(annotations.length, ["пометка", "пометки", "пометок"])}</span>
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
-        <Filter size={13} className="text-muted" />
-        <select value={author} onChange={(event) => setAuthor(event.target.value)} className="rounded-full border border-ink/15 bg-transparent px-3 py-1.5">
-          <option value="">Все авторы</option>
-          {authors.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <select value={pageFilter} onChange={(event) => setPageFilter(event.target.value)} className="rounded-full border border-ink/15 bg-transparent px-3 py-1.5">
-          <option value="">Все страницы</option>
-          {pages.map((p) => (
-            <option key={p} value={p}>
-              {pageLabel} {p}
-            </option>
-          ))}
-        </select>
-        {(author || pageFilter) && (
-          <button
-            type="button"
-            onClick={() => {
-              setAuthor("");
-              setPageFilter("");
-            }}
-            className="text-muted hover:text-ink"
-          >
-            Сбросить
-          </button>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {filtered.length === 0 && <p className="text-sm text-muted">Пометок не найдено.</p>}
-        {filtered.map((item) => {
-          const excerpt =
-            item.shape === "drawing"
-              ? "рисунок"
-              : item.shape === "formula"
-                ? item.body || "формула"
-                : item.body || item.anchorText || "без текста";
-          const shareUrl = `/documents/${documentId}?page=${item.page}`;
-          return (
-            <div
-              key={item.id}
-              className="flex items-center gap-2 rounded-xl border border-ink/10 px-3.5 py-2.5"
-            >
-              <button
-                type="button"
-                onClick={() => canJump && onJumpToPage(item.page)}
-                disabled={!canJump}
-                className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left text-sm transition-colors hover:text-rust disabled:cursor-default disabled:hover:text-inherit"
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium text-ink">{item.authorName}</span>
-                  <span className="text-muted"> · {excerpt.slice(0, 60)}</span>
-                </span>
-                <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted">
-                  {pageLabel} {item.page}
-                  {canJump && <ArrowRight size={12} />}
-                </span>
-              </button>
-              {canShare && (
-                <ShareWithFriends
-                  compact
-                  payload={{
-                    kind: "annotation",
-                    title: documentTitle || "Пометка",
-                    url: shareUrl,
-                    excerpt,
-                  }}
-                />
-              )}
-            </div>
           );
         })}
       </div>

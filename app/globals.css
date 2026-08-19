@@ -359,6 +359,11 @@ button:disabled {
   color: #17202c !important;
 }
 
+.sticker-panel a,
+.sticker-panel button {
+  touch-action: manipulation;
+}
+
 /* Minimal pdf.js text layer, trimmed from pdfjs-dist/web/pdf_viewer.css — just
    enough to make page text invisibly selectable so stickers can anchor to a
    passage, without pulling in the full viewer stylesheet. */
@@ -378,6 +383,11 @@ button:disabled {
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+}
+
+.textLayer span.shared-quote-hit {
+  background: rgba(200, 92, 53, 0.22);
+  border-radius: 2px;
 }
 
 .textLayer ::selection {

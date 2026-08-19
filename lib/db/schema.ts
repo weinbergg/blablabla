@@ -340,6 +340,10 @@ export const annotations = sqliteTable("annotations", {
   anchorText: text("anchor_text"),
   /** JSON array of normalized (0..1000) rects for the selected text, used to briefly highlight the passage when the sticker is opened. */
   anchorRects: text("anchor_rects"),
+  /** Optional parallel-reading link: open the corresponding page in the second text. */
+  companionDocumentId: text("companion_document_id").references(() => documents.id, { onDelete: "set null" }),
+  companionPage: integer("companion_page"),
+  companionTitle: text("companion_title"),
   updatedAt: text("updated_at"),
   ...timestamps,
 }, (table) => ({
@@ -576,4 +580,3 @@ export const forumPosts = sqliteTable("forum_posts", {
 }, (table) => ({
   topicIdx: index("forum_posts_topic_idx").on(table.topicId),
 }));
-

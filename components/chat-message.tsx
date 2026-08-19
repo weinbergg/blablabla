@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Reply, Send, Trash2, TriangleAlert } from "lucide-react";
 import { MathText } from "@/components/math-text";
+import { ShareWithFriends } from "@/components/share-with-friends";
+import { SharedMessageCard } from "@/components/shared-message-card";
 import { RoleBadge, UserAvatar } from "@/components/user-avatar";
+import { parseShareMessage } from "@/lib/share-message";
 
 export type ChatAuthor = {
   id: string;
@@ -22,6 +25,18 @@ export type ChatMessageItem = {
   page?: number | null;
 };
 
+function buildShareUrl(page?: number | null, hash?: string) {
+  if (typeof window === "undefined") return "/";
+  const url = new URL(window.location.href);
+  if (page != null && page >= 1) {
+    url.searchParams.set("page", String(page));
+  }
+  if (hash) {
+    url.hash = hash;
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 function formatWhen(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
@@ -36,6 +51,7 @@ function formatWhen(iso: string) {
 export function ChatMessage({
   item,
   currentUserId,
+  documentTitle,
   pageLabel = "стр.",
   compact = false,
   onJumpToPage,
@@ -46,6 +62,7 @@ export function ChatMessage({
 }: {
   item: ChatMessageItem;
   currentUserId: string | null;
+  documentTitle?: string | null;
   pageLabel?: string;
   compact?: boolean;
   onJumpToPage?: (page: number) => void;
@@ -57,7 +74,26 @@ export function ChatMessage({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.body);
   const [busy, setBusy] = useState(false);
+  const [targeted, setTargeted] = useState(false);
   const isOwn = currentUserId === item.author.id;
+  const sharedPayload = parseShareMessage(item.body);
+  const anchorId = `comment-${item.id}`;
+
+  useEffect(() => {
+    function syncTarget() {
+      if (typeof window === "undefined") return;
+      const active = window.location.hash === `#${anchorId}`;
+      setTargeted(active);
+      if (!active) return;
+      const node = document.getElementById(anchorId);
+      if (!node) return;
+      node.scrollIntoView({ block: "center", behavior: "smooth" });
+      window.setTimeout(() => setTargeted(false), 2600);
+    }
+    syncTarget();
+    window.addEventListener("hashchange", syncTarget);
+    return () => window.removeEventListener("hashchange", syncTarget);
+  }, [anchorId]);
 
   async function save() {
     if (!onEdit || !draft.trim()) return;
@@ -68,7 +104,12 @@ export function ChatMessage({
   }
 
   return (
-    <div className={`chat-bubble group ${isOwn ? "chat-bubble-own" : ""} ${compact ? "chat-bubble-compact" : ""}`}>
+    <div
+      id={anchorId}
+      className={`chat-bubble group ${isOwn ? "chat-bubble-own" : ""} ${compact ? "chat-bubble-compact" : ""} ${
+        targeted ? "rounded-2xl ring-2 ring-rust/45 ring-offset-2 ring-offset-paper" : ""
+      }`}
+    >
       <UserAvatar
         userId={item.author.id}
         avatarKey={item.author.avatarKey}
@@ -108,7 +149,9 @@ export function ChatMessage({
           )}
         </div>
         {compact ? (
-          <p className="mt-1 truncate text-sm text-ink/70">{item.body.replace(/\s+/g, " ")}</p>
+          <p className="mt-1 truncate text-sm text-ink/70">
+            {(sharedPayload ? sharedPayload.excerpt || sharedPayload.title : item.body).replace(/\s+/g, " ")}
+          </p>
         ) : editing ? (
           <form
             className="mt-2 flex items-start gap-2"
@@ -128,10 +171,32 @@ export function ChatMessage({
             </button>
           </form>
         ) : (
-          <MathText source={item.body} className="mt-1.5 text-sm leading-6" />
+          <div className="mt-1.5">
+            {sharedPayload ? (
+              <SharedMessageCard payload={sharedPayload} />
+            ) : (
+              <MathText source={item.body} className="text-sm leading-6" />
+            )}
+          </div>
         )}
-        {!compact && !editing && (onReply || onEdit || onDelete) && (
+        {!compact && !editing && (
           <div className="mt-2 flex gap-3">
+            <ShareWithFriends
+              compact
+              buttonLabel="Поделиться"
+              buttonClassName="!min-h-0 !gap-1 !border-0 !px-0 !text-[12px] !font-normal shadow-none"
+              payload={
+                sharedPayload ?? {
+                  kind: "quote",
+                  title:
+                    item.page != null
+                      ? `${documentTitle || "Книга"} · ${pageLabel} ${item.page}`
+                      : documentTitle || "Комментарий",
+                  url: buildShareUrl(item.page, anchorId),
+                  excerpt: item.body,
+                }
+              }
+            />
             {onReply && (
               <button
                 type="button"
@@ -142,7 +207,7 @@ export function ChatMessage({
                 Ответить
               </button>
             )}
-            {onEdit && (
+            {onEdit && !sharedPayload && (
               <button
                 type="button"
                 onClick={() => {

@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState, type RefObject } from "react";
 import katex from "katex";
 import { MathText } from "@/components/math-text";
+import { ShareWithFriends } from "@/components/share-with-friends";
 import {
   Check,
   Eraser,
@@ -48,6 +49,9 @@ export type AnnotationItem = {
   allowDiscussion: boolean;
   anchorText: string | null;
   anchorRects: AnchorRect[] | null;
+  companionDocumentId?: string | null;
+  companionPage?: number | null;
+  companionTitle?: string | null;
   createdAt: string;
 };
 
@@ -62,6 +66,9 @@ export type AnnotationDraft = {
   allowDiscussion: boolean;
   anchorText: string | null;
   anchorRects: AnchorRect[] | null;
+  companionDocumentId?: string | null;
+  companionPage?: number | null;
+  companionTitle?: string | null;
 };
 
 export type AnnotationUpdate = {
@@ -95,6 +102,18 @@ const SHAPE_ICONS: Record<AnnotationShape, typeof StickyNote> = {
 /** Dark ink first — reads on the white sticker popup; bright rust was hard to see on formulas. */
 export const COLOR_PRESETS = ["#17202c", "#c85c35", "#8a5a9e", "#2f6f4f", "#1d5b8a", "#b8860b"];
 const FORMULA_DEFAULT_COLOR = COLOR_PRESETS[0];
+
+function buildReaderShareUrl(page?: number | null, hash?: string) {
+  if (typeof window === "undefined") return "/";
+  const url = new URL(window.location.href);
+  if (page != null && page >= 1) {
+    url.searchParams.set("page", String(page));
+  }
+  if (hash) {
+    url.hash = hash;
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 const LATEX_SNIPPETS: { label: string; insert: string; hint: string }[] = [
   { label: "a/b", insert: "\\frac{a}{b}", hint: "Дробь" },
@@ -669,6 +688,8 @@ export function AnnotationLayer({
   pageDraw,
   screenKey = null,
   hidden = false,
+  companionTarget = null,
+  onOpenLinkedCompanion,
 }: {
   pageNumber: number | null;
   items: AnnotationItem[];
@@ -689,6 +710,13 @@ export function AnnotationLayer({
   screenKey?: string | null;
   /** When true, pins and page drawings are not shown (reader wants a clean page). */
   hidden?: boolean;
+  companionTarget?: {
+    documentId: string;
+    page: number | null;
+    pageLabel?: string | null;
+    title?: string | null;
+  } | null;
+  onOpenLinkedCompanion?: (item: AnnotationItem) => void;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -706,6 +734,7 @@ export function AnnotationLayer({
   const [drawingStrokeWidth, setDrawingStrokeWidth] = useState<StrokeWidthPreset>("medium");
   const [visibility, setVisibility] = useState<AnnotationVisibility>("public");
   const [allowDiscussion, setAllowDiscussion] = useState(false);
+  const [linkCompanion, setLinkCompanion] = useState(false);
   const [saving, setSaving] = useState(false);
   const formulaTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const draftStorageKey = `blabla:annotation-draft:p${pageNumber ?? "x"}`;
@@ -778,12 +807,13 @@ export function AnnotationLayer({
       setDrawingStrokeWidth("medium");
       setVisibility(restored.visibility === "private" ? "private" : "public");
       setAllowDiscussion(Boolean(restored.allowDiscussion));
+      setLinkCompanion(Boolean(companionTarget?.documentId && companionTarget.page));
       setOpenId(null);
     }
 
     container.addEventListener("click", handleContainerClick);
     return () => container.removeEventListener("click", handleContainerClick);
-  }, [placing, containerRef, pageDraw?.active, draftStorageKey]);
+  }, [companionTarget?.documentId, companionTarget?.page, placing, containerRef, pageDraw?.active, draftStorageKey]);
 
   if (pageNumber === null) return null;
   const pageItems = hidden
@@ -840,6 +870,18 @@ export function AnnotationLayer({
       allowDiscussion: visibility === "public" && allowDiscussion,
       anchorText: draft.anchorText,
       anchorRects: draft.anchorRects,
+      companionDocumentId:
+        linkCompanion && companionTarget?.documentId && companionTarget.page
+          ? companionTarget.documentId
+          : null,
+      companionPage:
+        linkCompanion && companionTarget?.documentId && companionTarget.page
+          ? companionTarget.page
+          : null,
+      companionTitle:
+        linkCompanion && companionTarget?.documentId && companionTarget.page
+          ? companionTarget.title ?? null
+          : null,
     });
     setSaving(false);
     setDraft(null);
@@ -920,7 +962,13 @@ export function AnnotationLayer({
                   event.stopPropagation();
                   setDraft(null);
                   setEditingId(null);
-                  setOpenId((current) => (current === item.id ? null : item.id));
+                  setOpenId((current) => {
+                    const next = current === item.id ? null : item.id;
+                    if (next && item.companionDocumentId && item.companionPage) {
+                      onOpenLinkedCompanion?.(item);
+                    }
+                    return next;
+                  });
                 }}
                 className="sticker-pop grid size-8 place-items-center rounded-full border-2 border-white shadow-md transition-transform hover:scale-110"
                 style={{ backgroundColor: item.color }}
@@ -1085,10 +1133,35 @@ export function AnnotationLayer({
                       ) : (
                         <p className="text-sm italic text-muted">Без текста</p>
                       )}
+                      {item.companionDocumentId && item.companionPage && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenLinkedCompanion?.(item)}
+                          className="mt-3 w-full rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2 text-left text-xs text-muted transition-colors hover:border-rust/30 hover:text-ink"
+                        >
+                          <span className="block font-medium text-ink">
+                            Связано со второй книгой
+                          </span>
+                          <span className="mt-0.5 block">
+                            {item.companionTitle || "Параллельный текст"} · стр. {item.companionPage}
+                          </span>
+                        </button>
+                      )}
                     </>
                   )}
 
                   <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-ink/10 pt-2">
+                    <ShareWithFriends
+                      compact
+                      buttonLabel="Поделиться"
+                      buttonClassName="!min-h-0 !gap-1 !border-0 !px-0 !text-[11px] !font-normal shadow-none"
+                      payload={{
+                        kind: "annotation",
+                        title: `Пометка · стр. ${item.page}`,
+                        url: buildReaderShareUrl(item.page, `annotation-${item.id}`),
+                        excerpt: item.body || item.anchorText || `Пометка на стр. ${item.page}`,
+                      }}
+                    />
                     {!isOwn && (
                       <button
                         type="button"
@@ -1135,6 +1208,7 @@ export function AnnotationLayer({
                   {item.visibility === "public" && item.allowDiscussion && editingId !== item.id && (
                     <AnnotationDiscussion
                       annotationId={item.id}
+                      page={item.page}
                       thread={thread}
                       currentUserId={currentUserId}
                       canReply={Boolean(currentUserId)}
@@ -1327,6 +1401,30 @@ export function AnnotationLayer({
             </label>
           )}
 
+          {companionTarget?.documentId && companionTarget.page ? (
+            <label className="mb-3 block rounded-lg border border-ink/10 bg-ink/[0.03] px-3 py-2 text-xs text-muted">
+              <span className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={linkCompanion}
+                  onChange={(event) => setLinkCompanion(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block font-medium text-ink">Оставить такую же пометку во второй книге</span>
+                  <span className="block">
+                    {companionTarget.title || "Параллельный текст"} ·{" "}
+                    {companionTarget.pageLabel || "стр."} {companionTarget.page}
+                  </span>
+                </span>
+              </span>
+            </label>
+          ) : companionTarget?.documentId ? (
+            <p className="mb-3 rounded-lg border border-dashed border-ink/10 px-3 py-2 text-xs text-muted">
+              Откройте нужную страницу во второй книге, и эту пометку можно будет связать с ней.
+            </p>
+          ) : null}
+
           <button type="button" onClick={submitDraft} disabled={saving} className="button-primary w-full">
             {saving ? "Сохраняем…" : "Сохранить"}
           </button>
@@ -1340,6 +1438,7 @@ export function AnnotationLayer({
 
 function AnnotationDiscussion({
   annotationId,
+  page,
   thread,
   currentUserId,
   canReply,
@@ -1347,6 +1446,7 @@ function AnnotationDiscussion({
   onReport,
 }: {
   annotationId: string;
+  page: number;
   thread: AnnotationCommentItem[];
   currentUserId: string | null;
   canReply: boolean;
@@ -1368,16 +1468,28 @@ function AnnotationDiscussion({
             <div key={comment.id} className="group text-xs">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium text-ink">{comment.authorName}</span>
-                {comment.authorId !== currentUserId && (
-                  <button
-                    type="button"
-                    onClick={() => onReport("comment", comment.id)}
-                    className="opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-rust"
-                    aria-label="Пожаловаться на комментарий"
-                  >
-                    <TriangleAlert size={10} />
-                  </button>
-                )}
+                <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                  <ShareWithFriends
+                    compact
+                    buttonClassName="!size-6 !border-0 shadow-none"
+                    payload={{
+                      kind: "quote",
+                      title: `Обсуждение пометки · стр. ${page}`,
+                      url: buildReaderShareUrl(page, `comment-${comment.id}`),
+                      excerpt: comment.body,
+                    }}
+                  />
+                  {comment.authorId !== currentUserId && (
+                    <button
+                      type="button"
+                      onClick={() => onReport("comment", comment.id)}
+                      className="text-muted hover:text-rust"
+                      aria-label="Пожаловаться на комментарий"
+                    >
+                      <TriangleAlert size={10} />
+                    </button>
+                  )}
+                </div>
               </div>
               <MathText source={comment.body} className="mt-0.5 text-ink/80 leading-5" />
             </div>
