@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FolderInput, Loader2 } from "lucide-react";
 import type { CategoryOption } from "@/components/document-edit-form";
+import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
 type ImportResult = {
   imported: number;
@@ -21,12 +22,14 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
     setResult(null);
+    setUploadPct(null);
     const form = event.currentTarget;
     const formData = new FormData(form);
     // An empty file input still submits a zero-byte File entry — drop it so
@@ -34,11 +37,23 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
     const archive = formData.get("archive");
     if (archive instanceof File && archive.size === 0) formData.delete("archive");
 
+    try {
+      await stageLargeField(formData, "archive", "archiveToken", (fraction) =>
+        setUploadPct(Math.round(fraction * 100)),
+      );
+    } catch (uploadError) {
+      setBusy(false);
+      setUploadPct(null);
+      setError(uploadError instanceof Error ? uploadError.message : "Не удалось загрузить архив.");
+      return;
+    }
+    setUploadPct(null);
+
     const response = await fetch("/api/admin/bulk-import", { method: "POST", body: formData });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok) {
-      setError(data.error || "Не удалось выполнить импорт.");
+      setError(data.error || uploadErrorMessage(response.status));
       return;
     }
     setResult(data as ImportResult);
@@ -63,7 +78,10 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
           <label className="field">
             <span>Архив (.zip, .tar.gz, .tar, .7z)</span>
             <input name="archive" type="file" accept=".zip,.tar,.tar.gz,.tgz,.7z" className="file-input" />
-            <small>Файлы внутри архива распределяются по разделам автоматически — см. подсказку справа.</small>
+            <small>
+              Файлы внутри архива распределяются по разделам автоматически — см. подсказку справа.
+              Большие архивы (до 2 ГБ) загружаются по частям, с индикатором прогресса.
+            </small>
           </label>
           <label className="field">
             <span>...или путь на сервере (папка/архив)</span>
@@ -86,12 +104,23 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
             {busy ? (
               <>
                 <Loader2 size={15} className="animate-spin" />
-                Импортирую…
+                {uploadPct === null ? "Импортирую…" : `Загружаю архив… ${uploadPct}%`}
               </>
             ) : (
               "Импортировать"
             )}
           </button>
+          {busy && uploadPct !== null && (
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink/10">
+              <div className="h-full bg-rust transition-all" style={{ width: `${uploadPct}%` }} />
+            </div>
+          )}
+          {busy && uploadPct === null && (
+            <p className="text-xs text-muted">
+              Архив на сервере: распаковываю и раскладываю по разделам. Для больших архивов это
+              занимает минуты — не закрывайте вкладку.
+            </p>
+          )}
           {error && <p className="text-sm text-red-700">{error}</p>}
         </form>
       </section>

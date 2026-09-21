@@ -146,6 +146,55 @@ else:
 conf.write_text(text)
 PY
 
+python3 - "$CONF" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+# Big uploads: raise the body limit and give the streaming endpoints their own
+# timeouts. Without this a 340 MB book dies as a bare nginx 413.
+conf = Path(sys.argv[1])
+text = conf.read_text()
+
+if re.search(r"^\s*client_max_body_size\s+.*;", text, re.MULTILINE):
+    text = re.sub(r"^([ \t]*)client_max_body_size\s+[^;]+;", r"\1client_max_body_size 2g;", text, flags=re.MULTILINE)
+    print("OK: client_max_body_size → 2g")
+else:
+    text = re.sub(r"^([ \t]*)server_name\s+([^;]+);", r"\1server_name \2;\n\1client_max_body_size 2g;", text, flags=re.MULTILINE)
+    print("OK: inserted client_max_body_size 2g")
+
+block = """    location ~ ^/api/(uploads/stage|admin/bulk-import) {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 2g;
+        client_body_timeout 900s;
+        proxy_request_buffering off;
+        proxy_send_timeout 1800s;
+        proxy_read_timeout 1800s;
+    }
+"""
+pat = re.compile(
+    r"[ \t]*location\s+~\s+\^/api/\(uploads/stage\|admin/bulk-import\)\s*\{(?:[^{}]|\{[^{}]*\})*\}[ \t]*\n?",
+    re.MULTILINE,
+)
+if pat.search(text):
+    text = pat.sub(block + "\n", text, count=1)
+    print("OK: rewrote upload location")
+else:
+    idx = text.find("location / {")
+    if idx < 0:
+        idx = text.find("location /{")
+    if idx < 0:
+        raise SystemExit("location / not found for upload location insert")
+    text = text[:idx] + block + "\n" + text[idx:]
+    print("OK: inserted upload location")
+conf.write_text(text)
+PY
+
 nginx -t
 systemctl reload nginx
 

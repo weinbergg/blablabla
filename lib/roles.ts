@@ -25,6 +25,20 @@ export function isAdminRole(role: string | null | undefined) {
   return role === "admin";
 }
 
+/** Upload ceiling per role. Scans of big folios and whole-library archives run
+ * to hundreds of megabytes, so the people who actually fill the library get
+ * 2 GB; ordinary accounts keep the old modest cap. */
+export function uploadLimitBytes(role: string | null | undefined) {
+  return canAnnotateFiles(role) ? 2 * 1024 * 1024 * 1024 : 60 * 1024 * 1024;
+}
+
+export function uploadLimitLabel(role: string | null | undefined) {
+  const bytes = uploadLimitBytes(role);
+  return bytes >= 1024 * 1024 * 1024
+    ? `${Math.round(bytes / (1024 * 1024 * 1024))} ГБ`
+    : `${Math.round(bytes / (1024 * 1024))} МБ`;
+}
+
 /** Site owner who alone may grant/revoke admin (name and/or email). */
 export const SUPER_ADMIN_NAME = "Georg";
 export const SUPER_ADMIN_EMAIL = "georg@blablablarden.ru";

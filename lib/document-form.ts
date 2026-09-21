@@ -11,7 +11,9 @@ import {
   documentSubjects,
   documentTags,
 } from "@/lib/db/schema";
+import { hashFile } from "@/lib/bulk-import";
 import { convertDjvuToPdf } from "@/lib/djvu";
+import { discardStagedUpload, moveStagedFile, resolveStagedUpload } from "@/lib/staged-upload";
 import { getOrCreateAuthorsByNames } from "@/lib/db/authors";
 import { getOrCreateTagsByNames } from "@/lib/db/tags";
 import { buildDisplayFileName } from "@/lib/filenames";
@@ -27,7 +29,8 @@ const allowedExtensions = new Set([
   ".docx",
   ".rtf",
 ]);
-const maxFileSize = 60 * 1024 * 1024;
+/** Fallback ceiling when a caller doesn't pass a role-based limit. */
+const defaultMaxFileSize = 60 * 1024 * 1024;
 
 function stringValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -70,13 +73,43 @@ function isUploadedFile(value: FormDataEntryValue | null): value is File {
   );
 }
 
-async function storeUpload(upload: File) {
-  const extension = path.extname(upload.name).toLowerCase();
+/** Either a small file that rode along inside the multipart form, or a big one
+ * already streamed to disk by `/api/uploads/stage`. */
+type UploadSource =
+  | { kind: "browser"; name: string; size: number; file: File }
+  | { kind: "staged"; name: string; size: number; token: string; path: string };
+
+/** Reads whichever of the two upload shapes the form carries. */
+export async function readUploadSource(formData: FormData): Promise<UploadSource | null> {
+  const token = stringValue(formData, "fileToken");
+  if (token) {
+    const staged = await resolveStagedUpload(token);
+    if (!staged) {
+      throw new Error("Загруженный файл не найден на сервере — загрузите его заново.");
+    }
+    return {
+      kind: "staged",
+      name: stringValue(formData, "fileTokenName") || staged.name,
+      size: staged.size,
+      token,
+      path: staged.path,
+    };
+  }
+
+  const upload = formData.get("file");
+  if (!isUploadedFile(upload) || upload.size === 0) return null;
+  return { kind: "browser", name: upload.name, size: upload.size, file: upload };
+}
+
+async function storeUpload(source: UploadSource, maxFileSize = defaultMaxFileSize) {
+  const extension = path.extname(source.name).toLowerCase();
   if (!allowedExtensions.has(extension)) {
+    if (source.kind === "staged") await discardStagedUpload(source.token);
     throw new Error("Этот формат файла не поддерживается.");
   }
-  if (upload.size > maxFileSize) {
-    throw new Error("Файл больше 60 МБ.");
+  if (source.size > maxFileSize) {
+    if (source.kind === "staged") await discardStagedUpload(source.token);
+    throw new Error(`Файл больше ${Math.round(maxFileSize / (1024 * 1024))} МБ.`);
   }
 
   const isDjvu = extension === ".djvu";
@@ -85,16 +118,30 @@ async function storeUpload(upload: File) {
   const uploadDir = path.join(process.cwd(), "public", "uploads");
   await fs.mkdir(uploadDir, { recursive: true });
   const finalPath = path.join(uploadDir, `${storedId}${storedExt}`);
-  const bytes = Buffer.from(await upload.arrayBuffer());
-  const contentHash = createHash("sha256").update(bytes).digest("hex");
 
-  if (isDjvu) {
-    const tempPath = path.join(uploadDir, `${storedId}-source.djvu`);
-    await fs.writeFile(tempPath, bytes);
-    await convertDjvuToPdf(tempPath, finalPath);
-    await fs.unlink(tempPath).catch(() => undefined);
+  let contentHash: string;
+  if (source.kind === "staged") {
+    // Never pull a staged file into memory: hash it by streaming, then hand
+    // the path itself to ddjvu or just rename it into place.
+    contentHash = await hashFile(source.path);
+    if (isDjvu) {
+      await convertDjvuToPdf(source.path, finalPath);
+      await discardStagedUpload(source.token);
+    } else {
+      await moveStagedFile(source.path, finalPath);
+      await discardStagedUpload(source.token);
+    }
   } else {
-    await fs.writeFile(finalPath, bytes);
+    const bytes = Buffer.from(await source.file.arrayBuffer());
+    contentHash = createHash("sha256").update(bytes).digest("hex");
+    if (isDjvu) {
+      const tempPath = path.join(uploadDir, `${storedId}-source.djvu`);
+      await fs.writeFile(tempPath, bytes);
+      await convertDjvuToPdf(tempPath, finalPath);
+      await fs.unlink(tempPath).catch(() => undefined);
+    } else {
+      await fs.writeFile(finalPath, bytes);
+    }
   }
 
   return {
@@ -148,19 +195,23 @@ async function setDocumentCategories(documentId: string, primaryCategoryId: stri
   }
 }
 
-export async function createDocument(formData: FormData, userId: string) {
+export async function createDocument(
+  formData: FormData,
+  userId: string,
+  maxFileSize = defaultMaxFileSize,
+) {
   const title = stringValue(formData, "title");
   const categoryId = stringValue(formData, "categoryId");
   if (!title || !categoryId) {
     throw new Error("Заполните название и раздел.");
   }
 
-  const upload = formData.get("file");
-  if (!isUploadedFile(upload) || upload.size === 0) {
+  const source = await readUploadSource(formData);
+  if (!source) {
     throw new Error("Выберите файл.");
   }
 
-  const { fileUrl, fileType, originalFormat, contentHash } = await storeUpload(upload);
+  const { fileUrl, fileType, originalFormat, contentHash } = await storeUpload(source, maxFileSize);
   const [dup] = await db
     .select({ id: documents.id, title: documents.title })
     .from(documents)
@@ -216,6 +267,7 @@ export async function updateDocument(
   formData: FormData,
   existing: DocumentRow,
   userId: string,
+  maxFileSize = defaultMaxFileSize,
 ) {
   const updates: Partial<typeof documents.$inferInsert> = {};
 
@@ -278,9 +330,9 @@ export async function updateDocument(
   }
 
   const finalTitle = (updates.title as string | undefined) ?? existing.title;
-  const upload = formData.get("file");
-  if (isUploadedFile(upload) && upload.size > 0) {
-    const { fileUrl, fileType, originalFormat, contentHash } = await storeUpload(upload);
+  const source = await readUploadSource(formData);
+  if (source) {
+    const { fileUrl, fileType, originalFormat, contentHash } = await storeUpload(source, maxFileSize);
     await removeUploadedFile(existing.fileUrl);
     const displayName = buildDisplayFileName(
       finalTitle,

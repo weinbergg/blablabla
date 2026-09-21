@@ -6,7 +6,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { deleteDocumentById, updateDocument } from "@/lib/document-form";
 import { db } from "@/lib/db/client";
 import { documentEdits, documents } from "@/lib/db/schema";
-import { isAdminRole } from "@/lib/roles";
+import { isAdminRole, uploadLimitBytes } from "@/lib/roles";
+
+export const maxDuration = 600;
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -24,7 +26,7 @@ export async function PUT(request: Request, context: Context) {
 
   try {
     const formData = await request.formData();
-    await updateDocument(formData, existing, user.id);
+    await updateDocument(formData, existing, user.id, uploadLimitBytes(user.role));
     revalidatePath("/");
     revalidatePath(`/documents/${id}`);
     revalidatePath("/admin");

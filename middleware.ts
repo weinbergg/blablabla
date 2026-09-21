@@ -42,5 +42,14 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  // Upload routes MUST stay out of the matcher. When middleware runs, Next
+  // clones the request body through a buffer capped by
+  // `experimental.middlewareClientMaxBodySize` (10 MB by default) — the body
+  // is then silently TRUNCATED at that size, so a 340 MB book arrived as a
+  // 10 MB fragment and every large import quietly produced a corrupt archive.
+  // These routes check auth themselves, so skipping the maintenance gate here
+  // costs nothing.
+  matcher: [
+    "/((?!_next/static|_next/image|api/uploads/stage|api/admin/bulk-import|api/documents|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
 };

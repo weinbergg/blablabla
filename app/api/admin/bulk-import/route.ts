@@ -11,8 +11,9 @@ import {
   importFromDirectory,
   isArchiveFile,
 } from "@/lib/bulk-import";
+import { discardStagedUpload, resolveStagedUpload } from "@/lib/staged-upload";
 
-export const maxDuration = 300;
+export const maxDuration = 3600;
 
 function isUploadedFile(value: FormDataEntryValue | null): value is File {
   return (
@@ -35,6 +36,14 @@ export async function POST(request: Request) {
     (formData.get("defaultCategoryId") as string | null)?.trim() || (await ensureUncategorizedCategory());
   const sourcePath = (formData.get("sourcePath") as string | null)?.trim();
   const archive = formData.get("archive");
+  const archiveToken = (formData.get("archiveToken") as string | null)?.trim() ?? "";
+  const staged = archiveToken ? await resolveStagedUpload(archiveToken) : null;
+  if (archiveToken && !staged) {
+    return NextResponse.json(
+      { error: "Загруженный архив не найден на сервере — загрузите его заново." },
+      { status: 400 },
+    );
+  }
 
   const workDir = path.join(os.tmpdir(), `bulk-import-${randomUUID()}`);
   let cleanupWorkDir = false;
@@ -43,7 +52,16 @@ export async function POST(request: Request) {
     let importDir: string;
     let sourceLabel: string;
 
-    if (isUploadedFile(archive) && archive.size > 0) {
+    if (staged) {
+      // Already on disk (streamed by /api/uploads/stage), so nothing here ever
+      // holds a multi-hundred-megabyte archive in memory.
+      await fs.mkdir(workDir, { recursive: true });
+      cleanupWorkDir = true;
+      const extractDir = path.join(workDir, "extracted");
+      await extractArchive(staged.path, extractDir);
+      importDir = extractDir;
+      sourceLabel = `архив ${staged.name}`;
+    } else if (isUploadedFile(archive) && archive.size > 0) {
       await fs.mkdir(workDir, { recursive: true });
       cleanupWorkDir = true;
       const archivePath = path.join(workDir, archive.name);
@@ -96,5 +114,6 @@ export async function POST(request: Request) {
     if (cleanupWorkDir) {
       await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
     }
+    if (archiveToken) await discardStagedUpload(archiveToken);
   }
 }

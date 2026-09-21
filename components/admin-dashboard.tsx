@@ -39,6 +39,7 @@ import { countLabel } from "@/lib/pluralize";
 import { ROLE_LABELS, canManageAdmins, isSuperAdminUser } from "@/lib/roles";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { BulkImportTab } from "@/components/admin-bulk-import-tab";
+import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
 export type AdminDocument = {
   id: string;
@@ -214,6 +215,7 @@ function DocumentsTab({
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const editing = documents.find((d) => d.id === editingId) ?? null;
 
@@ -264,14 +266,27 @@ function DocumentsTab({
     setMessage("");
 
     const form = event.currentTarget;
+    const formData = new FormData(form);
+    try {
+      await stageLargeField(formData, "file", "fileToken", (fraction) =>
+        setUploadPct(Math.round(fraction * 100)),
+      );
+    } catch (uploadError) {
+      setMessage(uploadError instanceof Error ? uploadError.message : "Не удалось загрузить файл.");
+      setUploadPct(null);
+      setBusy(false);
+      return;
+    }
+    setUploadPct(null);
+
     const response = await fetch(editing ? `/api/documents/${editing.id}` : "/api/documents", {
       method: editing ? "PUT" : "POST",
-      body: new FormData(form),
+      body: formData,
     });
     const result = (await response.json().catch(() => ({}))) as { error?: string };
 
     if (!response.ok) {
-      setMessage(result.error || "Не удалось сохранить материал.");
+      setMessage(result.error || uploadErrorMessage(response.status));
       setBusy(false);
       return;
     }
@@ -392,12 +407,26 @@ function DocumentsTab({
               accept=".pdf,.epub,.mobi,.djvu,.txt,.doc,.docx,.rtf"
               className="file-input"
             />
-            <small>PDF, EPUB, MOBI, DJVU, TXT, DOC/DOCX или RTF · до 60 МБ. DjVu автоматически станет PDF.</small>
+            <small>
+              PDF, EPUB, MOBI, DJVU, TXT, DOC/DOCX или RTF · до 2 ГБ. Файлы тяжелее 8 МБ
+              загружаются отдельным потоком, с прогрессом. DjVu автоматически станет PDF.
+            </small>
           </label>
 
           <button className="button-primary w-full" disabled={busy}>
-            {busy ? "Сохраняю…" : editing ? "Сохранить изменения" : "Добавить"}
+            {busy
+              ? uploadPct === null
+                ? "Сохраняю…"
+                : `Загружаю файл… ${uploadPct}%`
+              : editing
+                ? "Сохранить изменения"
+                : "Добавить"}
           </button>
+          {busy && uploadPct !== null && (
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink/10">
+              <div className="h-full bg-rust transition-all" style={{ width: `${uploadPct}%` }} />
+            </div>
+          )}
           {message && (
             <p className="flex items-center gap-2 text-sm text-muted">
               {message === "Сохранено" && <Check size={15} />}

@@ -2,6 +2,9 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { createDocument } from "@/lib/document-form";
+import { uploadLimitBytes } from "@/lib/roles";
+
+export const maxDuration = 600;
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -11,7 +14,7 @@ export async function POST(request: Request) {
 
   try {
     const formData = await request.formData();
-    const documentId = await createDocument(formData, user.id);
+    const documentId = await createDocument(formData, user.id, uploadLimitBytes(user.role));
     revalidatePath("/");
     revalidatePath("/admin");
     return NextResponse.json({ id: documentId }, { status: 201 });

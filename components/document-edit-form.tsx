@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, X } from "lucide-react";
 import { LANGUAGES } from "@/lib/languages";
+import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
 export type CategoryOption = { id: string; label: string };
 
@@ -33,6 +34,7 @@ export function DocumentEditForm({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [categoryId, setCategoryId] = useState(initial.categoryId);
   const [secondaryIds, setSecondaryIds] = useState<Set<string>>(new Set(initial.secondaryCategoryIds));
 
@@ -40,14 +42,27 @@ export function DocumentEditForm({
     event.preventDefault();
     setBusy(true);
     setError("");
+    const formData = new FormData(event.currentTarget);
+    try {
+      await stageLargeField(formData, "file", "fileToken", (fraction) =>
+        setUploadPct(Math.round(fraction * 100)),
+      );
+    } catch (uploadError) {
+      setBusy(false);
+      setUploadPct(null);
+      setError(uploadError instanceof Error ? uploadError.message : "Не удалось загрузить файл.");
+      return;
+    }
+    setUploadPct(null);
+
     const response = await fetch(`/api/documents/${documentId}`, {
       method: "PUT",
-      body: new FormData(event.currentTarget),
+      body: formData,
     });
     setBusy(false);
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
-      setError(result.error || "Не удалось сохранить изменения.");
+      setError(result.error || uploadErrorMessage(response.status));
       return;
     }
     setOpen(false);
@@ -195,7 +210,7 @@ export function DocumentEditForm({
         </label>
 
         <button className="button-primary w-full" disabled={busy}>
-          {busy ? "Сохраняю…" : "Сохранить"}
+          {busy ? (uploadPct === null ? "Сохраняю…" : `Загружаю файл… ${uploadPct}%`) : "Сохранить"}
         </button>
         {error && <p className="text-sm text-red-700">{error}</p>}
       </div>

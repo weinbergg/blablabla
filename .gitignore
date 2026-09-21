@@ -68,3 +68,6 @@ next-env.d.ts
 
 # local book staging for imports
 /import-staging/
+
+# in-flight browser uploads streamed to disk before they're committed
+/data/tmp-uploads/
