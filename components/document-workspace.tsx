@@ -11,7 +11,6 @@ import {
   Maximize2,
   MessageSquare,
   Minimize2,
-  Quote,
   Send,
   Trash2,
 } from "lucide-react";
@@ -158,7 +157,7 @@ export function DocumentWorkspace({
   const [companionPage, setCompanionPage] = useState<number | null>(initialCompanionPage);
   const [companionPageLabel, setCompanionPageLabel] = useState("стр.");
   const [liveCompanionTitle, setLiveCompanionTitle] = useState<string | null>(companionTitle);
-  const [showSharedQuote, setShowSharedQuote] = useState(Boolean(sharedQuote));
+  const readerHostRef = useRef<HTMLDivElement | null>(null);
 
   const appendLiveAnnotation = useCallback((item: AnnotationItem) => {
     setLiveAnnotations((current) => (current.some((existing) => existing.id === item.id) ? current : [...current, item]));
@@ -181,9 +180,9 @@ export function DocumentWorkspace({
     pendingCompanionJumpRef.current = initialCompanionPage;
   }, [companionId, companionTitle, initialCompanionPage]);
 
-  useEffect(() => {
-    setShowSharedQuote(Boolean(sharedQuote));
-  }, [sharedQuote]);
+  const scrollReaderIntoView = useCallback((behavior: ScrollBehavior = "smooth") => {
+    readerHostRef.current?.scrollIntoView({ block: "start", behavior });
+  }, []);
 
   function setCompanion(nextId: string, nextPage?: number | null) {
     const url = new URL(window.location.href);
@@ -318,9 +317,16 @@ export function DocumentWorkspace({
   function jumpToReaderPage(target: number, scrollToReader = false) {
     handlePageChange(target, numPages || target);
     if (scrollToReader) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollReaderIntoView();
     }
   }
+
+  useEffect(() => {
+    if (!sharedQuote || embed) return;
+    window.requestAnimationFrame(() => {
+      scrollReaderIntoView("auto");
+    });
+  }, [embed, scrollReaderIntoView, sharedQuote]);
 
   const syncCompanionPageInUrl = useCallback((nextPage: number) => {
     if (!companionId) return;
@@ -600,7 +606,7 @@ export function DocumentWorkspace({
                       allowLeftPlacement={false}
                     />
                   )}
-                  <div className="min-w-0 flex-1">
+                  <div ref={readerHostRef} className="min-w-0 flex-1">
                     {progressReady && fileUrl && isPdf && (
                       <PdfReader
                         url={fileUrl}
@@ -699,7 +705,7 @@ export function DocumentWorkspace({
                         documentId={documentId}
                         canJump
                         pageLabel={pageLabel}
-                        onJumpToPage={(target) => handlePageChange(target, numPages || target)}
+                        onJumpToPage={(target) => jumpToReaderPage(target, true)}
                       />
                     )}
                     <CommentThread
@@ -713,8 +719,7 @@ export function DocumentWorkspace({
                       onJumpToPage={
                         canJumpPages
                           ? (target) => {
-                              handlePageChange(target, numPages || target);
-                              window.scrollTo({ top: 0, behavior: "smooth" });
+                              jumpToReaderPage(target, true);
                             }
                           : undefined
                       }
@@ -791,31 +796,9 @@ export function DocumentWorkspace({
                     onOpenLinkedCompanion={openLinkedCompanion}
                   />
                 )}
-                <div className="min-w-0 flex-1">
-                  {showSharedQuote && sharedQuote && !embed && (
-                    <div className="mb-4 rounded-2xl border border-rust/20 bg-rust/[0.08] px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <Quote size={16} className="mt-0.5 shrink-0 text-rust" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] uppercase tracking-[0.22em] text-rust/80">
-                            Открыта присланная цитата
-                          </p>
-                          <p className="mt-1 text-sm leading-6 text-ink">
-                            {sharedQuote}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowSharedQuote(false)}
-                          className="text-xs text-muted hover:text-ink"
-                        >
-                          Скрыть
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {progressReady && fileUrl && isPdf && (
-                    <PdfReader
+                  <div ref={readerHostRef} className="min-w-0 flex-1">
+                    {progressReady && fileUrl && isPdf && (
+                      <PdfReader
                       url={fileUrl}
                       page={page}
                       onPageChange={handlePageChange}
@@ -906,14 +889,14 @@ export function DocumentWorkspace({
 
               {!embed && (
                 <div className="mx-auto mt-10 max-w-3xl space-y-6">
-                  {canJumpPages && (
-                    <BookmarksPanel
-                      documentId={documentId}
-                      canJump
-                      pageLabel={pageLabel}
-                      onJumpToPage={(target) => handlePageChange(target, numPages || target)}
-                    />
-                  )}
+                    {canJumpPages && (
+                      <BookmarksPanel
+                        documentId={documentId}
+                        canJump
+                        pageLabel={pageLabel}
+                        onJumpToPage={(target) => jumpToReaderPage(target, true)}
+                      />
+                    )}
                   <CommentThread
                     documentId={documentId}
                     documentTitle={documentTitle}
@@ -922,14 +905,13 @@ export function DocumentWorkspace({
                     currentPage={canJumpPages ? page : null}
                     maxPage={numPages}
                     pageLabel={pageLabel}
-                    onJumpToPage={
-                      canJumpPages
-                        ? (target) => {
-                            handlePageChange(target, numPages || target);
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }
-                        : undefined
-                    }
+                      onJumpToPage={
+                        canJumpPages
+                          ? (target) => {
+                              jumpToReaderPage(target, true);
+                            }
+                          : undefined
+                      }
                     onReport={(id) => setReportTarget({ type: "comment", id })}
                   />
                 </div>
@@ -1373,10 +1355,7 @@ function BookmarksPanel({
             <button
               type="button"
               disabled={!canJump}
-              onClick={() => {
-                onJumpToPage(item.page);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
+              onClick={() => onJumpToPage(item.page)}
               className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-rust disabled:cursor-default"
             >
               <span className="truncate">{item.label}</span>

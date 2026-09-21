@@ -22,7 +22,7 @@ import { ReaderToc } from "./reader-toc";
 import { SelectionLookup } from "./selection-lookup";
 import { ZoomControls } from "./zoom-controls";
 import { addBookmark } from "@/lib/bookmarks";
-import { displayCandidates, gutenbergIdFromHref, isExternalHttp, isIgnorableHref } from "@/lib/epub-links";
+import { gutenbergIdFromHref, isExternalHttp, isIgnorableHref } from "@/lib/epub-links";
 import { pickReadableEpubHref, resolveEpubSpineHref } from "@/lib/epub-spine";
 import { buildSearchExcerpt } from "@/lib/reader-search";
 import { isTypingTarget } from "@/lib/reader-keys";
@@ -61,6 +61,44 @@ type EpubSearchResult = {
 const EPUB_ZOOM_KEY = "reader:epub-zoom";
 function normalizeEpubTocLabel(label: string) {
   return label.replace(/\s+/g, " ").trim();
+}
+
+type NormalizedEpubTarget = {
+  full: string;
+  base: string;
+  file: string;
+  anchor: string;
+};
+
+function normalizeEpubTarget(raw: string | null | undefined, book?: EpubBookWithSpine | null): NormalizedEpubTarget | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  const resolved = book ? resolveEpubSpineHref(book.spine, trimmed) ?? trimmed : trimmed;
+  const full = resolved.trim();
+  const [baseRaw, hashRaw = ""] = full.split("#");
+  const base = (baseRaw ?? full).trim().toLowerCase();
+  const file = (base.split("/").pop() ?? base).trim().toLowerCase();
+  let anchor = hashRaw.trim().toLowerCase();
+  if (anchor) {
+    try {
+      anchor = decodeURIComponent(anchor).trim().toLowerCase();
+    } catch {
+      /* keep raw anchor */
+    }
+  }
+  return {
+    full: full.toLowerCase(),
+    base,
+    file,
+    anchor,
+  };
+}
+
+function sameEpubBase(a: string | null | undefined, b: string | null | undefined, book?: EpubBookWithSpine | null) {
+  const left = normalizeEpubTarget(a, book);
+  const right = normalizeEpubTarget(b, book);
+  if (!left || !right) return false;
+  return left.base === right.base || left.file === right.file;
 }
 
 function isEpubTocEntry(label: string) {
@@ -159,6 +197,8 @@ export function EpubReader({
   const renditionRef = useRef<import("epubjs").Rendition | null>(null);
   const bookRef = useRef<EpubSearchBook | null>(null);
   const sectionRef = useRef(1);
+  const spineSectionRef = useRef(1);
+  const spineHrefRef = useRef<string | null>(null);
   const screenKeyRef = useRef("1:1");
   const locationTargetRef = useRef<string | null>(null);
   const documentIdRef = useRef(documentId);
@@ -263,21 +303,24 @@ export function EpubReader({
   }, []);
 
   const sectionNumberForHref = useCallback((href: string | null | undefined, book?: EpubBookWithSpine | null) => {
-    if (!href) return null;
-    const baseHref = href.split("#")[0] ?? href;
-    const resolvedBase = book ? resolveEpubSpineHref(book.spine, baseHref) ?? baseHref : baseHref;
-    const needle = (resolvedBase.split("#")[0] ?? resolvedBase).trim();
-    const needleFile = needle.split("/").pop() ?? needle;
+    const needle = normalizeEpubTarget(href, book);
+    if (!needle) return null;
+    let fallbackMatch: number | null = null;
     for (let index = 0; index < tocRef.current.length; index += 1) {
       const item = tocRef.current[index];
-      const tocBaseRaw = book ? resolveEpubSpineHref(book.spine, item.href) ?? item.href : item.href;
-      const tocBase = (tocBaseRaw.split("#")[0] ?? tocBaseRaw).trim();
-      const tocFile = tocBase.split("/").pop() ?? tocBase;
-      if (tocBase === needle || tocFile === needleFile) {
+      const tocTarget = normalizeEpubTarget(item.href, book);
+      if (!tocTarget) continue;
+      if (tocTarget.full === needle.full) {
         return index + 1;
       }
+      if (needle.anchor && tocTarget.anchor && tocTarget.base === needle.base && tocTarget.anchor === needle.anchor) {
+        return index + 1;
+      }
+      if (fallbackMatch == null && (tocTarget.base === needle.base || tocTarget.file === needle.file)) {
+        fallbackMatch = index + 1;
+      }
     }
-    return null;
+    return fallbackMatch;
   }, []);
 
   const goToSection = useCallback((target: number) => {
@@ -376,8 +419,9 @@ export function EpubReader({
 
         function restoreSpine() {
           const target =
+            spineHrefRef.current ??
             locationTargetRef.current ??
-            spineOf().get(Math.max(0, sectionRef.current - 1))?.href ??
+            spineOf().get(Math.max(0, spineSectionRef.current - 1))?.href ??
             null;
           if (!target) return;
           if (typeof target === "string" && target.includes("#")) {
@@ -418,27 +462,6 @@ export function EpubReader({
           setSelectionDoc(contentsList[0]?.document ?? null);
         }
 
-        function scrollToVisibleAnchor(href: string) {
-          const hashIndex = href.indexOf("#");
-          const hash = href.startsWith("#") ? href.slice(1) : hashIndex >= 0 ? href.slice(hashIndex + 1) : "";
-          if (!hash) return false;
-          const id = decodeURIComponent(hash);
-          const contents = rendition.getContents() as unknown as { document?: Document }[] | { document?: Document };
-          const docs = Array.isArray(contents) ? contents : contents ? [contents] : [];
-          for (const item of docs) {
-            const doc = item.document;
-            if (!doc) continue;
-            const el =
-              doc.getElementById(id) ||
-              doc.querySelector(`[name="${CSS.escape(id)}"]`);
-            if (el) {
-              el.scrollIntoView({ block: "start" });
-              return true;
-            }
-          }
-          return false;
-        }
-
         function getRenderedContents() {
           const contents = rendition.getContents() as unknown as
             | { document?: Document; cfiFromNode?: (node: Node, ignoreClass?: string) => string }[]
@@ -468,11 +491,14 @@ export function EpubReader({
           return null;
         }
 
-        async function snapToAnchor(href: string) {
+        async function displayAnchorByCfi(href: string) {
           const target = findAnchorTarget(href);
-          if (!target) return false;
+          const cfiFromNode = target?.item.cfiFromNode;
+          if (!target || !cfiFromNode) return false;
           try {
-            target.el.scrollIntoView({ block: "start", inline: "nearest" });
+            const cfi = cfiFromNode(target.el);
+            if (!cfi) return false;
+            await rendition.display(cfi);
             return true;
           } catch {
             return false;
@@ -486,8 +512,13 @@ export function EpubReader({
             const trimmed = value.trim();
             if (!trimmed) return trimmed;
             if (trimmed.startsWith("#")) {
-              const currentHref = spineOf().get(Math.max(0, sectionRef.current - 1))?.href ?? "";
-              return currentHref ? `${currentHref.split("#")[0] ?? currentHref}${trimmed}` : trimmed;
+              const currentHref =
+                spineHrefRef.current ??
+                locationTargetRef.current ??
+                spineOf().get(Math.max(0, spineSectionRef.current - 1))?.href ??
+                "";
+              const baseHref = currentHref.split("#")[0] ?? currentHref;
+              return baseHref ? `${baseHref}${trimmed}` : trimmed;
             }
             try {
               return (book.path?.relative?.(trimmed) ?? trimmed).trim();
@@ -496,46 +527,53 @@ export function EpubReader({
             }
           };
           const normalized = toRelative(target);
-          const resolved = resolveEpubSpineHref(book.spine, normalized) ?? normalized;
-          const candidates = displayCandidates(resolved);
-          if (target.startsWith("#")) {
-            const currentHref = spineOf().get(Math.max(0, sectionRef.current - 1))?.href ?? "";
-            if (currentHref) {
-              const anchored = `${currentHref.split("#")[0] ?? currentHref}${target}`;
-              const anchoredResolved = resolveEpubSpineHref(book.spine, anchored) ?? anchored;
-              candidates.push(...displayCandidates(anchoredResolved));
-            }
-          }
-          for (const candidate of [...new Set(candidates.filter(Boolean))]) {
+          const currentHref =
+            spineHrefRef.current ??
+            locationTargetRef.current ??
+            spineOf().get(Math.max(0, spineSectionRef.current - 1))?.href ??
+            "";
+          const currentBase = currentHref.split("#")[0] ?? currentHref;
+          const anchoredTarget =
+            target.startsWith("#") && currentBase
+              ? `${currentBase}${target}`
+              : null;
+          const resolvedCandidates = [
+            anchoredTarget ? resolveEpubSpineHref(book.spine, anchoredTarget) : null,
+            resolveEpubSpineHref(book.spine, normalized),
+          ].filter((candidate, index, list): candidate is string => Boolean(candidate) && list.indexOf(candidate) === index);
+
+          for (const candidate of resolvedCandidates) {
             try {
-              const displayTarget = candidate.includes("#") ? (candidate.split("#")[0] ?? candidate) : candidate;
               locationTargetRef.current = candidate;
-              await rendition.display(displayTarget);
-              if (candidate.includes("#") || resolved.includes("#") || target.includes("#")) {
-                await waitForLayout();
-                if (await snapToAnchor(candidate)) return true;
-                if (candidate !== resolved && (await snapToAnchor(resolved))) return true;
-                if (resolved !== target && (await snapToAnchor(target))) return true;
-              }
+              await rendition.display(candidate);
               return true;
             } catch {
-              /* try next normalized target */
+              const displayTarget = candidate.includes("#") ? (candidate.split("#")[0] ?? candidate) : candidate;
+              if (!displayTarget || displayTarget === candidate) {
+                continue;
+              }
+              try {
+                locationTargetRef.current = displayTarget;
+                await rendition.display(displayTarget);
+                await waitForLayout();
+                locationTargetRef.current = candidate;
+                if (await displayAnchorByCfi(candidate)) return true;
+              } catch {
+                /* try next normalized target */
+              }
             }
           }
-          const base = resolved.split("#")[0] ?? resolved;
-          if (base && base !== resolved) {
+          if (target.startsWith("#") && currentBase) {
             try {
-              locationTargetRef.current = base;
-              await rendition.display(base);
+              locationTargetRef.current = currentBase;
+              await rendition.display(currentBase);
               await waitForLayout();
-              if (await snapToAnchor(resolved)) return true;
-              if (resolved !== target && (await snapToAnchor(target))) return true;
+              locationTargetRef.current = `${currentBase}${target}`;
+              if (await displayAnchorByCfi(`${currentBase}${target}`)) return true;
             } catch {
-              /* ignore final anchor fallback */
+              /* ignore same-document anchor fallback */
             }
           }
-          if (scrollToVisibleAnchor(resolved)) return true;
-          if (resolved !== target && scrollToVisibleAnchor(target)) return true;
           return false;
         }
 
@@ -552,8 +590,8 @@ export function EpubReader({
               if (response.ok) {
                 const found = (await response.json()) as { documentId: string; title: string };
                 if (found.documentId === documentIdRef.current) {
-                  if (await displayInternal(href)) return;
                   if (hash && (await displayInternal(hash))) return;
+                  setLinkNote("Это ссылка на карточку той же книги — остаёмся в текущем тексте.");
                   return;
                 }
                 const target = window.top ?? window;
@@ -563,7 +601,6 @@ export function EpubReader({
             } catch {
               /* stay in the book */
             }
-            if (await displayInternal(href)) return;
             if (hash && (await displayInternal(hash))) return;
             setLinkNote("Этой книги нет в каталоге — ссылка никуда не ведёт, остаёмся в текущем тексте.");
             return;
@@ -593,6 +630,29 @@ export function EpubReader({
           on?: (event: string, listener: (href: string) => void) => void;
         }) => {
           try {
+            const styleId = "blabla-epub-guard";
+            if (!contents.document.getElementById(styleId)) {
+              const style = contents.document.createElement("style");
+              style.id = styleId;
+              style.textContent = `
+                html, body {
+                  width: 100% !important;
+                  max-width: 100% !important;
+                  overflow: hidden !important;
+                  overflow-x: hidden !important;
+                  box-sizing: border-box !important;
+                }
+                body * {
+                  box-sizing: border-box !important;
+                  max-width: 100% !important;
+                }
+                img, svg, video, canvas, table, pre {
+                  max-width: 100% !important;
+                  height: auto !important;
+                }
+              `;
+              contents.document.head.appendChild(style);
+            }
             contents.document.documentElement.style.height = "100%";
             contents.document.documentElement.style.width = "100%";
             contents.document.documentElement.style.maxWidth = "100%";
@@ -680,6 +740,7 @@ export function EpubReader({
           }) => {
             const total = (book.spine as unknown as { length?: number }).length || 1;
             const index = location.start.index + 1;
+            const spineHref = spineOf().get(Math.max(0, index - 1))?.href ?? null;
             // Paginated EPUB: many visual screens share one spine index.
             // Scrolled mode has no displayed.page — treat the whole section as one screen.
             const nextScreenKey = `${index}:${location.start.displayed?.page ?? 1}`;
@@ -695,15 +756,19 @@ export function EpubReader({
               setDrawMode(false);
             }
 
-            sectionRef.current = index;
+            spineSectionRef.current = index;
+            spineHrefRef.current = spineHref;
             screenKeyRef.current = nextScreenKey;
-            locationTargetRef.current =
-              spineOf().get(Math.max(0, index - 1))?.href ??
-              location.start.cfi ??
-              null;
-            const tocNumber = sectionNumberForHref(locationTargetRef.current, book);
+            const activeHref = sameEpubBase(locationTargetRef.current, spineHref, book)
+              ? locationTargetRef.current
+              : (spineHref ?? location.start.cfi ?? null);
+            locationTargetRef.current = activeHref;
+            const tocNumber =
+              sectionNumberForHref(activeHref, book) ??
+              sectionNumberForHref(spineHref, book);
             const displayIndex = tocNumber ?? index;
             const displayTotal = tocRef.current.length || total;
+            sectionRef.current = displayIndex;
             setSection(displayIndex);
             setScreenKey(nextScreenKey);
             setTotalSections(displayTotal);
@@ -1194,10 +1259,8 @@ export function EpubReader({
       )}
       {stubWarning && (
         <p className="mb-3 rounded-lg border border-rust/25 bg-rust/10 px-3 py-2 text-xs leading-5 text-rust">
-          Похоже, в этом EPUB почти нет сплошного текста — только оглавление со ссылками
-          (часто так устроены «пустые» файлы с Gutenberg). Ссылки из книги остаются
-          внутри читалки: главы открываются здесь, чужие сайты не открываем. Если есть
-          TXT или другое издание в каталоге — откройте его рядом.
+          В этом EPUB много служебных переходов. Если конкретный фрагмент ведёт себя неровно,
+          попробуйте соседнюю главу или другое издание.
         </p>
       )}
       {placing && (
@@ -1246,7 +1309,7 @@ export function EpubReader({
                 type="button"
                 onClick={() => stepSection(-1)}
                 aria-label="Предыдущая страница"
-                className="group absolute inset-y-0 left-0 z-30 hidden w-14 items-center justify-start md:flex"
+                className="group absolute left-2 top-1/2 z-30 hidden -translate-y-1/2 md:flex"
               >
                 <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-hover:border-ink/20 group-hover:text-ink">
                   <ChevronLeft size={20} />
@@ -1256,7 +1319,7 @@ export function EpubReader({
                 type="button"
                 onClick={() => stepSection(1)}
                 aria-label="Следующая страница"
-                className="group absolute inset-y-0 right-0 z-30 hidden w-14 items-center justify-end md:flex"
+                className="group absolute right-2 top-1/2 z-30 hidden -translate-y-1/2 md:flex"
               >
                 <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-hover:border-ink/20 group-hover:text-ink">
                   <ChevronRight size={20} />

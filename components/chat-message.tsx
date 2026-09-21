@@ -192,7 +192,7 @@ export function ChatMessage({
                     item.page != null
                       ? `${documentTitle || "Книга"} · ${pageLabel} ${item.page}`
                       : documentTitle || "Комментарий",
-                  url: buildShareUrl(item.page, anchorId),
+                  url: buildShareUrl(item.page),
                   excerpt: item.body,
                 }
               }

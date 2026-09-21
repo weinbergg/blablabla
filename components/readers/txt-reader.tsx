@@ -467,7 +467,7 @@ export function TxtReader({
             kind: item.kind,
             active: item.page === safePage,
           }))}
-          empty="В этом файле нет явных заголовков глав или песней. Листы экрана не равны песням Гомера — не выдумываем оглавление из пустого текста."
+          empty="В этом тексте пока не нашлось явных заголовков."
           onClose={() => setTocOpen(false)}
           onSelect={(id) => {
             const page = Number.parseInt(id, 10);
@@ -490,8 +490,8 @@ export function TxtReader({
           <div className="relative">
             <div
               ref={scrollRef}
-              className="overflow-y-auto rounded-xl bg-paper"
-              style={{ maxHeight: fullscreen ? "calc(100vh - 8rem)" : "70vh" }}
+              className="overflow-hidden rounded-xl bg-paper"
+              style={{ height: fullscreen ? "calc(100vh - 8rem)" : "70vh", minHeight: 320 }}
             >
               <div
                 ref={contentRef}
@@ -502,12 +502,14 @@ export function TxtReader({
                     <Loader2 className="animate-spin text-muted" />
                   </div>
                 ) : (
-                  <pre
-                    className="whitespace-pre-wrap break-words font-serif text-ink"
-                    style={{ fontSize: `${15 * zoom}px`, lineHeight: 1.9 }}
-                  >
-                    {pageText}
-                  </pre>
+                  <div className="mx-auto max-w-[92ch]">
+                    <pre
+                      className="whitespace-pre-wrap break-words font-serif text-ink"
+                      style={{ fontSize: `${15 * zoom}px`, lineHeight: 1.85 }}
+                    >
+                      {pageText}
+                    </pre>
+                  </div>
                 )}
                 {text != null && documentId && (
                   <AnnotationLayer
@@ -536,7 +538,7 @@ export function TxtReader({
               onClick={() => go(-1)}
               disabled={safePage <= 1 || placing}
               aria-label="Предыдущий лист"
-              className="group absolute inset-y-0 left-0 z-10 hidden w-14 items-center justify-start disabled:cursor-default md:flex"
+              className="group absolute left-2 top-1/2 z-10 hidden -translate-y-1/2 disabled:cursor-default md:flex"
             >
               <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
                 <ChevronLeft size={20} />
@@ -547,7 +549,7 @@ export function TxtReader({
               onClick={() => go(1)}
               disabled={safePage >= total || placing}
               aria-label="Следующий лист"
-              className="group absolute inset-y-0 right-0 z-10 hidden w-14 items-center justify-end disabled:cursor-default md:flex"
+              className="group absolute right-2 top-1/2 z-10 hidden -translate-y-1/2 disabled:cursor-default md:flex"
             >
               <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
                 <ChevronRight size={20} />

@@ -24,6 +24,11 @@ function selectionTokenCount(text: string) {
   return normalized ? normalized.split(/\s+/).length : 0;
 }
 
+function cleanLookupTranslation(text: string | null | undefined) {
+  if (!text) return "";
+  return text.replace(/^\s*[→⇢⇒]+\s*/u, "").replace(/\s+/g, " ").trim();
+}
+
 /**
  * In-page lookup panel: morphology, definitions, translation, and matches
  * from community / personal glossaries — without leaving the reader.
@@ -298,6 +303,7 @@ export function SelectionLookup({
 
   const lemma = lookup?.lemma;
   const parseLine = lookup?.parses[0]?.summary;
+  const translation = cleanLookupTranslation(lookup?.translation ?? "");
   const hits = lookup?.glossaryHits ?? [];
   const normalizedStateText = normalizeSelectedText(state.text);
   const tokenCount = selectionTokenCount(state.text);
@@ -349,10 +355,11 @@ export function SelectionLookup({
             </p>
           )}
           {showParseLine && <p className="text-[12px] text-muted">{parseLine}</p>}
-          {lookup.translation && (
+          {translation && translation.toLowerCase() !== normalizedStateText.toLowerCase() && (
             <p className="rounded-lg bg-ink/[0.04] px-2 py-1.5 text-[13px]">
               <Languages size={12} className="mr-1 inline opacity-60" />
-              {lookup.translation}
+              <span className="mr-1 text-muted">Перевод:</span>
+              {translation}
             </p>
           )}
           {lookup.definitions.slice(0, 2).map((d, i) => (
