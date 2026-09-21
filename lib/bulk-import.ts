@@ -98,6 +98,9 @@ export type BulkImportResult = {
   /** Same bytes already seen earlier in this import folder. */
   skippedDuplicateInBatch: number;
   skippedUnsupported: number;
+  /** A few names from the skipped pile, with the reason — without them
+   * "не файлы книг: 16" is impossible to act on. */
+  skippedSamples: { file: string; reason: string }[];
   errors: { file: string; message: string }[];
   byCategory: { categoryId: string; categoryName: string; count: number }[];
   createdCategories: string[];
@@ -186,8 +189,31 @@ function splitAuthors(value: string): string[] {
 /** Parses "Author - Title.ext" / "Author_-_Title.ext" style filenames — the
  * convention every earlier import batch already used — falling back to the
  * bare filename as the title when no author separator is recognisable. */
-export function parseAuthorTitle(fileBaseName: string): { authorNames: string[]; title: string } {
-  const base = fileBaseName.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+/** Articles and prepositions that must never be read as a surname — without
+ * this "The C Programming Language" parses as an author named "The C." */
+const NOT_A_SURNAME = new Set([
+  "the", "a", "an", "der", "die", "das", "le", "la", "les", "el", "il", "und", "and",
+  "и", "в", "на", "о", "об", "по", "из", "для", "не", "что", "как", "к", "с", "от",
+  "vol", "part", "том", "часть", "книга", "выпуск",
+]);
+
+const TRAILING_YEAR = /[\s(](1[5-9]\d\d|20\d\d)\)?$/;
+const INITIALS = /^(\p{Lu}[\p{L}'’-]{2,})\s(\p{Lu})(?:\.)?(?:\s(\p{Lu})(?:\.)?)?\s(.+)$/u;
+
+export function parseAuthorTitle(fileBaseName: string): {
+  authorNames: string[];
+  title: string;
+  year: string | null;
+} {
+  const raw = fileBaseName.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  // "…_Часть_3_Модули,_кольца,_формы_1966" — the trailing year belongs in the
+  // year field, not in the middle of a title.
+  const yearMatch = raw.match(TRAILING_YEAR);
+  const year = yearMatch ? yearMatch[1] : null;
+  const base = (year ? raw.slice(0, yearMatch!.index).trim() : raw).replace(/[\s,;.-]+$/, "");
+
+  const withYear = (parsed: { authorNames: string[]; title: string }) => ({ ...parsed, year });
+
   const match = base.match(/^(.+?)\s[-–—]\s(.+)$/);
   if (match) {
     const left = match[1].trim();
@@ -203,10 +229,23 @@ export function parseAuthorTitle(fileBaseName: string): { authorNames: string[];
       segments.every((seg) => seg.split(" ").filter(Boolean).length <= 5) &&
       !/^\d+$/.test(left);
     if (looksLikeAuthorList) {
-      return { authorNames: segments, title: right || base };
+      return withYear({ authorNames: segments, title: right || base });
     }
   }
-  return { authorNames: [], title: base };
+
+  // "Бурбаки Н Алгебра Часть 2 …" / "Лосев А Ф История" — surname followed by
+  // bare initials, the usual shape of a Russian scan dump.
+  const initials = base.match(INITIALS);
+  if (initials) {
+    const [, surname, first, second, rest] = initials;
+    const title = rest.trim();
+    if (!NOT_A_SURNAME.has(surname.toLowerCase()) && title.length >= 3) {
+      const author = `${surname} ${first}.${second ? ` ${second}.` : ""}`;
+      return withYear({ authorNames: [author], title });
+    }
+  }
+
+  return withYear({ authorNames: [], title: base });
 }
 
 function normalize(value: string) {
@@ -451,6 +490,13 @@ async function epubLanguage(filePath: string): Promise<string | null> {
   }
 }
 
+const MAX_SKIPPED_SAMPLES = 12;
+
+function noteSkipped(result: BulkImportResult, file: string, reason: string) {
+  if (result.skippedSamples.length >= MAX_SKIPPED_SAMPLES) return;
+  result.skippedSamples.push({ file, reason });
+}
+
 export async function importFromDirectory(rootDir: string, options: BulkImportOptions): Promise<BulkImportResult> {
   const files = await walkFiles(rootDir);
   const categoryIndex = await loadCategoryIndex();
@@ -480,6 +526,7 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
     skippedDuplicateLibrary: 0,
     skippedDuplicateInBatch: 0,
     skippedUnsupported: 0,
+    skippedSamples: [],
     errors: [],
     byCategory: [],
     createdCategories: [],
@@ -493,10 +540,17 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
 
     if (!IMPORTABLE_EXTENSIONS.has(extension)) {
       result.skippedUnsupported += 1;
+      noteSkipped(result, relPath, `формат ${extension || "без расширения"} не импортируется`);
       continue;
     }
-    if (!stat || stat.size < MIN_FILE_SIZE) {
+    if (!stat) {
       result.skippedUnsupported += 1;
+      noteSkipped(result, relPath, "файл не читается — скорее всего имя в чужой кодировке");
+      continue;
+    }
+    if (stat.size < MIN_FILE_SIZE) {
+      result.skippedUnsupported += 1;
+      noteSkipped(result, relPath, `меньше ${Math.round(MIN_FILE_SIZE / 1024)} КБ`);
       continue;
     }
 
@@ -518,8 +572,16 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
         continue;
       }
 
-      const baseName = path.basename(filePath, extension);
-      let { authorNames, title } = parseAuthorTitle(baseName);
+      // Dumps are full of "Book.pdf.pdf" — otherwise the stray ".pdf" rides
+      // into the title.
+      let baseName = path.basename(filePath, extension);
+      while (IMPORTABLE_EXTENSIONS.has(path.extname(baseName).toLowerCase())) {
+        baseName = baseName.slice(0, -path.extname(baseName).length);
+      }
+      const parsed = parseAuthorTitle(baseName);
+      const year = parsed.year;
+      let authorNames = parsed.authorNames;
+      let title = parsed.title;
       // Bare titles like "Котлован.pdf" have no author segment — try PDF Info.
       let metaPages: number | null = null;
       if (extension === ".pdf" && (authorNames.length === 0 || !title)) {
@@ -552,13 +614,17 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
       {
         const { looksLatinizedRussian, detransliterateRussian, detransliterateAuthorName } =
           await import("@/lib/detransliterate");
-        if (title && !/[а-яё]/i.test(title) && (language === "ru" || looksLatinizedRussian(title))) {
+        // A Russian *translation* of a foreign book still has a Latin title on
+        // disk ("Bourbaki_Seminar_Analysis_Geometry"), so language alone must
+        // not trigger the rewrite — it turned that into "Боурбаки Семинар
+        // Аналысис Геометры". Only the shape of the string may decide.
+        if (title && !/[а-яё]/i.test(title) && looksLatinizedRussian(title)) {
           title = detransliterateRussian(title, { force: true });
           if (/^[а-яё]/.test(title)) title = title.charAt(0).toUpperCase() + title.slice(1);
           if (!language) language = "ru";
         }
         for (let i = 0; i < authorNames.length; i += 1) {
-          if (!/[а-яё]/i.test(authorNames[i]) && (language === "ru" || looksLatinizedRussian(authorNames[i]))) {
+          if (!/[а-яё]/i.test(authorNames[i]) && looksLatinizedRussian(authorNames[i])) {
             authorNames[i] = detransliterateAuthorName(authorNames[i]);
           }
         }
@@ -577,6 +643,7 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
       await db.insert(documents).values({
         id: documentId,
         title,
+        year,
         categoryId,
         fileUrl,
         fileName,
@@ -621,10 +688,25 @@ export async function importFromDirectory(rootDir: string, options: BulkImportOp
   return result;
 }
 
+function legacyNamesScript() {
+  return path.join(process.cwd(), "scripts", "legacy-names.py");
+}
+
 const ARCHIVE_EXTRACTORS: { test: RegExp; run: (archivePath: string, destDir: string) => Promise<void> }[] = [
   {
     test: /\.zip$/i,
     run: async (archivePath, destDir) => {
+      // Windows zips keep Russian names in cp866/cp1251 without the UTF-8
+      // flag; plain `unzip` writes those bytes verbatim and the files become
+      // unreadable to Node (or fail to extract at all on macOS).
+      try {
+        await execFileAsync("python3", [legacyNamesScript(), "unzip", archivePath, destDir], {
+          maxBuffer: 1024 * 1024,
+        });
+        return;
+      } catch {
+        // python3 missing or the zip is something it can't read — fall back
+      }
       await execFileAsync("unzip", ["-o", "-q", archivePath, "-d", destDir], { maxBuffer: 1024 * 1024 * 32 });
     },
   },
@@ -665,6 +747,11 @@ export async function extractArchive(archivePath: string, destDir: string): Prom
   if (!extractor) throw new Error(`Неизвестный формат архива: ${path.basename(archivePath)}`);
   await fs.mkdir(destDir, { recursive: true });
   await extractor.run(archivePath, destDir);
+  // tar/7z/rar can leave the same non-UTF-8 names behind; repair them before
+  // anything tries to read the tree.
+  await execFileAsync("python3", [legacyNamesScript(), "fix", destDir], { maxBuffer: 1024 * 1024 }).catch(
+    () => undefined,
+  );
 }
 
 export async function ensureUncategorizedCategory(): Promise<string> {

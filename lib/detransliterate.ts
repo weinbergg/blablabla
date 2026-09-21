@@ -58,6 +58,13 @@ const SINGLE: Record<string, string> = {
 const RU_MARKERS =
   /\b(teoria|teoriya|grupp|gruppy|chast|chasti|lektsii|lekcii|osnovy|osnovani[ey]a|uravnen\w*|preobrazovan\w*|veroyatnost\w*|mnozhestv\w*|topolog\w*|geometr\w*|differentsial\w*|integral\w*|ischislen\w*|stokhastichesk\w*|finansov\w*|matematik\w*|filosof\w*|istor\w*|religiozn\w*|khristian\w*|gosudarstv\w*|utopi\w*|anarkhi\w*|sobranie|sochinen\w*|prostranstv\w*|poetik\w*|vospominan\w*|zanimateln\w*|bolshaya|bolshoi|kniga|konkretn\w*|kolets|kolec|sovremenn\w*|naivn\w*|sluchayn\w*|seminar\w*|obschestv\w*|initsiats\w*|posvyasch\w*|bozhestven\w*|grechesk\w*|protiv|metoda|antimakiavell\w*|edinstven\w*|sobstvenn\w*|pisma|vechnogo|uznika|antologia|mudrost\w*|tsiklonoped\w*|souchastie|anonimn\w*|material\w*|zashchita|kommentari\w*|petushki|silmarillion|tolkin|khaydegger|nitsshe|pustota|feyerabend|nozik|dugin|markiz|negarestani|vavilov|shiryaev|postnikov|fikhtengolts|perelman|eliade|ksenofont|gilbert|dieudonne|dyedonne|letsii|analiz|algebra|kategor\w*|funkts\w*|uravneniy|preobrazovaniy|gomotop\w*|kletochn\w*|tsollikon\w*|obryady|initsiatsii|posvyaschenia|taynye|istoria|idey|buddy|reformatsii|magometa|triumfa|gautamy)\b/i;
 
+/** Markers from RU_MARKERS that read the same in English/French — "algebra",
+ * "seminar", "geometry", "topology". On their own they prove nothing: they
+ * turned "Bourbaki Seminar Analysis Geometry" into "Боурбаки Семинар Аналысис
+ * Геометры". Something else in the string has to look Russian. */
+const AMBIGUOUS_MARKERS =
+  /\b(algebra|seminar\w*|geometr\w*|topolog\w*|integral\w*|material\w*|dieudonne|gilbert)\b/gi;
+
 const RU_PUBLISHERS =
   /\b(rkhd|fazis|nauka|mgu|fizmatlit|urss|binom|drofa|prosveshchenie|prosveschenie|astrel|eksmo|azbuka|vagrius|sovremennik|mir|lan'|lan|piter|bhv|williams|williams|dmk|intellekt)\b/i;
 
@@ -81,12 +88,13 @@ export function looksLatinizedRussian(value: string): boolean {
   if (/[äöüÄÖÜß]/.test(text)) return false;
 
   const lower = text.toLowerCase().replace(/['`]/g, "");
+  const distinctlyRussian = RU_MARKERS.test(lower.replace(AMBIGUOUS_MARKERS, " "));
 
-  if (FOREIGN_MARKERS.test(lower) && !RU_MARKERS.test(lower) && !RU_PUBLISHERS.test(lower)) {
+  if (FOREIGN_MARKERS.test(lower) && !distinctlyRussian && !RU_PUBLISHERS.test(lower)) {
     return false;
   }
 
-  if (RU_MARKERS.test(lower) || RU_PUBLISHERS.test(lower)) return true;
+  if (distinctlyRussian || RU_PUBLISHERS.test(lower)) return true;
 
   // Morphological endings as whole-word suffixes (NOT substring "ost" in "costumes").
   if (

@@ -12,6 +12,7 @@ type ImportResult = {
   skippedDuplicateLibrary?: number;
   skippedDuplicateInBatch?: number;
   skippedUnsupported: number;
+  skippedSamples?: { file: string; reason: string }[];
   errors: { file: string; message: string }[];
   byCategory: { categoryId: string; categoryName: string; count: number }[];
   createdCategories: string[];
@@ -174,6 +175,21 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
                 <p className="text-xs text-muted">не файлы книг</p>
               </div>
             </div>
+
+            {result.skippedSamples && result.skippedSamples.length > 0 && (
+              <div className="mb-5">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
+                  Почему пропущены
+                </p>
+                <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-muted">
+                  {result.skippedSamples.map((row, index) => (
+                    <li key={index}>
+                      <span className="font-mono">{row.file}</span> — {row.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {result.createdCategories.length > 0 && (
               <div className="mb-5">
