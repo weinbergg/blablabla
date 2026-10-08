@@ -443,7 +443,13 @@ export function EpubReader({
                 if (!loc || loc === "about:blank" || loc.startsWith("blob:")) return;
                 const url = new URL(loc, window.location.href);
                 const path = url.pathname;
-                if (path.startsWith("/uploads/") || path.startsWith("/_next/static/")) return;
+                if (
+                  path.startsWith("/uploads/") ||
+                  path.startsWith("/api/files/") ||
+                  path.startsWith("/_next/static/")
+                ) {
+                  return;
+                }
                 const fallbackFile = path.split("/").filter(Boolean).pop() ?? "";
                 if (fallbackFile && !path.startsWith("/documents/")) {
                   void followHrefRef.current(`${fallbackFile}${url.hash}`);

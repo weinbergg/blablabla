@@ -54,6 +54,9 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 3000,
         HOSTNAME: "127.0.0.1",
+        // Файлы книг отдаёт nginx по X-Accel-Redirect, а не Node:
+        // см. app/api/files/[id]/route.ts и location /protected-uploads/.
+        FILE_SERVE_MODE: "xaccel",
         ...maintenance,
       },
     },

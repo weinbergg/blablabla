@@ -39,6 +39,7 @@ import { countLabel } from "@/lib/pluralize";
 import { ROLE_LABELS, canManageAdmins, isSuperAdminUser } from "@/lib/roles";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { BulkImportTab } from "@/components/admin-bulk-import-tab";
+import { BillingTab } from "@/components/admin-billing-tab";
 import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
 export type AdminDocument = {
@@ -102,6 +103,7 @@ const TABS = [
   "Разделы",
   "Приглашения",
   "Модерация",
+  "Монетизация",
   "Рефералы",
   "Обратная связь",
 ] as const;
@@ -190,6 +192,7 @@ export function AdminDashboard({
             catalogQueue={documents.filter((d) => d.confidence === "low")}
           />
         )}
+        {tab === "Монетизация" && <BillingTab />}
         {tab === "Рефералы" && (
           <ReferralsTab
             stats={referralStats}

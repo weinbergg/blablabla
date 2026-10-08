@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, ArrowDownToLine, History } from "lucide-react";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { Header } from "@/components/header";
 import { DocumentWorkspace } from "@/components/document-workspace";
@@ -24,6 +25,7 @@ import {
 import { getWorkForDocument } from "@/lib/db/works";
 import { getCompanionSuggestions } from "@/lib/db/companion-suggestions";
 import { languageLabel } from "@/lib/languages";
+import { clientIpFrom, downloadHrefFor, readHrefFor, viewerKeyFor } from "@/lib/file-access";
 import { isAdminRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +57,12 @@ export default async function DocumentPage({
 
   const currentUser = await getCurrentUser();
 
+  // Файл отдаётся только через /api/files с подписанной ссылкой: прямого
+  // пути к PDF больше нет (см. lib/file-access.ts).
+  const requestHeaders = await headers();
+  const viewerKey = viewerKeyFor(currentUser?.id ?? null, clientIpFrom(requestHeaders));
+  const readHref = document.fileUrl ? await readHrefFor(document.id, viewerKey) : null;
+
   if (embed) {
     const annotations = await getDocumentAnnotations(document.id, currentUser?.id ?? null);
     const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -65,7 +73,7 @@ export default async function DocumentPage({
           documentTitle={document.title}
           documentAuthors={authorNames}
           catalogHref={null}
-          fileUrl={document.fileUrl}
+          fileUrl={readHref}
           fileType={document.fileType}
           comments={[]}
           annotations={annotations}
@@ -255,7 +263,7 @@ export default async function DocumentPage({
             {document.fileUrl && (
               <div className="flex flex-wrap items-center gap-2">
                 <a
-                  href={document.fileUrl}
+                  href={downloadHrefFor(document.id)}
                   download={document.fileName || undefined}
                   className="button-primary"
                 >
@@ -301,7 +309,7 @@ export default async function DocumentPage({
           documentTitle={document.title}
           documentAuthors={authorNames}
           catalogHref={`/catalog/${trail.map((t) => t.slug).join("/")}`}
-          fileUrl={document.fileUrl}
+          fileUrl={readHref}
           fileType={document.fileType}
           comments={comments}
           annotations={annotations}

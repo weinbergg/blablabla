@@ -121,20 +121,33 @@ import sys
 
 conf = Path(sys.argv[1])
 text = conf.read_text()
-block = """    location /uploads/ {
-        root /var/www/blabla/public;
+# Прямая раздача /uploads/ закрыта: файлы уходят только через /api/files,
+# который отвечает X-Accel-Redirect на internal-location ниже.
+block = """    location /protected-uploads/ {
+        internal;
+        alias /var/www/blabla/public/uploads/;
         access_log off;
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800";
+    }
+
+    location /uploads/ {
+        return 404;
     }
 """
 pat = re.compile(
+    r"[ \t]*location\s+/protected-uploads/\s*\{(?:[^{}]|\{[^{}]*\})*\}[ \t]*\n?"
+    r"(?:\s*location\s+/uploads/\s*\{(?:[^{}]|\{[^{}]*\})*\}[ \t]*\n?)?",
+    re.MULTILINE,
+)
+old_public = re.compile(
     r"[ \t]*location\s+/uploads/\s*\{(?:[^{}]|\{[^{}]*\})*\}[ \t]*\n?",
     re.MULTILINE,
 )
 if pat.search(text):
-    text, n = pat.subn(block + "\n", text, count=1)
-    print("OK: rewrote /uploads/ → root public (no alias+try_files)")
+    text = pat.sub(block + "\n", text, count=1)
+    print("OK: rewrote protected uploads locations")
+elif old_public.search(text):
+    text = old_public.sub(block + "\n", text, count=1)
+    print("OK: closed public /uploads/, added internal /protected-uploads/")
 else:
     idx = text.find("location / {")
     if idx < 0:
@@ -142,7 +155,7 @@ else:
     if idx < 0:
         raise SystemExit("location / not found for uploads insert")
     text = text[:idx] + block + "\n" + text[idx:]
-    print("OK: inserted /uploads/ location")
+    print("OK: inserted protected uploads locations")
 conf.write_text(text)
 PY
 

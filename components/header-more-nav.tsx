@@ -8,6 +8,7 @@ const MORE_LINKS = [
   { href: "/notes", label: "Пометки" },
   { href: "/glossaries", label: "Словари" },
   { href: "/tags", label: "Метки" },
+  { href: "/pricing", label: "Доступ и поддержка" },
   { href: "/feedback", label: "Обратная связь" },
 ] as const;
 

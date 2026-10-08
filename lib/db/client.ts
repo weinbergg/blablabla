@@ -83,9 +83,103 @@ function ensureForumTables() {
   `);
 }
 
+/** Монетизация: тарифы, подписки, платежи, журнал выдачи файлов, токены
+ * читалок. Создаётся здесь по тому же принципу, что и форум с works —
+ * чтобы деплой не зависел от `drizzle-kit push`. */
+function ensureBillingTables() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS site_settings (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL,
+      updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE TABLE IF NOT EXISTS plans (
+      id TEXT PRIMARY KEY NOT NULL,
+      slug TEXT NOT NULL,
+      name TEXT NOT NULL,
+      tagline TEXT,
+      description TEXT,
+      price_monthly INTEGER NOT NULL DEFAULT 0,
+      price_yearly INTEGER,
+      price_lifetime INTEGER,
+      features TEXT NOT NULL DEFAULT '[]',
+      seat_limit INTEGER,
+      lifetime INTEGER NOT NULL DEFAULT 0,
+      accent TEXT,
+      badge TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS plans_slug_idx ON plans(slug);
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      plan_slug TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      period TEXT NOT NULL DEFAULT 'month',
+      started_at TEXT,
+      expires_at TEXT,
+      canceled_at TEXT,
+      source TEXT NOT NULL DEFAULT 'yookassa',
+      auto_renew INTEGER NOT NULL DEFAULT 0,
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS subscriptions_user_idx ON subscriptions(user_id);
+    CREATE INDEX IF NOT EXISTS subscriptions_status_idx ON subscriptions(status);
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL DEFAULT 'subscription',
+      target_id TEXT,
+      plan_slug TEXT,
+      period TEXT,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'RUB',
+      status TEXT NOT NULL DEFAULT 'pending',
+      provider TEXT NOT NULL DEFAULT 'yookassa',
+      provider_payment_id TEXT,
+      idempotence_key TEXT,
+      description TEXT,
+      payload TEXT,
+      paid_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS payments_user_idx ON payments(user_id);
+    CREATE INDEX IF NOT EXISTS payments_provider_idx ON payments(provider_payment_id);
+    CREATE TABLE IF NOT EXISTS download_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL DEFAULT 'read',
+      ip TEXT,
+      user_agent TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS download_events_user_idx ON download_events(user_id);
+    CREATE INDEX IF NOT EXISTS download_events_created_idx ON download_events(created_at);
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      prefix TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'opds',
+      last_used_at TEXT,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS api_tokens_hash_idx ON api_tokens(token_hash);
+  `);
+}
+
 try {
   ensureForumTables();
   ensureWorkTables();
+  ensureBillingTables();
 } catch {
   /* users/documents may not exist yet on a blank install */
 }

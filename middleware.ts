@@ -10,17 +10,23 @@ const SESSION_COOKIE = "blabla_session";
  * everyone we always allow the maintenance page + Next static assets.
  */
 export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Вторая линия обороны для фонда. Файлы книг отдаёт только /api/files с
+  // проверкой прав; прямой путь закрыт в nginx, но если конфиг на сервере
+  // не обновили, Next сам раздал бы public/uploads — здесь мы это гасим.
+  if (pathname.startsWith("/uploads/")) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
   const locked = ["1", "true", "yes", "on"].includes(
     (process.env.MAINTENANCE_MODE || "").trim().toLowerCase(),
   );
   if (!locked) return NextResponse.next();
 
-  const { pathname } = request.nextUrl;
-
   if (
     pathname === "/maintenance" ||
     pathname.startsWith("/_next/") ||
-    pathname.startsWith("/uploads/") ||
     pathname === "/favicon.ico" ||
     pathname === "/favicon.svg" ||
     pathname.startsWith("/api/status") ||

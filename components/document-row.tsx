@@ -46,7 +46,7 @@ export function DocumentRow({ document, category, showCategory = false }: Props)
       <div className="flex items-center gap-2">
         {document.fileUrl && (
           <a
-            href={document.fileUrl}
+            href={`/api/files/${document.id}?mode=download`}
             download={document.fileName || undefined}
             className="grid size-10 shrink-0 place-items-center rounded-full border border-ink/15 text-muted transition-all hover:border-ink hover:bg-ink hover:text-paper"
             aria-label={`Скачать ${document.title}`}

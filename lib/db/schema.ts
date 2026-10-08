@@ -580,3 +580,154 @@ export const forumPosts = sqliteTable("forum_posts", {
 }, (table) => ({
   topicIdx: index("forum_posts_topic_idx").on(table.topicId),
 }));
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Монетизация
+ *
+ * Деньги хранятся в КОПЕЙКАХ (целые числа) — никаких дробных рублей в базе,
+ * иначе рано или поздно получится 198.99999 ₽. Для показа есть formatMoney()
+ * в lib/money.ts.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Любая настройка, которую админ может менять без деплоя: включён ли приём
+ * платежей, сколько книг в день качает бесплатный аккаунт и т.д. Значение —
+ * JSON-строка, разбор и значения по умолчанию живут в lib/settings.ts. */
+export const siteSettings = sqliteTable("site_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+});
+
+/** Тариф. Строки заводит и редактирует админ; код опирается только на `slug`
+ * и на список фич, а цены/названия/описания — данные, не константы. */
+export const plans = sqliteTable("plans", {
+  id: text("id").primaryKey(),
+  /** free | reader | regular | patron | founder — то, что проверяет код. */
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  tagline: text("tagline"),
+  description: text("description"),
+  priceMonthly: integer("price_monthly").notNull().default(0),
+  /** null — годовой оплаты нет (например, у бесплатного тарифа). */
+  priceYearly: integer("price_yearly"),
+  /** Разовый платёж за пожизненный доступ (уровень «Основатель»). */
+  priceLifetime: integer("price_lifetime"),
+  /** JSON-массив ключей фич из lib/entitlements.ts. */
+  features: text("features").notNull().default("[]"),
+  /** Ограниченный тираж: сколько всего мест. null — без ограничений. */
+  seatLimit: integer("seat_limit"),
+  /** Не истекает (основатели). */
+  lifetime: integer("lifetime").notNull().default(0),
+  /** Цвет значка/ника в интерфейсе. */
+  accent: text("accent"),
+  badge: text("badge"),
+  active: integer("active").notNull().default(1),
+  sortOrder: integer("sort_order").notNull().default(0),
+  ...timestamps,
+}, (table) => ({
+  slugIdx: uniqueIndex("plans_slug_idx").on(table.slug),
+}));
+
+/** Подписка пользователя. Активной считается строка со status='active' и
+ * expiresAt в будущем (или null у пожизненных). История не удаляется. */
+export const subscriptions = sqliteTable("subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  planSlug: text("plan_slug").notNull(),
+  status: text("status", { enum: ["pending", "active", "canceled", "expired"] })
+    .notNull()
+    .default("pending"),
+  period: text("period", { enum: ["month", "year", "lifetime"] })
+    .notNull()
+    .default("month"),
+  startedAt: text("started_at"),
+  /** null у пожизненных. */
+  expiresAt: text("expires_at"),
+  canceledAt: text("canceled_at"),
+  /** yookassa — оплачено картой; manual — выдал админ; founder — тираж основателей. */
+  source: text("source", { enum: ["yookassa", "manual", "founder", "promo"] })
+    .notNull()
+    .default("yookassa"),
+  autoRenew: integer("auto_renew").notNull().default(0),
+  note: text("note"),
+  ...timestamps,
+}, (table) => ({
+  userIdx: index("subscriptions_user_idx").on(table.userId),
+  statusIdx: index("subscriptions_status_idx").on(table.status),
+}));
+
+/** Любой платёж: подписка, семинар, сбор на оцифровку, донат. */
+export const payments = sqliteTable("payments", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  kind: text("kind", { enum: ["subscription", "seminar", "campaign", "donation"] })
+    .notNull()
+    .default("subscription"),
+  /** id семинара/сбора — для подписки пусто. */
+  targetId: text("target_id"),
+  planSlug: text("plan_slug"),
+  period: text("period"),
+  amount: integer("amount").notNull(),
+  currency: text("currency").notNull().default("RUB"),
+  status: text("status", {
+    enum: ["pending", "waiting_for_capture", "succeeded", "canceled", "refunded"],
+  })
+    .notNull()
+    .default("pending"),
+  provider: text("provider").notNull().default("yookassa"),
+  /** id платежа на стороне ЮKassa. */
+  providerPaymentId: text("provider_payment_id"),
+  /** Ключ идемпотентности: защищает от двойного списания при повторе запроса. */
+  idempotenceKey: text("idempotence_key"),
+  description: text("description"),
+  /** Сырой ответ провайдера — чтобы было что показать при разборе спора. */
+  payload: text("payload"),
+  paidAt: text("paid_at"),
+  ...timestamps,
+}, (table) => ({
+  userIdx: index("payments_user_idx").on(table.userId),
+  providerIdx: index("payments_provider_idx").on(table.providerPaymentId),
+}));
+
+/** Журнал выдачи файлов: и лимиты бесплатного тарифа, и след для разбора
+ * «кто выкачал весь фонд за ночь». */
+export const downloadEvents = sqliteTable("download_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+  /** read — открытие в читалке, download — скачивание файла, zip — архив раздела, opds — выдача по OPDS. */
+  kind: text("kind", { enum: ["read", "download", "zip", "opds"] })
+    .notNull()
+    .default("read"),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  ...timestamps,
+}, (table) => ({
+  userIdx: index("download_events_user_idx").on(table.userId),
+  createdIdx: index("download_events_created_idx").on(table.createdAt),
+}));
+
+/** Токены для читалок (OPDS). Пароль от аккаунта в читалку вбивать нельзя,
+ * поэтому выдаём отдельный отзываемый токен; в базе только его хеш. */
+export const apiTokens = sqliteTable("api_tokens", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  /** Первые символы — чтобы человек узнал свой токен в списке. */
+  prefix: text("prefix").notNull(),
+  scope: text("scope").notNull().default("opds"),
+  lastUsedAt: text("last_used_at"),
+  revokedAt: text("revoked_at"),
+  ...timestamps,
+}, (table) => ({
+  userIdx: index("api_tokens_user_idx").on(table.userId),
+  hashIdx: uniqueIndex("api_tokens_hash_idx").on(table.tokenHash),
+}));
