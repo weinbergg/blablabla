@@ -31,6 +31,7 @@ import {
   saveReadingProgress,
   type ReadingProgressKind,
 } from "@/lib/reading-progress";
+import { getOfflineBook } from "@/lib/offline-store";
 import { canAnnotateFiles } from "@/lib/roles";
 import type { CompanionSuggestions } from "@/lib/db/companion-suggestions";
 
@@ -147,7 +148,6 @@ export function DocumentWorkspace({
   const isEpub = fileType === "EPUB";
   const isTxt = fileType === "TXT";
   const pageLabel = isEpub ? "глава" : isTxt ? "лист" : "стр.";
-  const canFullscreen = Boolean(fileUrl) && (isPdf || isEpub || isTxt);
   const canAnnotate = canAnnotateFiles(currentUser?.role);
   const otherEditions = editions.filter((item) => item.id !== documentId);
   const [liveAnnotations, setLiveAnnotations] = useState(annotations);
@@ -158,6 +158,24 @@ export function DocumentWorkspace({
   const [companionPageLabel, setCompanionPageLabel] = useState("стр.");
   const [liveCompanionTitle, setLiveCompanionTitle] = useState<string | null>(companionTitle);
   const readerHostRef = useRef<HTMLDivElement | null>(null);
+  const [offlineUrl, setOfflineUrl] = useState<string | null>(null);
+  const readerUrl = offlineUrl ?? fileUrl;
+  const canFullscreen = Boolean(readerUrl) && (isPdf || isEpub || isTxt);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    setOfflineUrl(null);
+    void getOfflineBook(documentId).then((row) => {
+      if (cancelled || !row?.blob) return;
+      objectUrl = URL.createObjectURL(row.blob);
+      setOfflineUrl(objectUrl);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [documentId]);
 
   const appendLiveAnnotation = useCallback((item: AnnotationItem) => {
     setLiveAnnotations((current) => (current.some((existing) => existing.id === item.id) ? current : [...current, item]));
@@ -607,9 +625,9 @@ export function DocumentWorkspace({
                     />
                   )}
                   <div ref={readerHostRef} className="min-w-0 flex-1">
-                    {progressReady && fileUrl && isPdf && (
+                    {progressReady && readerUrl && isPdf && (
                       <PdfReader
-                        url={fileUrl}
+                        url={readerUrl}
                         page={page}
                         onPageChange={handlePageChange}
                         documentId={documentId}
@@ -629,9 +647,9 @@ export function DocumentWorkspace({
                         compact={readerCompact}
                       />
                     )}
-                    {progressReady && fileUrl && isEpub && (
+                    {progressReady && readerUrl && isEpub && (
                       <EpubReader
-                        url={fileUrl}
+                        url={readerUrl}
                         page={page}
                         onPageChange={handlePageChange}
                         documentId={documentId}
@@ -650,9 +668,9 @@ export function DocumentWorkspace({
                         compact={readerCompact}
                       />
                     )}
-                    {progressReady && fileUrl && isTxt && (
+                    {progressReady && readerUrl && isTxt && (
                       <TxtReader
-                        url={fileUrl}
+                        url={readerUrl}
                         language={language}
                         fullscreen={fullscreen}
                         page={page}
@@ -797,9 +815,9 @@ export function DocumentWorkspace({
                   />
                 )}
                   <div ref={readerHostRef} className="min-w-0 flex-1">
-                    {progressReady && fileUrl && isPdf && (
+                    {progressReady && readerUrl && isPdf && (
                       <PdfReader
-                      url={fileUrl}
+                      url={readerUrl}
                       page={page}
                       onPageChange={handlePageChange}
                       documentId={documentId}
@@ -819,9 +837,9 @@ export function DocumentWorkspace({
                       compact={readerCompact}
                     />
                   )}
-                  {progressReady && fileUrl && isEpub && (
+                  {progressReady && readerUrl && isEpub && (
                     <EpubReader
-                      url={fileUrl}
+                      url={readerUrl}
                       page={page}
                       onPageChange={handlePageChange}
                       documentId={documentId}
@@ -840,9 +858,9 @@ export function DocumentWorkspace({
                       compact={readerCompact}
                     />
                   )}
-                  {progressReady && fileUrl && isTxt && (
+                  {progressReady && readerUrl && isTxt && (
                     <TxtReader
-                      url={fileUrl}
+                      url={readerUrl}
                       language={language}
                       fullscreen={fullscreen}
                       page={page}

@@ -31,6 +31,8 @@ import { SelectionLookup } from "./selection-lookup";
 import { ZoomControls } from "./zoom-controls";
 import { buildSearchExcerpt, normalizeSearchText } from "@/lib/reader-search";
 import { addBookmark } from "@/lib/bookmarks";
+import { isTypingTarget } from "@/lib/reader-keys";
+import { decodeTxtBytes } from "@/lib/txt-encoding";
 import { splitTxtPages, txtTableOfContents } from "@/lib/txt-structure";
 
 const TXT_ZOOM_KEY = "reader:txt-zoom";
@@ -135,11 +137,7 @@ export function TxtReader({
         const res = await fetch(url);
         if (!res.ok) throw new Error(String(res.status));
         const buf = await res.arrayBuffer();
-        let decoded = new TextDecoder("utf-8", { fatal: false }).decode(buf);
-        if (decoded.includes("\uFFFD") && buf.byteLength < 8_000_000) {
-          decoded = new TextDecoder("latin1").decode(buf);
-        }
-        if (decoded.charCodeAt(0) === 0xfeff) decoded = decoded.slice(1);
+        const decoded = decodeTxtBytes(buf);
         if (!cancelled) setText(decoded);
       } catch {
         if (!cancelled) setError(true);
@@ -247,6 +245,18 @@ export function TxtReader({
     onPageChange(Math.min(total, Math.max(1, safePage + delta)), total);
     scrollRef.current?.scrollTo({ top: 0 });
   }
+
+  useEffect(() => {
+    function handleKey(event: KeyboardEvent) {
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      if (isTypingTarget(event.target)) return;
+      event.preventDefault();
+      go(event.key === "ArrowRight" ? 1 : -1);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total, safePage, onPageChange]);
 
   function jumpToPage(target: number) {
     if (!total || !onPageChange) return;

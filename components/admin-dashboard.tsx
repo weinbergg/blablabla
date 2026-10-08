@@ -40,6 +40,7 @@ import { ROLE_LABELS, canManageAdmins, isSuperAdminUser } from "@/lib/roles";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { BulkImportTab } from "@/components/admin-bulk-import-tab";
 import { BillingTab } from "@/components/admin-billing-tab";
+import { CreateCategoryInline } from "@/components/create-category-inline";
 import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
 export type AdminDocument = {
@@ -132,7 +133,7 @@ export function AdminDashboard({
   }
 
   return (
-    <main className="min-h-screen bg-paper">
+    <main className="min-h-screen overflow-x-hidden bg-paper">
       <header className="border-b border-ink/10 bg-paper">
         <div className="shell flex h-20 items-center justify-between">
           <div>
@@ -315,8 +316,8 @@ function DocumentsTab({
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[390px_1fr]">
-      <section className="h-fit rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm lg:sticky lg:top-6">
+    <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,390px)_minmax(0,1fr)]">
+      <section className="flex max-h-[calc(100dvh-5.5rem)] flex-col overflow-hidden rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm lg:sticky lg:top-6">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-full bg-rust/10 text-rust">
@@ -341,7 +342,8 @@ function DocumentsTab({
           )}
         </div>
 
-        <form key={editing?.id || "new"} onSubmit={submit} className="space-y-4">
+        <form key={editing?.id || "new"} onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
           <label className="field">
             <span>Название *</span>
             <input name="title" required defaultValue={editing?.title} placeholder="Критика чистого разума" />
@@ -401,6 +403,9 @@ function DocumentsTab({
             <span>Метки, через запятую</span>
             <input name="tags" defaultValue={editing?.tagNames} placeholder="например: логика, XX век" />
           </label>
+          </div>
+
+          <div className="mt-4 shrink-0 space-y-3 border-t border-ink/10 pt-4">
           <label className="field">
             <span>Файл {editing ? "(оставьте пустым, чтобы не менять)" : ""}</span>
             <input
@@ -436,6 +441,7 @@ function DocumentsTab({
               {message}
             </p>
           )}
+          </div>
         </form>
       </section>
 
@@ -511,6 +517,32 @@ function DocumentsTab({
               Сбросить
             </button>
           )}
+          {confidenceFilter === "low" && filtered.length > 0 && (
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={busy}
+              onClick={async () => {
+                if (!window.confirm(`Подтвердить ${filtered.length} непроверенных книг из фильтра?`)) return;
+                setBusy(true);
+                const response = await fetch("/api/admin/documents/confirm", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ids: filtered.map((item) => item.id) }),
+                });
+                setBusy(false);
+                if (!response.ok) {
+                  const result = (await response.json().catch(() => ({}))) as { error?: string };
+                  setMessage(result.error || "Не удалось подтвердить.");
+                  return;
+                }
+                setMessage(`Подтверждено: ${filtered.length}`);
+                router.refresh();
+              }}
+            >
+              Подтвердить найденные
+            </button>
+          )}
         </div>
 
         <div>
@@ -577,15 +609,29 @@ function CategoryFields({
   initialCategoryId: string;
   initialSecondaryIds: string[];
 }) {
+  const [options, setOptions] = useState(categoryOptions);
   const [categoryId, setCategoryId] = useState(initialCategoryId);
   const [secondaryIds, setSecondaryIds] = useState<Set<string>>(new Set(initialSecondaryIds));
+
+  useEffect(() => {
+    setOptions(categoryOptions);
+  }, [categoryOptions]);
 
   return (
     <>
       <label className="field">
-        <span>Раздел *</span>
+        <span className="flex items-center justify-between gap-2">
+          Раздел *
+          <CreateCategoryInline
+            options={options}
+            onCreated={(option) => {
+              setOptions((current) => [...current, option]);
+              setCategoryId(option.id);
+            }}
+          />
+        </span>
         <select name="categoryId" value={categoryId} onChange={(event) => setCategoryId(event.target.value)} required>
-          {categoryOptions.map((option) => (
+          {options.map((option) => (
             <option key={option.id} value={option.id}>
               {option.label}
             </option>
@@ -596,7 +642,7 @@ function CategoryFields({
         <span>Дополнительные разделы (необязательно)</span>
         <input type="hidden" name="secondaryCategoryIdsPresent" value="1" />
         <div className="max-h-40 overflow-y-auto rounded-lg border border-ink/15 p-2">
-          {categoryOptions
+          {options
             .filter((option) => option.id !== categoryId)
             .map((option) => (
               <label key={option.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-ink/5">
@@ -694,8 +740,8 @@ function CategoriesTab({ tree }: { tree: CategoryNode[] }) {
   const flatOptions = flattenForSelect(tree);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[390px_1fr]">
-      <section className="h-fit rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm">
+    <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,390px)_minmax(0,1fr)]">
+      <section className="h-fit rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm lg:sticky lg:top-6">
         <div className="mb-6 flex items-center gap-3">
           <span className="grid size-9 place-items-center rounded-full bg-rust/10 text-rust">
             <FolderPlus size={17} />
@@ -910,10 +956,36 @@ function CatalogReviewQueue({ items }: { items: AdminDocument[] }) {
   );
 
   const current = queue[Math.min(index, Math.max(0, queue.length - 1))] ?? null;
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     if (index >= queue.length && queue.length > 0) setIndex(queue.length - 1);
   }, [index, queue.length]);
+
+  async function confirmMany(ids: string[]) {
+    if (ids.length === 0) return;
+    if (!window.confirm(`Подтвердить ${ids.length} книг? Файлы не изменятся — снимется только пометка «непроверено».`)) {
+      return;
+    }
+    setBulkBusy(true);
+    const response = await fetch("/api/admin/documents/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    setBulkBusy(false);
+    if (!response.ok) {
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      window.alert(result.error || "Не удалось подтвердить.");
+      return;
+    }
+    setSkipped((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    router.refresh();
+  }
 
   async function confirmCurrent() {
     if (!current) return;
@@ -1027,6 +1099,14 @@ function CatalogReviewQueue({ items }: { items: AdminDocument[] }) {
               <ExternalLink size={14} />
               Открыть
             </Link>
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={bulkBusy || queue.length === 0}
+              onClick={() => void confirmMany(queue.map((item) => item.id))}
+            >
+              Подтвердить все в очереди ({queue.length})
+            </button>
           </div>
         </div>
       )}

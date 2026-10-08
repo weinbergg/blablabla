@@ -41,5 +41,5 @@ export async function POST(request: Request) {
 
   revalidatePath("/");
   revalidatePath("/admin");
-  return NextResponse.json({ id }, { status: 201 });
+  return NextResponse.json({ id, name, parentId }, { status: 201 });
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FolderInput, Loader2 } from "lucide-react";
 import type { CategoryOption } from "@/components/document-edit-form";
+import { CreateCategoryInline } from "@/components/create-category-inline";
 import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
 type ImportResult = {
@@ -24,6 +25,12 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
   const [error, setError] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [options, setOptions] = useState(categoryOptions);
+  const [defaultCategoryId, setDefaultCategoryId] = useState("");
+
+  useEffect(() => {
+    setOptions(categoryOptions);
+  }, [categoryOptions]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,8 +70,8 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[420px_1fr]">
-      <section className="h-fit rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm lg:sticky lg:top-6">
+    <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+      <section className="h-fit max-h-[calc(100dvh-5.5rem)] overflow-y-auto rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm lg:sticky lg:top-6">
         <div className="mb-5 flex items-center gap-3">
           <span className="grid size-9 place-items-center rounded-full bg-rust/10 text-rust">
             <FolderInput size={17} />
@@ -90,10 +97,23 @@ export function BulkImportTab({ categoryOptions }: { categoryOptions: CategoryOp
             <small>Пока сайт работает локально, можно просто указать путь на диске сервера — без загрузки файла.</small>
           </label>
           <label className="field">
-            <span>Раздел по умолчанию, если не удалось определить</span>
-            <select name="defaultCategoryId" defaultValue="">
+            <span className="flex items-center justify-between gap-2">
+              Раздел по умолчанию, если не удалось определить
+              <CreateCategoryInline
+                options={options}
+                onCreated={(option) => {
+                  setOptions((current) => [...current, option]);
+                  setDefaultCategoryId(option.id);
+                }}
+              />
+            </span>
+            <select
+              name="defaultCategoryId"
+              value={defaultCategoryId}
+              onChange={(event) => setDefaultCategoryId(event.target.value)}
+            >
               <option value="">Без категории (создастся автоматически)</option>
-              {categoryOptions.map((option) => (
+              {options.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>

@@ -6,6 +6,7 @@ import { Header } from "@/components/header";
 import { DocumentWorkspace } from "@/components/document-workspace";
 import { DocumentEditForm } from "@/components/document-edit-form";
 import { LibraryButton } from "@/components/library-button";
+import { OfflineBookButton } from "@/components/offline-book-button";
 import { RateReviewPanel, StarRating } from "@/components/rate-review";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import { RelatedTexts } from "@/components/related-texts";
@@ -270,6 +271,14 @@ export default async function DocumentPage({
                   <ArrowDownToLine size={15} />
                   Скачать
                 </a>
+                {readHref && (
+                  <OfflineBookButton
+                    documentId={document.id}
+                    title={document.title}
+                    fileType={document.fileType}
+                    sourceUrl={readHref}
+                  />
+                )}
                 {document.fileType === "PDF" && annotations.length > 0 && (
                   <a
                     href={`/api/documents/${document.id}/download-annotated`}

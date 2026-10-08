@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, X } from "lucide-react";
+import { CreateCategoryInline } from "@/components/create-category-inline";
 import { LANGUAGES } from "@/lib/languages";
 import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
@@ -37,6 +38,7 @@ export function DocumentEditForm({
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [categoryId, setCategoryId] = useState(initial.categoryId);
   const [secondaryIds, setSecondaryIds] = useState<Set<string>>(new Set(initial.secondaryCategoryIds));
+  const [options, setOptions] = useState(categoryOptions);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -127,14 +129,23 @@ export function DocumentEditForm({
           </label>
         </div>
         <label className="field">
-          <span>Раздел</span>
+          <span className="flex items-center justify-between gap-2">
+            Раздел
+            <CreateCategoryInline
+              options={options}
+              onCreated={(option) => {
+                setOptions((current) => [...current, option]);
+                setCategoryId(option.id);
+              }}
+            />
+          </span>
           <select
             name="categoryId"
             value={categoryId}
             onChange={(event) => setCategoryId(event.target.value)}
             required
           >
-            {categoryOptions.map((option) => (
+            {options.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
               </option>
@@ -149,7 +160,7 @@ export function DocumentEditForm({
           </p>
           <input type="hidden" name="secondaryCategoryIdsPresent" value="1" />
           <div className="max-h-40 overflow-y-auto rounded-lg border border-ink/15 p-2">
-            {categoryOptions
+            {options
               .filter((option) => option.id !== categoryId)
               .map((option) => (
                 <label key={option.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-ink/5">
