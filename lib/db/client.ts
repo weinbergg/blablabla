@@ -176,10 +176,44 @@ function ensureBillingTables() {
   `);
 }
 
+function ensureChannelTables() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS channels (
+      id TEXT PRIMARY KEY NOT NULL,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'author',
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS channels_slug_idx ON channels(slug);
+    CREATE INDEX IF NOT EXISTS channels_owner_idx ON channels(owner_id);
+    CREATE TABLE IF NOT EXISTS channel_posts (
+      id TEXT PRIMARY KEY NOT NULL,
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+      published INTEGER NOT NULL DEFAULT 1,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS channel_posts_channel_idx ON channel_posts(channel_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS channel_posts_slug_idx ON channel_posts(channel_id, slug);
+    CREATE INDEX IF NOT EXISTS channel_posts_created_idx ON channel_posts(created_at);
+  `);
+}
+
 try {
   ensureForumTables();
   ensureWorkTables();
   ensureBillingTables();
+  ensureChannelTables();
 } catch {
   /* users/documents may not exist yet on a blank install */
 }

@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { AccountForm } from "@/components/account-form";
 import { getCurrentUser } from "@/lib/auth";
 import { getEntitlements, listPayments } from "@/lib/db/billing";
-import { featureLabel } from "@/lib/entitlements";
+import { getChannelByOwner } from "@/lib/db/channels";
+import { featureLabel, hasFeature } from "@/lib/entitlements";
 import { formatMoney } from "@/lib/money";
 import { ROLE_LABELS, type UserRole } from "@/lib/roles";
 
@@ -26,6 +27,7 @@ export default async function AccountPage() {
 
   const entitlements = await getEntitlements(user);
   const payments = (await listPayments(50)).filter((payment) => payment.userId === user.id).slice(0, 8);
+  const ownChannel = await getChannelByOwner(user.id);
 
   return (
     <main className="grid min-h-screen place-items-center px-5 py-12">
@@ -107,6 +109,16 @@ export default async function AccountPage() {
               </ul>
             </div>
           )}
+
+          {ownChannel ? (
+            <Link href={`/channels/${ownChannel.slug}`} className="button-secondary mt-6 w-full justify-center">
+              Мой канал
+            </Link>
+          ) : hasFeature(entitlements, "channels.publish") ? (
+            <Link href="/channels" className="button-secondary mt-6 w-full justify-center">
+              Открыть свой канал
+            </Link>
+          ) : null}
 
           <Link href="/pricing" className="button-secondary mt-6 w-full justify-center">
             {entitlements.source === "subscription" ? "Сменить уровень" : "Что даёт подписка"}

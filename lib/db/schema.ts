@@ -731,3 +731,46 @@ export const apiTokens = sqliteTable("api_tokens", {
   userIdx: index("api_tokens_user_idx").on(table.userId),
   hashIdx: uniqueIndex("api_tokens_hash_idx").on(table.tokenHash),
 }));
+
+/**
+ * Каналы. Не чат: у записи есть заголовок, дата и текст, который читают
+ * целиком, как колонку. kind=news — хроника библиотеки (пишут админы),
+ * kind=author — личный канал человека с правом channels.publish.
+ */
+export const channels = sqliteTable("channels", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["news", "author"] }).notNull().default("author"),
+  archived: integer("archived").notNull().default(0),
+  ...timestamps,
+}, (table) => ({
+  slugIdx: uniqueIndex("channels_slug_idx").on(table.slug),
+  ownerIdx: index("channels_owner_idx").on(table.ownerId),
+}));
+
+export const channelPosts = sqliteTable("channel_posts", {
+  id: text("id").primaryKey(),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+  published: integer("published").notNull().default(1),
+  pinned: integer("pinned").notNull().default(0),
+  updatedAt: text("updated_at"),
+  ...timestamps,
+}, (table) => ({
+  channelIdx: index("channel_posts_channel_idx").on(table.channelId),
+  slugIdx: uniqueIndex("channel_posts_slug_idx").on(table.channelId, table.slug),
+  createdIdx: index("channel_posts_created_idx").on(table.createdAt),
+}));

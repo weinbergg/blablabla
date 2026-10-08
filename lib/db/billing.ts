@@ -64,10 +64,32 @@ function rowToPlan(row: typeof plans.$inferSelect): Plan {
   };
 }
 
+/**
+ * Если в коде появилась новая фича, дописываем её в тарифы-семена, не трогая
+ * цены и названия, которые админ уже менял руками.
+ */
+async function syncSeedFeatures() {
+  const rows = await db.select().from(plans);
+  for (const row of rows) {
+    const seed = PLAN_SEEDS.find((item) => item.slug === row.slug);
+    if (!seed) continue;
+    const current = parseFeatures(row.features);
+    const missing = seed.features.filter((key) => !current.includes(key));
+    if (missing.length === 0) continue;
+    await db
+      .update(plans)
+      .set({ features: JSON.stringify([...current, ...missing]) })
+      .where(eq(plans.id, row.id));
+  }
+}
+
 /** Первый запуск: заливаем стартовые тарифы, дальше истина — база. */
 async function ensurePlansSeeded() {
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(plans);
-  if (count > 0) return;
+  if (count > 0) {
+    await syncSeedFeatures();
+    return;
+  }
   for (const seed of PLAN_SEEDS) {
     await db.insert(plans).values({
       id: randomUUID(),

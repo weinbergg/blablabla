@@ -39,6 +39,12 @@ export async function Header() {
             Каталог
           </Link>
           <Link
+            href="/news"
+            className="hidden text-muted transition-colors hover:text-ink sm:block"
+          >
+            Новости
+          </Link>
+          <Link
             href="/discuss"
             className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink sm:flex"
           >

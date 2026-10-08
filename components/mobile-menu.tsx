@@ -46,6 +46,12 @@ export function MobileMenu({
             <Link href="/#catalog" onClick={() => setOpen(false)} className="text-ink">
               Каталог
             </Link>
+            <Link href="/news" onClick={() => setOpen(false)} className="text-ink">
+              Новости
+            </Link>
+            <Link href="/channels" onClick={() => setOpen(false)} className="text-ink">
+              Каналы
+            </Link>
             <Link
               href="/discuss"
               onClick={() => setOpen(false)}

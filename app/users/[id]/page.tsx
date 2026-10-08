@@ -7,6 +7,7 @@ import { FriendActionButton } from "@/components/friend-action-button";
 import { StarRating } from "@/components/rate-review";
 import { RoleBadge, UserAvatar } from "@/components/user-avatar";
 import { getCurrentUser } from "@/lib/auth";
+import { getChannelByOwner } from "@/lib/db/channels";
 import { getFriendshipStatus, getPublicProfile } from "@/lib/db/friends";
 import { getLibraryForUser, getLibraryStats, getReviewsByUser } from "@/lib/db/library";
 import { countLabel } from "@/lib/pluralize";
@@ -23,11 +24,12 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
 
   const isSelf = currentUser.id === id;
 
-  const [entries, stats, reviews, friendship] = await Promise.all([
+  const [entries, stats, reviews, friendship, channel] = await Promise.all([
     getLibraryForUser(id),
     getLibraryStats(id),
     getReviewsByUser(id),
     isSelf ? Promise.resolve(null) : getFriendshipStatus(currentUser.id, id),
+    getChannelByOwner(id),
   ]);
 
   return (
@@ -65,12 +67,19 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
               </p>
             </div>
           </div>
-          {!isSelf && friendship && <FriendActionButton userId={id} initial={friendship} />}
-          {isSelf && (
-            <Link href="/account" className="button-secondary">
-              Настройки аккаунта
-            </Link>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {channel ? (
+              <Link href={`/channels/${channel.slug}`} className="button-secondary">
+                Канал
+              </Link>
+            ) : null}
+            {!isSelf && friendship && <FriendActionButton userId={id} initial={friendship} />}
+            {isSelf && (
+              <Link href="/account" className="button-secondary">
+                Настройки аккаунта
+              </Link>
+            )}
+          </div>
         </div>
 
         <div className="mb-12 flex flex-wrap gap-3">

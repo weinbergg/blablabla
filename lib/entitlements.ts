@@ -29,6 +29,7 @@ export const FEATURES = {
   "credits.line": "Именная строка «Добавлено при поддержке»",
   "support.priority": "Приоритетная поддержка",
   "early.access": "Ранний доступ к новым функциям",
+  "channels.publish": "Свой канал: длинные записи со ссылками на книги",
 } as const;
 
 export type FeatureKey = keyof typeof FEATURES;
@@ -122,7 +123,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     name: "Завсегдатай",
     tagline: "Сообщество и кураторство",
     description:
-      "Всё из читательского билета, закрытый чат, ежемесячная встреча «книга месяца» с гостем, маршруты чтения и скидка на семинары.",
+      "Всё из читательского билета, свой канал с длинными записями, закрытый чат, ежемесячная встреча «книга месяца» с гостем, маршруты чтения и скидка на семинары.",
     priceMonthly: 39900,
     priceYearly: 349000,
     priceLifetime: null,
@@ -138,6 +139,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
       "meeting.monthly",
       "routes.guided",
       "seminars.discount",
+      "channels.publish",
     ],
     seatLimit: null,
     lifetime: false,
@@ -167,6 +169,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
       "meeting.monthly",
       "routes.guided",
       "seminars.discount",
+      "channels.publish",
       "requests.priority",
       "credits.line",
     ],
