@@ -114,6 +114,28 @@ export async function getLibraryStatusForDocument(userId: string, documentId: st
   return row ?? null;
 }
 
+/**
+ * Полка «не влезает» бесплатно после shelfFreeLimit книг — это платный
+ * инструмент. Проверка отдельная, чтобы её можно было звать из обоих
+ * маршрутов полки до записи в базу.
+ *
+ * Книги, уже стоящие на полке, остаются доступны всегда: лимит касается
+ * только добавления новых, иначе после смены тарифа человек терял бы данные.
+ */
+export async function shelfLimitReached(
+  userId: string,
+  documentId: string,
+  limit: number,
+): Promise<boolean> {
+  const existing = await getLibraryStatusForDocument(userId, documentId);
+  if (existing) return false;
+  const [row] = await db
+    .select({ value: count() })
+    .from(libraryItems)
+    .where(eq(libraryItems.userId, userId));
+  return Number(row?.value ?? 0) >= limit;
+}
+
 export async function addOrUpdateLibraryItem({
   userId,
   documentId,

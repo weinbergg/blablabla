@@ -23,8 +23,8 @@ export type SiteConfig = {
   downloadsPerDayFree: number;
   /** То же для подписчиков. */
   downloadsPerDayPaid: number;
-  /** Потолок для неавторизованных (по IP) — защита от выкачивания фонда. */
-  downloadsPerDayAnonymous: number;
+  /** Сколько книг помещается на полку без подписки (0 — полка только платная). */
+  shelfFreeLimit: number;
   /** Книг в одном ZIP-архиве раздела. */
   zipMaxDocuments: number;
   /** Размер ZIP-архива в мегабайтах. */
@@ -47,7 +47,7 @@ export const DEFAULT_SETTINGS: SiteConfig = {
 
   downloadsPerDayFree: 10,
   downloadsPerDayPaid: 200,
-  downloadsPerDayAnonymous: 0,
+  shelfFreeLimit: 20,
   zipMaxDocuments: 150,
   zipMaxMegabytes: 2048,
 

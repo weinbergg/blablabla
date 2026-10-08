@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { addOrUpdateLibraryItem, removeLibraryItem, type LibraryStatus } from "@/lib/db/library";
+import { shelfBlocked } from "@/lib/shelf-limit";
 
 const VALID_STATUSES: LibraryStatus[] = ["want", "reading", "done"];
 
@@ -24,6 +25,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ do
   let reviewBody: string | null | undefined;
   if (body?.reviewBody === null) reviewBody = null;
   else if (typeof body?.reviewBody === "string") reviewBody = body.reviewBody.trim().slice(0, 2000) || null;
+
+  const blocked = await shelfBlocked(user, documentId);
+  if (blocked) return blocked;
 
   await addOrUpdateLibraryItem({ userId: user.id, documentId, status: body.status, note, rating, reviewBody });
   return NextResponse.json({ ok: true });

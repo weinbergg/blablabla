@@ -4,7 +4,11 @@ import { notFound } from "next/navigation";
 import { CategoryCard } from "@/components/category-card";
 import { CategoryDocumentList } from "@/components/category-document-list";
 import { Header } from "@/components/header";
+import { SectionArchiveButton } from "@/components/section-archive-button";
+import { getCurrentUser } from "@/lib/auth";
 import { categoryAccent, isWideGridTail } from "@/lib/category-style";
+import { getEntitlements } from "@/lib/db/billing";
+import { hasFeature } from "@/lib/entitlements";
 import {
   getCategoryBySlugPath,
   getCategoryTree,
@@ -25,10 +29,12 @@ export default async function CategoryPage({
   if (!resolved) notFound();
 
   const { category, trail } = resolved;
-  const [children, documents, tree] = await Promise.all([
+  const user = await getCurrentUser();
+  const [children, documents, tree, entitlements] = await Promise.all([
     getChildCategories(category.id),
     getDocumentsForCategory(category.id),
     getCategoryTree(),
+    getEntitlements(user),
   ]);
 
   const visibleChildren = children.filter(isPubliclyVisibleCategory);
@@ -77,6 +83,15 @@ export default async function CategoryPage({
               <p className="mt-6 max-w-xl text-lg leading-7 text-muted">
                 {category.description}
               </p>
+            )}
+
+            {documents.length > 0 && (
+              <div className="mt-8">
+                <SectionArchiveButton
+                  categoryId={category.id}
+                  allowed={hasFeature(entitlements, "archive.zip")}
+                />
+              </div>
             )}
           </div>
         </section>

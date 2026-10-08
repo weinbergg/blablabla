@@ -42,7 +42,7 @@ type Config = {
   receiptsEnabled: boolean;
   downloadsPerDayFree: number;
   downloadsPerDayPaid: number;
-  downloadsPerDayAnonymous: number;
+  shelfFreeLimit: number;
   zipMaxDocuments: number;
   zipMaxMegabytes: number;
   legalName: string;
@@ -536,6 +536,15 @@ function SettingsSection({
             />
           </label>
           <label className="field">
+            <span>Книг на полке без подписки</span>
+            <input
+              type="number"
+              min={0}
+              value={draft.shelfFreeLimit}
+              onChange={(event) => setDraft({ ...draft, shelfFreeLimit: Number(event.target.value) })}
+            />
+          </label>
+          <label className="field">
             <span>Книг в одном ZIP</span>
             <input
               type="number"
@@ -555,8 +564,9 @@ function SettingsSection({
           </label>
         </div>
         <p className="mt-2 text-xs leading-5 text-muted">
-          0 — значит «без лимита». Чтение онлайн эти числа не ограничивают: считаются только
-          выгрузки файлов, ZIP-архивы и забор книг через OPDS.
+          0 в суточных лимитах — «без ограничения». Чтение онлайн эти числа не трогают:
+          считаются только выгрузки файлов, ZIP-архивы и забор книг через OPDS. В поле про
+          полку 0 означает обратное: полка станет доступна только по подписке.
         </p>
       </section>
 

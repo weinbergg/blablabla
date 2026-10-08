@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { addOrUpdateLibraryItem, getLibraryForUser, type LibraryStatus } from "@/lib/db/library";
+import { shelfBlocked } from "@/lib/shelf-limit";
 
 const VALID_STATUSES: LibraryStatus[] = ["want", "reading", "done"];
 
@@ -19,6 +20,9 @@ export async function POST(request: Request) {
   const documentId = typeof body?.documentId === "string" ? body.documentId : null;
   const status: LibraryStatus = VALID_STATUSES.includes(body?.status) ? body.status : "want";
   if (!documentId) return NextResponse.json({ error: "Не указана книга." }, { status: 400 });
+
+  const blocked = await shelfBlocked(user, documentId);
+  if (blocked) return blocked;
 
   await addOrUpdateLibraryItem({ userId: user.id, documentId, status });
   return NextResponse.json({ ok: true });

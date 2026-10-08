@@ -3,8 +3,11 @@ import { redirect } from "next/navigation";
 import { ArrowLeft, StickyNote } from "lucide-react";
 import { Header } from "@/components/header";
 import { NotesCatalog } from "@/components/notes-catalog";
+import { NotesExportButton } from "@/components/notes-export-button";
 import { getCurrentUser } from "@/lib/auth";
+import { getEntitlements } from "@/lib/db/billing";
 import { getMyAnnotations } from "@/lib/db/queries";
+import { hasFeature } from "@/lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +15,10 @@ export default async function NotesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/notes");
 
-  const annotations = await getMyAnnotations(user.id);
+  const [annotations, entitlements] = await Promise.all([
+    getMyAnnotations(user.id),
+    getEntitlements(user),
+  ]);
 
   return (
     <>
@@ -37,10 +43,15 @@ export default async function NotesPage() {
               материалам. Отсюда можно сразу открыть нужную страницу.
             </p>
           </div>
-          <p className="font-mono text-xs text-muted">
-            {annotations.length}{" "}
-            {annotations.length === 1 ? "пометка" : annotations.length < 5 ? "пометки" : "пометок"}
-          </p>
+          <div className="flex flex-col items-end gap-2">
+            <p className="font-mono text-xs text-muted">
+              {annotations.length}{" "}
+              {annotations.length === 1 ? "пометка" : annotations.length < 5 ? "пометки" : "пометок"}
+            </p>
+            {annotations.length > 0 && (
+              <NotesExportButton allowed={hasFeature(entitlements, "notes.export")} />
+            )}
+          </div>
         </div>
         <NotesCatalog items={annotations} />
       </main>

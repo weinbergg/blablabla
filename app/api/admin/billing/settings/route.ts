@@ -8,7 +8,7 @@ const BOOLEAN_KEYS = ["paymentsEnabled", "receiptsEnabled"] as const;
 const NUMBER_KEYS = [
   "downloadsPerDayFree",
   "downloadsPerDayPaid",
-  "downloadsPerDayAnonymous",
+  "shelfFreeLimit",
   "zipMaxDocuments",
   "zipMaxMegabytes",
 ] as const;

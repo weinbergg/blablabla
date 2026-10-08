@@ -16,18 +16,26 @@ export function LibraryButton({
   const [status, setStatus] = useState<LibraryStatus | null>(initialStatus);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [limitNotice, setLimitNotice] = useState<string | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function choose(next: LibraryStatus) {
     setBusy(true);
     setOpen(false);
+    setLimitNotice(null);
     const response = await fetch(`/api/library/${documentId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: next }),
     });
     setBusy(false);
-    if (response.ok) setStatus(next);
+    if (response.ok) {
+      setStatus(next);
+      return;
+    }
+    // 402 — полка упёрлась в бесплатную квоту: объясняем прямо у кнопки.
+    const data = await response.json().catch(() => ({}));
+    setLimitNotice(data.error ?? "Не получилось сохранить");
   }
 
   async function removeFromShelf() {
@@ -82,6 +90,15 @@ export function LibraryButton({
             </button>
           )}
         </div>
+      )}
+
+      {limitNotice && (
+        <p className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-ink/10 bg-paper p-3 text-xs leading-5 text-muted shadow-xl">
+          {limitNotice}{" "}
+          <a href="/pricing" className="underline underline-offset-2 hover:text-ink">
+            Читательский билет
+          </a>
+        </p>
       )}
     </div>
   );
