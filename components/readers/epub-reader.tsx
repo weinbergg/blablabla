@@ -293,10 +293,13 @@ export function EpubReader({
 
   const syncRenditionLayout = useCallback(() => {
     const rendition = renditionRef.current;
-    const wrap = wrapRef.current;
-    if (!rendition || !wrap) return;
+    // Мерить нужно сам контейнер книги, а не карточку вокруг него: если
+    // передать сюда внешнюю ширину, страница окажется шире видимой области и
+    // у каждой строки срежется правый край.
+    const host = containerRef.current;
+    if (!rendition || !host) return;
     try {
-      rendition.resize(wrap.clientWidth, wrap.clientHeight);
+      rendition.resize(host.clientWidth, host.clientHeight);
     } catch {
       /* ignore transient epub.js layout failures */
     }
@@ -355,17 +358,29 @@ export function EpubReader({
     goToSection(sectionRef.current + (delta >= 0 ? 1 : -1));
   }, [goToSection]);
 
+  /**
+   * Листание внутри главы. Раньше стрелки прыгали сразу на следующую главу, и
+   * из длинной главы читатель видел только первый экран — остальное было не
+   * достать. rendition.next() переходит на следующий экран, а на границе
+   * главы сам перебирается в следующую; счётчик глав подхватит `relocated`.
+   */
+  const stepPage = useCallback((delta: number) => {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    void (delta >= 0 ? rendition.next() : rendition.prev());
+  }, []);
+
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
       if (isTypingTarget(event.target)) return;
       event.preventDefault();
-      if (event.key === "ArrowRight") stepSection(1);
-      if (event.key === "ArrowLeft") stepSection(-1);
+      if (event.key === "ArrowRight") stepPage(1);
+      if (event.key === "ArrowLeft") stepPage(-1);
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [stepSection]);
+  }, [stepPage]);
 
   useEffect(() => {
     if (!fullscreen) {
@@ -396,15 +411,33 @@ export function EpubReader({
     (async () => {
       try {
         const ePub = (await import("epubjs")).default;
-        if (!containerRef.current) return;
-        const book = ePub(url);
+        // Между началом загрузки epub.js и этим местом компонент мог
+        // размонтироваться (или React в разработке смонтировать его дважды).
+        // Без этой проверки в ref оставалась уже уничтоженная книга: текст на
+        // экране был от живой, а кнопки листания дёргали мёртвую — и ничего
+        // не происходило.
+        if (cancelled || !containerRef.current) return;
+        // openAs обязателен: epub.js определяет тип по расширению в адресе, а
+        // наш защищённый адрес выглядит как /api/files/<id>?t=…. Без подсказки
+        // библиотека считает ссылку распакованной книгой и уходит за
+        // META-INF/container.xml, получает 404 и висит в загрузке навсегда.
+        const book = ePub(url, { openAs: "epub" });
         bookRef.current = book as unknown as EpubSearchBook;
         const rendition = book.renderTo(containerRef.current, {
           width: "100%",
           height: "100%",
           flow: "paginated",
           allowScriptedContent: false,
+          // Зазор между колонками обязан быть нулевым: epub.js листает ровно на
+          // ширину окна, а колонка с зазором шире — от страницы к странице
+          // копится сдвиг, и у каждой строки срезается правый край. В типах
+          // epubjs этого параметра нет, хотя разметка его понимает.
+          ...({ gap: 0 } as Record<string, number>),
         });
+        if (cancelled) {
+          rendition.destroy();
+          return;
+        }
         renditionRef.current = rendition;
         rendition.flow("paginated");
         rendition.spread("none");
@@ -640,13 +673,18 @@ export function EpubReader({
             if (!contents.document.getElementById(styleId)) {
               const style = contents.document.createElement("style");
               style.id = styleId;
+              // body обязан быть во всю ширину «ленты» колонок, иначе
+              // overflow:hidden обрежет всё после первой страницы. А зазор
+              // между колонками обнуляем: epub.js листает ровно на ширину
+              // окна, и при ненулевом зазоре шаг не совпадает с шириной
+              // колонки — у каждой строки срезается правый край.
               style.textContent = `
                 html, body {
                   width: 100% !important;
                   max-width: 100% !important;
                   overflow: hidden !important;
                   overflow-x: hidden !important;
-                  box-sizing: border-box !important;
+                  column-gap: 0 !important;
                 }
                 body * {
                   box-sizing: border-box !important;
@@ -666,13 +704,8 @@ export function EpubReader({
             contents.document.documentElement.style.overflowX = "hidden";
             contents.document.body.style.height = "100%";
             contents.document.body.style.minHeight = "100%";
-            contents.document.body.style.width = "100%";
-            contents.document.body.style.maxWidth = "100%";
-            contents.document.body.style.margin = "0";
-            contents.document.body.style.padding = "0 1rem";
             contents.document.body.style.overflow = "hidden";
             contents.document.body.style.overflowX = "hidden";
-            contents.document.body.style.boxSizing = "border-box";
             contents.document.body.style.wordBreak = "break-word";
             for (const element of Array.from(contents.document.querySelectorAll("img, svg, video, canvas, table, pre"))) {
               const node = element as HTMLElement;
@@ -897,6 +930,7 @@ export function EpubReader({
       cancelled = true;
       bookRef.current = null;
       renditionRef.current?.destroy();
+      renditionRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
@@ -1135,7 +1169,7 @@ export function EpubReader({
     >
       <div className="flex flex-wrap items-start justify-between gap-3 pb-3 md:pb-4">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <button type="button" onClick={() => stepSection(-1)} className="icon-button" aria-label="Предыдущая страница">
+          <button type="button" onClick={() => stepSection(-1)} className="icon-button" aria-label="Предыдущая глава" title="Предыдущая глава">
             <ChevronLeft size={16} />
           </button>
           <PageJumpInput
@@ -1146,7 +1180,7 @@ export function EpubReader({
             display={totalSections ? `глава ${section} / ${totalSections}` : "EPUB"}
             onJump={(target) => goToSection(target)}
           />
-          <button type="button" onClick={() => stepSection(1)} className="icon-button" aria-label="Следующая страница">
+          <button type="button" onClick={() => stepSection(1)} className="icon-button" aria-label="Следующая глава" title="Следующая глава">
             <ChevronRight size={16} />
           </button>
           {!loading && (
@@ -1308,12 +1342,17 @@ export function EpubReader({
               <Loader2 className="animate-spin text-muted" />
             </div>
           )}
-          <div ref={containerRef} className="h-full w-full overflow-hidden" />
+          {/* Поля страницы задаёт эта обёртка: epub.js измеряет контейнер
+              книги, поэтому отступ снаружи честно уменьшает ширину страницы и
+              разбивка на колонки остаётся точной. */}
+          <div className="h-full w-full px-4 md:px-8">
+            <div ref={containerRef} className="h-full w-full overflow-hidden" />
+          </div>
           {!placing && !drawMode && (
             <>
               <button
                 type="button"
-                onClick={() => stepSection(-1)}
+                onClick={() => stepPage(-1)}
                 aria-label="Предыдущая страница"
                 className="group absolute left-2 top-1/2 z-30 hidden -translate-y-1/2 md:flex"
               >
@@ -1323,7 +1362,7 @@ export function EpubReader({
               </button>
               <button
                 type="button"
-                onClick={() => stepSection(1)}
+                onClick={() => stepPage(1)}
                 aria-label="Следующая страница"
                 className="group absolute right-2 top-1/2 z-30 hidden -translate-y-1/2 md:flex"
               >
