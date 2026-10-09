@@ -405,6 +405,29 @@ export async function getPaymentByProviderId(providerPaymentId: string): Promise
   return row ?? null;
 }
 
+export async function createSucceededManualPayment(values: {
+  userId: string | null;
+  kind: "seminar" | "campaign" | "donation";
+  amount: number;
+  targetId: string;
+  description: string;
+}): Promise<PaymentRow> {
+  const id = randomUUID();
+  await db.insert(payments).values({
+    id,
+    userId: values.userId,
+    kind: values.kind,
+    amount: values.amount,
+    targetId: values.targetId,
+    description: values.description,
+    status: "succeeded",
+    provider: "manual",
+    paidAt: new Date().toISOString(),
+  });
+  const [row] = await db.select().from(payments).where(eq(payments.id, id)).limit(1);
+  return row;
+}
+
 export async function setPaymentStatus(
   id: string,
   status: PaymentRow["status"],

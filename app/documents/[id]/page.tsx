@@ -23,6 +23,7 @@ import {
   getDocumentEditHistory,
   getRelatedDocuments,
 } from "@/lib/db/queries";
+import { getFundedCampaignForDocument } from "@/lib/db/events";
 import { getWorkForDocument } from "@/lib/db/works";
 import { getCompanionSuggestions } from "@/lib/db/companion-suggestions";
 import { languageLabel } from "@/lib/languages";
@@ -93,7 +94,7 @@ export default async function DocumentPage({
       ? Number.parseInt(query.withPage, 10)
       : null;
 
-  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work, companion, suggestions] =
+  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work, companion, suggestions, fundedCampaign] =
     await Promise.all([
       getCategoryTrail(document.categoryId),
       getDocumentComments(document.id),
@@ -107,6 +108,7 @@ export default async function DocumentPage({
       getWorkForDocument(document.id),
       companionId ? getDocumentById(companionId) : Promise.resolve(null),
       getCompanionSuggestions(document.id),
+      getFundedCampaignForDocument(document.id),
     ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -193,6 +195,27 @@ export default async function DocumentPage({
             {document.description && (
               <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
                 {document.description}
+              </p>
+            )}
+            {fundedCampaign && fundedCampaign.thanks.length > 0 && (
+              <p className="mt-4 max-w-xl text-sm leading-6">
+                Добавлено при поддержке{" "}
+                {fundedCampaign.thanks.map((person, index) => (
+                  <span key={person.userId ?? `${person.name}-${index}`}>
+                    {index > 0 ? ", " : ""}
+                    {person.userId ? (
+                      <Link href={`/users/${person.userId}`} className="underline underline-offset-2 hover:text-rust">
+                        {person.name}
+                      </Link>
+                    ) : (
+                      person.name
+                    )}
+                  </span>
+                ))}
+                .{" "}
+                <Link href={`/campaigns/${fundedCampaign.slug}`} className="text-xs text-muted underline underline-offset-2">
+                  сбор
+                </Link>
               </p>
             )}
             {document.tags.length > 0 && (

@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { AccountForm } from "@/components/account-form";
 import { getCurrentUser } from "@/lib/auth";
 import { getEntitlements, listPayments } from "@/lib/db/billing";
-import { getChannelByOwner } from "@/lib/db/channels";
+import { formatWhen, getChannelByOwner } from "@/lib/db/channels";
+import { listTicketsForUser } from "@/lib/db/events";
 import { featureLabel, hasFeature } from "@/lib/entitlements";
 import { formatMoney } from "@/lib/money";
 import { ROLE_LABELS, type UserRole } from "@/lib/roles";
@@ -28,6 +29,7 @@ export default async function AccountPage() {
   const entitlements = await getEntitlements(user);
   const payments = (await listPayments(50)).filter((payment) => payment.userId === user.id).slice(0, 8);
   const ownChannel = await getChannelByOwner(user.id);
+  const tickets = await listTicketsForUser(user.id);
 
   return (
     <main className="grid min-h-screen place-items-center px-5 py-12">
@@ -103,6 +105,26 @@ export default async function AccountPage() {
                     </span>
                     <span className="shrink-0 font-mono">
                       {formatMoney(payment.amount)} · {PAYMENT_STATUS[payment.status] ?? payment.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {tickets.length > 0 && (
+            <div className="mt-6 border-t border-ink/10 pt-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
+                Встречи
+              </p>
+              <ul className="space-y-1 text-sm">
+                {tickets.map((ticket) => (
+                  <li key={ticket.id}>
+                    <Link href={`/seminars/${ticket.slug}`} className="underline-offset-2 hover:underline">
+                      {ticket.title}
+                    </Link>
+                    <span className="text-xs text-muted">
+                      {ticket.startsAt ? ` · ${formatWhen(ticket.startsAt)}` : ""}
                     </span>
                   </li>
                 ))}

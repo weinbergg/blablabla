@@ -774,3 +774,68 @@ export const channelPosts = sqliteTable("channel_posts", {
   slugIdx: uniqueIndex("channel_posts_slug_idx").on(table.channelId, table.slug),
   createdIdx: index("channel_posts_created_idx").on(table.createdAt),
 }));
+
+/**
+ * Платные встречи вроде «Пробела». Цена в копейках, места и статус правит
+ * админ. Скидка seminars.discount считается на сервере, клиенту сумма не
+ * доверяется.
+ */
+export const seminars = sqliteTable("seminars", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary"),
+  body: text("body").notNull().default(""),
+  location: text("location"),
+  startsAt: text("starts_at"),
+  /** В копейках. Стартовое значение вроде 2000 ₽ задаёт админ. */
+  priceKopeks: integer("price_kopeks").notNull().default(200000),
+  /** 0 — без скидки даже у Завсегдатая. */
+  discountPercent: integer("discount_percent").notNull().default(20),
+  seatLimit: integer("seat_limit"),
+  status: text("status", { enum: ["draft", "open", "closed", "done"] })
+    .notNull()
+    .default("draft"),
+  ...timestamps,
+}, (table) => ({
+  slugIdx: uniqueIndex("seminars_slug_idx").on(table.slug),
+}));
+
+export const seminarTickets = sqliteTable("seminar_tickets", {
+  id: text("id").primaryKey(),
+  seminarId: text("seminar_id")
+    .notNull()
+    .references(() => seminars.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  paymentId: text("payment_id").references(() => payments.id, { onDelete: "set null" }),
+  source: text("source", { enum: ["yookassa", "manual"] }).notNull().default("yookassa"),
+  ...timestamps,
+}, (table) => ({
+  uniqueSeat: uniqueIndex("seminar_tickets_unique_idx").on(table.seminarId, table.userId),
+  seminarIdx: index("seminar_tickets_seminar_idx").on(table.seminarId),
+  userIdx: index("seminar_tickets_user_idx").on(table.userId),
+}));
+
+/**
+ * Сбор на оцифровку. Прогресс считается суммой успешных платежей kind=campaign.
+ * Когда цель закрыта, имена поддержавших остаются на странице навсегда.
+ */
+export const campaigns = sqliteTable("campaigns", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary"),
+  body: text("body").notNull().default(""),
+  goalKopeks: integer("goal_kopeks").notNull(),
+  documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+  status: text("status", { enum: ["draft", "open", "funded", "closed"] })
+    .notNull()
+    .default("draft"),
+  completedAt: text("completed_at"),
+  ...timestamps,
+}, (table) => ({
+  slugIdx: uniqueIndex("campaigns_slug_idx").on(table.slug),
+  documentIdx: index("campaigns_document_idx").on(table.documentId),
+}));

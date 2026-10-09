@@ -209,11 +209,58 @@ function ensureChannelTables() {
   `);
 }
 
+function ensureEventTables() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS seminars (
+      id TEXT PRIMARY KEY NOT NULL,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT,
+      body TEXT NOT NULL DEFAULT '',
+      location TEXT,
+      starts_at TEXT,
+      price_kopeks INTEGER NOT NULL DEFAULT 200000,
+      discount_percent INTEGER NOT NULL DEFAULT 20,
+      seat_limit INTEGER,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS seminars_slug_idx ON seminars(slug);
+    CREATE TABLE IF NOT EXISTS seminar_tickets (
+      id TEXT PRIMARY KEY NOT NULL,
+      seminar_id TEXT NOT NULL REFERENCES seminars(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      payment_id TEXT REFERENCES payments(id) ON DELETE SET NULL,
+      source TEXT NOT NULL DEFAULT 'yookassa',
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS seminar_tickets_unique_idx ON seminar_tickets(seminar_id, user_id);
+    CREATE INDEX IF NOT EXISTS seminar_tickets_seminar_idx ON seminar_tickets(seminar_id);
+    CREATE INDEX IF NOT EXISTS seminar_tickets_user_idx ON seminar_tickets(user_id);
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id TEXT PRIMARY KEY NOT NULL,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT,
+      body TEXT NOT NULL DEFAULT '',
+      goal_kopeks INTEGER NOT NULL,
+      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS campaigns_slug_idx ON campaigns(slug);
+    CREATE INDEX IF NOT EXISTS campaigns_document_idx ON campaigns(document_id);
+    CREATE INDEX IF NOT EXISTS payments_target_idx ON payments(kind, target_id, status);
+  `);
+}
+
 try {
   ensureForumTables();
   ensureWorkTables();
   ensureBillingTables();
   ensureChannelTables();
+  ensureEventTables();
 } catch {
   /* users/documents may not exist yet on a blank install */
 }

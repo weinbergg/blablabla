@@ -40,6 +40,7 @@ import { ROLE_LABELS, canManageAdmins, isSuperAdminUser } from "@/lib/roles";
 import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { BulkImportTab } from "@/components/admin-bulk-import-tab";
 import { BillingTab } from "@/components/admin-billing-tab";
+import { EventsTab } from "@/components/admin-events-tab";
 import { CreateCategoryInline } from "@/components/create-category-inline";
 import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
@@ -105,6 +106,7 @@ const TABS = [
   "Приглашения",
   "Модерация",
   "Монетизация",
+  "Встречи",
   "Рефералы",
   "Обратная связь",
 ] as const;
@@ -194,6 +196,7 @@ export function AdminDashboard({
           />
         )}
         {tab === "Монетизация" && <BillingTab />}
+        {tab === "Встречи" && <EventsTab />}
         {tab === "Рефералы" && (
           <ReferralsTab
             stats={referralStats}

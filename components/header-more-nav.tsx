@@ -7,6 +7,8 @@ import { ChevronDown } from "lucide-react";
 const MORE_LINKS = [
   { href: "/notes", label: "Пометки" },
   { href: "/channels", label: "Каналы" },
+  { href: "/seminars", label: "Семинары" },
+  { href: "/campaigns", label: "Сборы" },
   { href: "/glossaries", label: "Словари" },
   { href: "/tags", label: "Метки" },
   { href: "/pricing", label: "Доступ и поддержка" },

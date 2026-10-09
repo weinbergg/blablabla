@@ -4,6 +4,7 @@ import {
   grantSubscription,
   setPaymentStatus,
 } from "@/lib/db/billing";
+import { applyCampaignPayment, grantSeminarTicket } from "@/lib/db/events";
 import { getSiteConfig } from "@/lib/db/settings";
 import { clientIpFrom } from "@/lib/file-access";
 import { fetchPayment, getCredentials, isNotificationIp } from "@/lib/payments/yookassa";
@@ -72,6 +73,19 @@ export async function POST(request: Request) {
       source: "yookassa",
       note: `Платёж ${providerPaymentId}`,
     });
+  }
+
+  if (local.kind === "seminar" && local.userId && local.targetId) {
+    await grantSeminarTicket({
+      seminarId: local.targetId,
+      userId: local.userId,
+      paymentId: local.id,
+      source: "yookassa",
+    });
+  }
+
+  if (local.kind === "campaign" && local.targetId) {
+    await applyCampaignPayment(local.targetId);
   }
 
   return NextResponse.json({ ok: true });
