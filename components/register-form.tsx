@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 
@@ -27,6 +28,7 @@ export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
         name: formData.get("name"),
         email: formData.get("email"),
         password: formData.get("password"),
+        consent: formData.get("consent") === "on",
       }),
     });
 
@@ -58,6 +60,20 @@ export function RegisterForm({ inviteCode }: { inviteCode?: string }) {
       {inviteCode ? (
         <input type="hidden" name="inviteCode" value={inviteCode} />
       ) : null}
+      <label className="flex items-start gap-2 text-sm leading-5 text-muted">
+        <input type="checkbox" name="consent" required className="mt-0.5" />
+        <span>
+          Даю{" "}
+          <Link href="/consent" className="text-ink underline underline-offset-2" target="_blank">
+            согласие на обработку персональных данных
+          </Link>{" "}
+          и принимаю{" "}
+          <Link href="/privacy" className="text-ink underline underline-offset-2" target="_blank">
+            политику
+          </Link>
+          .
+        </span>
+      </label>
       <button className="button-primary w-full" disabled={busy || !mounted}>
         {busy ? "Создаю аккаунт…" : "Создать аккаунт"}
         {!busy && <ArrowRight size={16} />}

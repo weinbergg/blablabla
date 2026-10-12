@@ -622,3 +622,11 @@ button:disabled {
 .topic-card:hover {
   border-color: var(--rust);
 }
+
+.legal-prose a {
+  text-underline-offset: 2px;
+}
+
+.legal-prose strong {
+  font-weight: 600;
+}

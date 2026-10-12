@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Header } from "@/components/header";
+import { SiteFooter } from "@/components/site-footer";
 import { PricingPlans, type PricingPlan } from "@/components/pricing-plans";
 import { getCurrentUser } from "@/lib/auth";
 import { getEntitlements, getPlans } from "@/lib/db/billing";
@@ -89,17 +90,18 @@ export default async function PricingPage() {
               Подписка не продлевается автоматически: доступ просто заканчивается в указанную дату.
               {config.supportEmail ? ` Вопросы по оплате — ${config.supportEmail}.` : ""}
             </p>
-            {config.offerUrl && (
-              <a
-                href={config.offerUrl}
-                className="mt-2 inline-block text-sm text-muted underline underline-offset-2 hover:text-ink"
-              >
+            <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <Link href={config.offerUrl || "/offer"} className="text-muted underline underline-offset-2 hover:text-ink">
                 Публичная оферта
-              </a>
-            )}
+              </Link>
+              <Link href="/privacy" className="text-muted underline underline-offset-2 hover:text-ink">
+                Политика данных
+              </Link>
+            </p>
           </div>
         </section>
       </main>
+      <SiteFooter />
     </>
   );
 }

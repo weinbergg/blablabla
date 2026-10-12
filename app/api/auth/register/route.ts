@@ -44,13 +44,21 @@ export async function POST(request: Request) {
     name?: unknown;
     email?: unknown;
     password?: unknown;
+    consent?: unknown;
   } | null;
 
   const inviteCode = typeof body?.inviteCode === "string" ? body.inviteCode.trim() : "";
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = typeof body?.password === "string" ? body.password : "";
+  const consent = body?.consent === true;
 
+  if (!consent) {
+    return NextResponse.json(
+      { error: "Нужно согласие на обработку персональных данных." },
+      { status: 400 },
+    );
+  }
   if (!name || !email || !password) {
     return NextResponse.json({ error: "Заполните все поля." }, { status: 400 });
   }

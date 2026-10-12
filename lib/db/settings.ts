@@ -54,7 +54,7 @@ export const DEFAULT_SETTINGS: SiteConfig = {
   legalName: "",
   legalInn: "",
   supportEmail: "",
-  offerUrl: "",
+  offerUrl: "/offer",
 
   pricingIntro:
     "Библиотека остаётся открытой: читать и обсуждать можно бесплатно. Подписка оплачивает сервер, оцифровку и инструменты для тех, кому библиотека нужна каждый день.",
