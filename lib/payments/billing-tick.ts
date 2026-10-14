@@ -29,31 +29,12 @@ async function userEmail(userId: string) {
   return row;
 }
 
-async function maybeMail(to: string, subject: string, text: string) {
-  const host = process.env.SMTP_HOST;
-  if (!host) return { sent: false as const, reason: "no_smtp" };
-  try {
-    const nodemailer = await import("nodemailer").catch(() => null);
-    if (!nodemailer) return { sent: false as const, reason: "no_nodemailer" };
-    const transport = nodemailer.createTransport({
-      host,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === "1",
-      auth:
-        process.env.SMTP_USER && process.env.SMTP_PASS
-          ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-          : undefined,
-    });
-    await transport.sendMail({
-      from: process.env.MAIL_FROM || process.env.SMTP_USER || "blablablarden@mail.ru",
-      to,
-      subject,
-      text,
-    });
-    return { sent: true as const };
-  } catch (error) {
-    return { sent: false as const, reason: error instanceof Error ? error.message : "mail_failed" };
-  }
+async function maybeMail(to: string, subject: string, _text: string) {
+  // Письма подключим отдельно. `import("nodemailer")` ронял `next build`,
+  // потому что пакета нет в dependencies. Напоминание пока живёт баннером в шапке.
+  if (!process.env.SMTP_HOST) return { sent: false as const, reason: "no_smtp" };
+  console.info("[billing-tick] SMTP задан, но отправитель ещё не подключён", to, subject);
+  return { sent: false as const, reason: "smtp_not_wired" };
 }
 
 /**
