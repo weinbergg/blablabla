@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
 import { documents } from "@/lib/db/schema";
-import { countDownloadsLastDay, getEntitlements, recordDownload } from "@/lib/db/billing";
+import { getEntitlements, recordDownload } from "@/lib/db/billing";
 import { getSiteConfig } from "@/lib/db/settings";
+import { assertDownloadUnits } from "@/lib/download-quota";
 import { hasFeature } from "@/lib/entitlements";
 import { clientIpFrom, verifyFileToken } from "@/lib/file-access";
 import { buildFileResponse } from "@/lib/file-serve";
@@ -59,17 +60,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         { status: 403 },
       );
     }
-    const limit =
-      entitlements.source === "free" ? config.downloadsPerDayFree : config.downloadsPerDayPaid;
-    const used = await countDownloadsLastDay({ userId: user.id });
-    if (limit > 0 && used >= limit) {
-      return NextResponse.json(
-        {
-          error: `Дневной лимит скачиваний исчерпан (${limit} за сутки). Читать онлайн по-прежнему можно, а читательский билет снимает ограничение.`,
-        },
-        { status: 429 },
-      );
-    }
+    const quota = await assertDownloadUnits({
+      userId: user.id,
+      ip: clientIpFrom(request.headers),
+      entitlements,
+      config,
+    });
+    if (!quota.ok) return quota.response;
   } else {
     const payload = await verifyFileToken(url.searchParams.get("t"));
     if (!payload || payload.d !== id) {

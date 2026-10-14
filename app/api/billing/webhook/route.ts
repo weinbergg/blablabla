@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  getPaymentByProviderId,
-  grantSubscription,
-  setPaymentStatus,
-} from "@/lib/db/billing";
-import { applyCampaignPayment, grantSeminarTicket } from "@/lib/db/events";
+import { loadLocalPayment, settleYooKassaPayment } from "@/lib/payments/fulfill";
 import { getSiteConfig } from "@/lib/db/settings";
 import { clientIpFrom } from "@/lib/file-access";
 import { fetchPayment, getCredentials, isNotificationIp } from "@/lib/payments/yookassa";
@@ -41,52 +36,9 @@ export async function POST(request: Request) {
   const remote = await fetchPayment(credentials, providerPaymentId);
   if (!remote) return NextResponse.json({ ok: true });
 
-  const local = await getPaymentByProviderId(providerPaymentId);
+  const local = await loadLocalPayment({ providerPaymentId });
   if (!local) return NextResponse.json({ ok: true });
-  if (local.status === "succeeded") return NextResponse.json({ ok: true });
 
-  if (remote.status === "canceled") {
-    await setPaymentStatus(local.id, "canceled", remote);
-    return NextResponse.json({ ok: true });
-  }
-
-  if (remote.status !== "succeeded" || !remote.paid) {
-    await setPaymentStatus(local.id, remote.status === "waiting_for_capture" ? "waiting_for_capture" : "pending", remote);
-    return NextResponse.json({ ok: true });
-  }
-
-  // Сумма тоже сверяется: метаданные можно подделать, а сумму платежа нет.
-  const expected = (local.amount / 100).toFixed(2);
-  if (remote.amount?.value !== expected) {
-    await setPaymentStatus(local.id, "pending", remote);
-    return NextResponse.json({ ok: true });
-  }
-
-  await setPaymentStatus(local.id, "succeeded", remote);
-
-  if (local.kind === "subscription" && local.userId && local.planSlug) {
-    const period = local.period === "year" ? "year" : local.period === "lifetime" ? "lifetime" : "month";
-    await grantSubscription({
-      userId: local.userId,
-      planSlug: local.planSlug,
-      period,
-      source: "yookassa",
-      note: `Платёж ${providerPaymentId}`,
-    });
-  }
-
-  if (local.kind === "seminar" && local.userId && local.targetId) {
-    await grantSeminarTicket({
-      seminarId: local.targetId,
-      userId: local.userId,
-      paymentId: local.id,
-      source: "yookassa",
-    });
-  }
-
-  if (local.kind === "campaign" && local.targetId) {
-    await applyCampaignPayment(local.targetId);
-  }
-
+  await settleYooKassaPayment(local, remote);
   return NextResponse.json({ ok: true });
 }

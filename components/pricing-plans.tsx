@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
-import { featureLabel, type FeatureKey } from "@/lib/entitlements";
+import { featureLabel, featureLadder, type FeatureKey } from "@/lib/entitlements";
 import { formatMoney } from "@/lib/money";
 
 export type PricingPlan = {
@@ -19,6 +19,7 @@ export type PricingPlan = {
   seatsTaken: number;
   lifetime: boolean;
   badge: string | null;
+  sortOrder: number;
 };
 
 type Period = "month" | "year";
@@ -36,10 +37,12 @@ export function PricingPlans({
 }) {
   const router = useRouter();
   const [period, setPeriod] = useState<Period>("year");
+  const [autoRenew, setAutoRenew] = useState(false);
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const anyYearly = plans.some((plan) => plan.priceYearly);
+  const ladder = featureLadder(plans);
 
   async function subscribe(plan: PricingPlan) {
     setError("");
@@ -54,6 +57,7 @@ export function PricingPlans({
       body: JSON.stringify({
         planSlug: plan.slug,
         period: plan.lifetime ? "lifetime" : period,
+        autoRenew: plan.lifetime ? false : autoRenew,
       }),
     });
     const data = (await response.json().catch(() => ({}))) as {
@@ -85,7 +89,7 @@ export function PricingPlans({
   return (
     <div>
       {anyYearly && (
-        <div className="mb-8 flex justify-center">
+        <div className="mb-6 flex justify-center">
           <div className="inline-flex rounded-full border border-ink/12 p-0.5 text-sm">
             {(
               [
@@ -108,25 +112,39 @@ export function PricingPlans({
         </div>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+      <label className="mx-auto mb-8 flex max-w-xl items-start gap-2 text-sm leading-6 text-muted">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={autoRenew}
+          onChange={(event) => setAutoRenew(event.target.checked)}
+        />
+        <span>
+          Продлевать автоматически. По оферте галочка выключена: без неё доступ просто кончится в
+          оплаченную дату. Напомним за день (месяц) или за неделю (год); отключить можно в кабинете.
+        </span>
+      </label>
+
+      <div className="grid gap-6 md:grid-cols-2">
         {plans.map((plan) => {
           const free = plan.priceMonthly === 0 && !plan.lifetime;
           const current = currentPlanSlug === plan.slug;
           const soldOut = plan.seatLimit != null && plan.seatsTaken >= plan.seatLimit;
+          const layer = ladder.get(plan.slug);
           return (
             <section
               key={plan.slug}
-              className={`flex flex-col rounded-2xl border p-6 ${
+              className={`flex flex-col rounded-2xl border p-7 md:p-8 ${
                 current ? "border-rust/50 bg-rust/[0.04]" : "border-ink/10"
               }`}
             >
               <div className="mb-4">
                 <p className="eyebrow mb-1.5">{plan.tagline}</p>
-                <h2 className="font-serif text-2xl tracking-tight">{plan.name}</h2>
+                <h2 className="font-serif text-3xl tracking-tight">{plan.name}</h2>
               </div>
 
               <div className="mb-4">
-                <p className="font-serif text-3xl tracking-tight">
+                <p className="font-serif text-4xl tracking-tight">
                   {free ? "Бесплатно" : formatMoney(priceFor(plan))}
                 </p>
                 {!free && <p className="mt-0.5 text-xs text-muted">{priceNote(plan)}</p>}
@@ -145,7 +163,13 @@ export function PricingPlans({
               )}
 
               <ul className="mb-6 space-y-2 text-sm">
-                {plan.features.map((feature) => (
+                {layer?.inheritedName && (
+                  <li className="flex gap-2 leading-5 text-muted">
+                    <Check size={15} className="mt-0.5 shrink-0 text-ink/40" />
+                    <span>Всё из «{layer.inheritedName}»</span>
+                  </li>
+                )}
+                {(layer?.extra ?? plan.features).map((feature) => (
                   <li key={feature} className="flex gap-2 leading-5">
                     <Check size={15} className="mt-0.5 shrink-0 text-rust" />
                     <span>{featureLabel(feature)}</span>

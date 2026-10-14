@@ -7,7 +7,8 @@ import { getChildCategories, getDocumentsForCategory } from "@/lib/db/queries";
 import { categories } from "@/lib/db/schema";
 import { clientIpFrom } from "@/lib/file-access";
 import { contentDisposition, diskPathForFileUrl } from "@/lib/file-serve";
-import { overDailyLimit, requireFeature } from "@/lib/feature-guard";
+import { remainingDownloadUnits } from "@/lib/download-quota";
+import { requireFeature } from "@/lib/feature-guard";
 import { createZipStream, safeZipName, type ZipEntry } from "@/lib/zip-stream";
 
 export const runtime = "nodejs";
@@ -41,8 +42,6 @@ async function collectCategoryIds(rootId: string) {
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const guard = await requireFeature("archive.zip");
   if (!guard.ok) return guard.response;
-  const limited = overDailyLimit(guard.context);
-  if (limited) return limited;
 
   const url = new URL(request.url);
   const { id } = await context.params;
@@ -67,6 +66,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     .sort((left, right) => left.title.localeCompare(right.title, "ru"));
 
   const { config } = guard.context;
+  const quotaLeft = await remainingDownloadUnits({
+    userId: guard.context.user.id,
+    ip: clientIpFrom(request.headers),
+    entitlements: guard.context.entitlements,
+    config,
+  });
   const maxBytes = config.zipMaxMegabytes * 1024 * 1024;
   const entries: ZipEntry[] = [];
   const included: string[] = [];
@@ -83,6 +88,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     }
     if (entries.length >= config.zipMaxDocuments) {
       skipped.push(`${document.title} — превышен лимит в ${config.zipMaxDocuments} книг`);
+      continue;
+    }
+    if (Number.isFinite(quotaLeft) && entries.length >= quotaLeft) {
+      skipped.push(`${document.title} — суточный лимит скачиваний`);
       continue;
     }
     if (total + stat.size > maxBytes) {
@@ -111,6 +120,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   }
 
   if (entries.length === 0) {
+    if (Number.isFinite(quotaLeft) && quotaLeft < 1) {
+      return NextResponse.json(
+        { error: "Суточный лимит скачиваний исчерпан — архив сейчас собрать нельзя." },
+        { status: 429 },
+      );
+    }
     return NextResponse.json(
       { error: "В этом разделе нет файлов, которые можно выгрузить" },
       { status: 404 },
@@ -124,7 +139,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       documents: entries.length,
       megabytes: Math.round(total / (1024 * 1024)),
       skipped: skipped.length,
-      remaining: guard.context.remaining,
+      remaining: Number.isFinite(quotaLeft) ? quotaLeft : null,
     });
   }
 
@@ -150,6 +165,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     kind: "zip",
     ip: clientIpFrom(request.headers),
     userAgent: request.headers.get("user-agent"),
+    units: included.length,
   });
 
   const fileName = `${safeZipName(category.name, "Раздел")}.zip`;

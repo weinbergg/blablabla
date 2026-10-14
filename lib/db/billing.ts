@@ -178,7 +178,10 @@ export type SubscriptionRow = typeof subscriptions.$inferSelect;
  * здесь не нужен, статус всё равно проверяется при каждом обращении.
  */
 export async function getActiveSubscription(userId: string): Promise<SubscriptionRow | null> {
-  const now = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  // Оферта п. 5.6: после неудачного автоплатежа пробуем ещё 3 дня, потом гасим.
+  const grace = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
   await db
     .update(subscriptions)
     .set({ status: "expired" })
@@ -186,7 +189,8 @@ export async function getActiveSubscription(userId: string): Promise<Subscriptio
       and(
         eq(subscriptions.userId, userId),
         eq(subscriptions.status, "active"),
-        sql`${subscriptions.expiresAt} is not null and ${subscriptions.expiresAt} < ${now}`,
+        sql`${subscriptions.expiresAt} is not null and ${subscriptions.expiresAt} < ${nowIso}`,
+        sql`not (${subscriptions.autoRenew} = 1 and ${subscriptions.paymentMethodId} is not null and ${subscriptions.expiresAt} >= ${grace})`,
       ),
     );
 
@@ -197,7 +201,7 @@ export async function getActiveSubscription(userId: string): Promise<Subscriptio
       and(
         eq(subscriptions.userId, userId),
         eq(subscriptions.status, "active"),
-        or(isNull(subscriptions.expiresAt), gte(subscriptions.expiresAt, now)),
+        or(isNull(subscriptions.expiresAt), gte(subscriptions.expiresAt, nowIso)),
       ),
     )
     .orderBy(desc(subscriptions.createdAt))
@@ -221,6 +225,9 @@ export async function getEntitlements(
       features: [...FREE_FEATURES],
       expiresAt: null,
       source: "free",
+      autoRenew: false,
+      hasSavedMethod: false,
+      period: null,
     };
   }
 
@@ -233,6 +240,9 @@ export async function getEntitlements(
       features: [...FEATURE_KEYS],
       expiresAt: null,
       source: "role",
+      autoRenew: false,
+      hasSavedMethod: false,
+      period: null,
     };
   }
 
@@ -248,6 +258,9 @@ export async function getEntitlements(
         features: plan.features,
         expiresAt: subscription.expiresAt,
         source: "subscription",
+        autoRenew: Boolean(subscription.autoRenew),
+        hasSavedMethod: Boolean(subscription.paymentMethodId),
+        period: subscription.period,
       };
     }
   }
@@ -261,6 +274,9 @@ export async function getEntitlements(
     features: free?.features ?? [...FREE_FEATURES],
     expiresAt: null,
     source: "free",
+    autoRenew: false,
+    hasSavedMethod: false,
+    period: null,
   };
 }
 
@@ -283,6 +299,8 @@ export async function grantSubscription(options: {
   period: "month" | "year" | "lifetime";
   source: "yookassa" | "manual" | "founder" | "promo";
   note?: string | null;
+  autoRenew?: boolean;
+  paymentMethodId?: string | null;
 }): Promise<SubscriptionRow> {
   const { userId, planSlug, period, source } = options;
   const plan = await getPlanBySlug(planSlug);
@@ -301,7 +319,15 @@ export async function grantSubscription(options: {
     const expiresAt = plan.lifetime ? null : addPeriod(base, period);
     await db
       .update(subscriptions)
-      .set({ expiresAt, period, source, note: options.note ?? current.note })
+      .set({
+        expiresAt,
+        period,
+        source,
+        note: options.note ?? current.note,
+        autoRenew: options.autoRenew === undefined ? current.autoRenew : options.autoRenew ? 1 : 0,
+        paymentMethodId: options.paymentMethodId ?? current.paymentMethodId,
+        remindedAt: null,
+      })
       .where(eq(subscriptions.id, current.id));
     const [updated] = await db.select().from(subscriptions).where(eq(subscriptions.id, current.id)).limit(1);
     return updated;
@@ -327,6 +353,8 @@ export async function grantSubscription(options: {
     expiresAt: plan.lifetime ? null : addPeriod(now, period),
     source,
     note: options.note ?? null,
+    autoRenew: options.autoRenew ? 1 : 0,
+    paymentMethodId: options.paymentMethodId ?? null,
   });
   const [created] = await db.select().from(subscriptions).where(eq(subscriptions.id, id)).limit(1);
   return created;
@@ -337,6 +365,25 @@ export async function cancelSubscription(id: string) {
     .update(subscriptions)
     .set({ status: "canceled", canceledAt: new Date().toISOString(), autoRenew: 0 })
     .where(eq(subscriptions.id, id));
+}
+
+export async function setSubscriptionAutoRenew(
+  id: string,
+  autoRenew: boolean,
+  extra?: { paymentMethodId?: string | null; remindedAt?: string | null },
+) {
+  await db
+    .update(subscriptions)
+    .set({
+      autoRenew: autoRenew ? 1 : 0,
+      ...(extra && "paymentMethodId" in extra ? { paymentMethodId: extra.paymentMethodId } : {}),
+      ...(extra && "remindedAt" in extra ? { remindedAt: extra.remindedAt } : {}),
+    })
+    .where(eq(subscriptions.id, id));
+}
+
+export async function listSubscriptionsForTick() {
+  return db.select().from(subscriptions).where(eq(subscriptions.status, "active"));
 }
 
 export type SubscriptionWithUser = SubscriptionRow & {
@@ -394,6 +441,16 @@ export async function attachProviderPayment(id: string, providerPaymentId: strin
     .update(payments)
     .set({ providerPaymentId, payload: JSON.stringify(payload) })
     .where(eq(payments.id, id));
+}
+
+export async function getPaymentById(id: string): Promise<PaymentRow | null> {
+  const [row] = await db.select().from(payments).where(eq(payments.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function getPaymentByIdempotenceKey(idempotenceKey: string): Promise<PaymentRow | null> {
+  const [row] = await db.select().from(payments).where(eq(payments.idempotenceKey, idempotenceKey)).limit(1);
+  return row ?? null;
 }
 
 export async function getPaymentByProviderId(providerPaymentId: string): Promise<PaymentRow | null> {
@@ -463,6 +520,8 @@ export async function recordDownload(values: {
   kind: "read" | "download" | "zip" | "opds";
   ip: string | null;
   userAgent: string | null;
+  /** Сколько книг в этой выдаче. Для ZIP — число файлов в архиве. */
+  units?: number;
 }) {
   await db.insert(downloadEvents).values({
     id: randomUUID(),
@@ -471,13 +530,15 @@ export async function recordDownload(values: {
     kind: values.kind,
     ip: values.ip,
     userAgent: values.userAgent?.slice(0, 300) ?? null,
+    units: Math.max(1, Math.round(values.units ?? 1)),
   });
 }
 
 /** Сколько файлов человек (или IP) забрал за последние сутки. Чтение онлайн
- * не считается — лимит про выгрузку файлов, а не про доступ к библиотеке. */
-export async function countDownloadsLastDay(options: { userId?: string | null; ip?: string | null }) {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+ * не считается — лимит про выгрузку файлов, а не про доступ к библиотеке.
+ * ZIP считается по числу книг внутри, иначе архив обходил лимит. */
+export async function countDownloadsLastDay(options: { userId?: string | null; ip?: string | null; sinceMs?: number }) {
+  const since = new Date(Date.now() - (options.sinceMs ?? 24 * 60 * 60 * 1000)).toISOString();
   const scope = options.userId
     ? eq(downloadEvents.userId, options.userId)
     : options.ip
@@ -485,7 +546,7 @@ export async function countDownloadsLastDay(options: { userId?: string | null; i
       : null;
   if (!scope) return 0;
   const [row] = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({ count: sql<number>`coalesce(sum(${downloadEvents.units}), 0)` })
     .from(downloadEvents)
     .where(
       and(

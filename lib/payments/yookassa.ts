@@ -46,7 +46,8 @@ export type YooKassaPayment = {
   status: "pending" | "waiting_for_capture" | "succeeded" | "canceled";
   paid: boolean;
   amount: { value: string; currency: string };
-  confirmation?: { type: string; confirmation_url?: string };
+  confirmation?: { type: string; confirmation_url?: string; confirmation_data?: string };
+  payment_method?: { id?: string; type?: string; saved?: boolean };
   metadata?: Record<string, string>;
   description?: string;
 };
@@ -59,6 +60,12 @@ export type CreatePaymentInput = {
   returnUrl: string;
   metadata: Record<string, string>;
   idempotenceKey?: string;
+  /** sbp — на странице ЮKassa сразу QR СБП, без выбора карты. */
+  paymentMethod?: "any" | "sbp";
+  /** Сохранить карту/СБП для автопродления (оферта п. 5.4 — только если человек согласился). */
+  savePaymentMethod?: boolean;
+  /** Повторное списание по сохранённому способу — без confirmation. */
+  paymentMethodId?: string;
   /** Чек для самозанятого: нужен e-mail или телефон покупателя. */
   receipt?: {
     customerEmail?: string | null;
@@ -71,10 +78,20 @@ export async function createPayment(input: CreatePaymentInput): Promise<YooKassa
   const body: Record<string, unknown> = {
     amount: { value: toProviderAmount(input.amount), currency: "RUB" },
     capture: true,
-    confirmation: { type: "redirect", return_url: input.returnUrl },
     description: input.description.slice(0, 128),
     metadata: input.metadata,
   };
+  if (input.paymentMethodId) {
+    body.payment_method_id = input.paymentMethodId;
+  } else {
+    body.confirmation = { type: "redirect", return_url: input.returnUrl };
+  }
+  if (input.paymentMethod === "sbp") {
+    body.payment_method_data = { type: "sbp" };
+  }
+  if (input.savePaymentMethod) {
+    body.save_payment_method = true;
+  }
 
   if (input.receipt?.customerEmail) {
     body.receipt = {

@@ -10,6 +10,31 @@ Next.js кладёт CSS/JS в файлы с хешем в имени (`page-a1b
 Это не баг React и не «поломка вёрстки» — это несовпадение HTML и файлов
 на диске после неаккуратного деплоя.
 
+## Оплата (ЮKassa) после выгрузки
+
+В `/var/www/blabla/.env.local` (не в git):
+
+```
+YOOKASSA_SHOP_ID=...
+YOOKASSA_SECRET_KEY=live_...
+PUBLIC_URL=https://blablablarden.ru
+CRON_SECRET=случайная-длинная-строка
+```
+
+Кабинет ЮKassa → HTTP-уведомления:
+
+`https://blablablarden.ru/api/billing/webhook`
+
+события `payment.succeeded`, `payment.canceled`.
+
+В админке «Монетизация → Настройки»: магазин **Боевой**, «показывать кнопки оплаты» включено. Чеки через ЮKassa — только когда в кабинете включена фискализация (у самозанятого чек идёт из «Мой налог», см. оферту 5.3).
+
+Напоминания и автоплатежи раз в день:
+
+```
+0 8 * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://blablablarden.ru/api/cron/billing
+```
+
 ## Как деплоить (единственный правильный способ)
 
 ```bash

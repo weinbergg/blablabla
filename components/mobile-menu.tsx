@@ -58,6 +58,9 @@ export function MobileMenu({
             <Link href="/campaigns" onClick={() => setOpen(false)} className="text-ink">
               Сборы
             </Link>
+            <Link href="/pricing" onClick={() => setOpen(false)} className="text-ink">
+              Читательский билет
+            </Link>
             <Link
               href="/discuss"
               onClick={() => setOpen(false)}

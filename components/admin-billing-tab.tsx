@@ -14,7 +14,7 @@
  */
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { BadgeCheck, CreditCard, Loader2, Lock, RefreshCw, Save, Settings2, Users } from "lucide-react";
+import { BadgeCheck, CreditCard, Loader2, Lock, QrCode, RefreshCw, Save, Settings2, Users } from "lucide-react";
 import { formatMoney, kopeksToRubles } from "@/lib/money";
 
 type Plan = {
@@ -186,7 +186,9 @@ export function BillingTab() {
       {section === "Подписки" && (
         <SubscriptionsSection state={state} setState={setState} onSaved={flash} onError={setError} />
       )}
-      {section === "Платежи" && <PaymentsSection payments={state.payments} />}
+      {section === "Платежи" && (
+        <PaymentsSection payments={state.payments} onRefresh={() => void load()} onError={setError} />
+      )}
     </div>
   );
 }
@@ -509,6 +511,13 @@ function SettingsSection({
             <small className="block text-muted">Для самозанятого — чек на почту плательщика.</small>
           </span>
         </label>
+
+        <TestChargeButton
+          keysReady={keysReady}
+          mode={draft.yookassaMode}
+          modeSaved={draft.yookassaMode === state.config.yookassaMode}
+          onError={onError}
+        />
       </section>
 
       <section className="rounded-2xl border border-ink/10 bg-paper p-5">
@@ -765,7 +774,68 @@ function SubscriptionsSection({
 
 /* ── Платежи ─────────────────────────────────────────────────────────────── */
 
-function PaymentsSection({ payments }: { payments: Payment[] }) {
+function TestChargeButton({
+  keysReady,
+  mode,
+  modeSaved,
+  onError,
+}: {
+  keysReady: boolean;
+  mode: "test" | "live";
+  modeSaved: boolean;
+  onError: (text: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function start() {
+    setBusy(true);
+    const response = await fetch("/api/admin/billing/test-charge", { method: "POST" });
+    const data = (await response.json().catch(() => ({}))) as { confirmationUrl?: string; error?: string };
+    setBusy(false);
+    if (!response.ok || !data.confirmationUrl) {
+      onError(data.error || "Не удалось выставить счёт на 1 ₽.");
+      return;
+    }
+    window.location.href = data.confirmationUrl;
+  }
+
+  return (
+    <div className="mt-5 border-t border-ink/10 pt-4">
+      <p className="mb-2 text-sm leading-6 text-muted">
+        Проверка кассы: счёт на 1 ₽ со страницей СБП (QR). Подписку не включает. Для настоящего QR
+        нужен боевой магазин — в тестовом СБП обычно нет.
+      </p>
+      <button
+        type="button"
+        className="button-primary"
+        disabled={busy || !keysReady || !modeSaved}
+        onClick={() => void start()}
+      >
+        {busy ? <Loader2 size={15} className="animate-spin" /> : <QrCode size={15} />}
+        Выставить 1 ₽ по СБП
+      </button>
+      {!modeSaved && (
+        <small className="mt-2 block text-muted">Сначала сохраните выбранный магазин — кнопка смотрит на то, что уже в базе.</small>
+      )}
+      {mode === "test" && keysReady && (
+        <small className="mt-2 block text-muted">
+          Сейчас выбран тестовый магазин. Если ЮKassa ответит, что СБП недоступен — переключите на
+          «Боевой», сохраните и повторите: спишется настоящий рубль.
+        </small>
+      )}
+    </div>
+  );
+}
+
+function PaymentsSection({
+  payments,
+  onRefresh,
+  onError,
+}: {
+  payments: Payment[];
+  onRefresh: () => void;
+  onError: (text: string) => void;
+}) {
   const succeeded = payments.filter((item) => item.status === "succeeded");
   const total = succeeded.reduce((sum, item) => sum + item.amount, 0);
 
@@ -795,12 +865,13 @@ function PaymentsSection({ payments }: { payments: Payment[] }) {
               <th className="px-4 py-3">За что</th>
               <th className="px-4 py-3">Сумма</th>
               <th className="px-4 py-3">Статус</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {payments.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted">
+                <td colSpan={6} className="px-4 py-6 text-center text-muted">
                   Платежей пока не было.
                 </td>
               </tr>
@@ -815,11 +886,55 @@ function PaymentsSection({ payments }: { payments: Payment[] }) {
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">{formatMoney(row.amount)}</td>
                 <td className="px-4 py-3">{STATUS_LABELS[row.status] ?? row.status}</td>
+                <td className="px-4 py-3">
+                  {row.status !== "succeeded" && row.status !== "canceled" && row.providerPaymentId ? (
+                    <SyncPaymentButton paymentId={row.id} onDone={onRefresh} onError={onError} />
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function SyncPaymentButton({
+  paymentId,
+  onDone,
+  onError,
+}: {
+  paymentId: string;
+  onDone: () => void;
+  onError: (text: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function sync() {
+    setBusy(true);
+    const response = await fetch("/api/billing/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paymentId }),
+    });
+    const data = (await response.json().catch(() => ({}))) as { error?: string };
+    setBusy(false);
+    if (!response.ok) {
+      onError(data.error || "Не удалось сверить платёж.");
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <button
+      type="button"
+      className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline"
+      onClick={() => void sync()}
+      disabled={busy}
+    >
+      {busy ? "…" : "сверить"}
+    </button>
   );
 }

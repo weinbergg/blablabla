@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AntoineMark } from "@/components/antoine-mark";
 
 const LEGAL = [
+  { href: "/pricing", label: "Читательский билет" },
   { href: "/privacy", label: "Политика данных" },
   { href: "/consent", label: "Согласие" },
   { href: "/offer", label: "Оферта" },

@@ -43,7 +43,7 @@ export type SiteConfig = {
 export const DEFAULT_SETTINGS: SiteConfig = {
   paymentsEnabled: false,
   yookassaMode: "test",
-  receiptsEnabled: true,
+  receiptsEnabled: false,
 
   downloadsPerDayFree: 10,
   downloadsPerDayPaid: 200,
@@ -51,9 +51,9 @@ export const DEFAULT_SETTINGS: SiteConfig = {
   zipMaxDocuments: 150,
   zipMaxMegabytes: 2048,
 
-  legalName: "",
-  legalInn: "",
-  supportEmail: "",
+  legalName: "Безуз Максим Дмитриевич",
+  legalInn: "500712228834",
+  supportEmail: "blablablarden@mail.ru",
   offerUrl: "/offer",
 
   pricingIntro:
@@ -72,7 +72,11 @@ export async function getSiteConfig(): Promise<SiteConfig> {
   try {
     const stored = JSON.parse(row.value) as Partial<SiteConfig>;
     // Слияние с умолчаниями: старая строка в базе не ломает новые поля.
-    return { ...DEFAULT_SETTINGS, ...stored };
+    const merged = { ...DEFAULT_SETTINGS, ...stored };
+    if (!merged.legalName?.trim()) merged.legalName = DEFAULT_SETTINGS.legalName;
+    if (!merged.legalInn?.trim()) merged.legalInn = DEFAULT_SETTINGS.legalInn;
+    if (!merged.supportEmail?.trim()) merged.supportEmail = DEFAULT_SETTINGS.supportEmail;
+    return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

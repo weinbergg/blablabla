@@ -654,6 +654,10 @@ export const subscriptions = sqliteTable("subscriptions", {
     .notNull()
     .default("yookassa"),
   autoRenew: integer("auto_renew").notNull().default(0),
+  /** id сохранённого способа в ЮKassa — только он нужен для автоплатежа. */
+  paymentMethodId: text("payment_method_id"),
+  /** Когда отправили напоминание о ближайшем списании/окончании. */
+  remindedAt: text("reminded_at"),
   note: text("note"),
   ...timestamps,
 }, (table) => ({
@@ -706,6 +710,8 @@ export const downloadEvents = sqliteTable("download_events", {
     .default("read"),
   ip: text("ip"),
   userAgent: text("user_agent"),
+  /** ZIP раздела — это N книг, иначе архив обходил суточный лимит как одно скачивание. */
+  units: integer("units").notNull().default(1),
   ...timestamps,
 }, (table) => ({
   userIdx: index("download_events_user_idx").on(table.userId),

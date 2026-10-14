@@ -31,17 +31,18 @@ export default async function PricingPage() {
     priceMonthly: plan.priceMonthly,
     priceYearly: plan.priceYearly,
     priceLifetime: plan.priceLifetime,
-    features: plan.features,
+        features: plan.features,
     seatLimit: plan.seatLimit,
     seatsTaken: plan.seatsTaken ?? 0,
     lifetime: plan.lifetime,
     badge: plan.badge,
+    sortOrder: plan.sortOrder,
   }));
 
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-6xl px-5 pb-20 pt-8 md:px-8">
+      <main className="mx-auto max-w-7xl px-5 pb-20 pt-8 md:px-8">
         <Link
           href="/"
           className="mb-8 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
@@ -83,11 +84,12 @@ export default async function PricingPage() {
           <div>
             <h2 className="mb-2 font-serif text-xl tracking-tight">Оплата и возврат</h2>
             <p className="text-sm leading-6 text-muted">
-              Оплата картой через ЮKassa.{" "}
+              Оплата картой или СБП через ЮKassa.{" "}
               {config.legalName
                 ? `Получатель — ${config.legalName}${config.legalInn ? `, ИНН ${config.legalInn}` : ""}.`
                 : ""}{" "}
-              Подписка не продлевается автоматически: доступ просто заканчивается в указанную дату.
+              Автопродление — только если отметить галочку при оплате; за день или за неделю придёт
+              напоминание, отключить можно в кабинете.
               {config.supportEmail ? ` Вопросы по оплате — ${config.supportEmail}.` : ""}
             </p>
             <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">

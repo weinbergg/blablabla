@@ -214,7 +214,29 @@ export type Entitlements = {
   /** null — не истекает (пожизненный тариф, админ, бесплатный уровень). */
   expiresAt: string | null;
   source: "role" | "subscription" | "free";
+  autoRenew: boolean;
+  hasSavedMethod: boolean;
+  period: "month" | "year" | "lifetime" | null;
 };
+
+/** Что в этом тарифе нового относительно предыдущего по sortOrder.
+ * На витрине показываем «всё из X» + добавки, а не полный список. */
+export function featureLadder<T extends { slug: string; name: string; features: FeatureKey[]; sortOrder: number }>(
+  plans: T[],
+) {
+  const sorted = [...plans].sort((a, b) => a.sortOrder - b.sortOrder);
+  const map = new Map<string, { inheritedName: string | null; extra: FeatureKey[] }>();
+  sorted.forEach((plan, index) => {
+    const previous = index === 0 ? null : sorted[index - 1];
+    const previousSet = new Set(previous?.features ?? []);
+    const extra = plan.features.filter((feature) => !previousSet.has(feature));
+    map.set(plan.slug, {
+      inheritedName: previous ? previous.name : null,
+      extra: extra.length > 0 ? extra : [],
+    });
+  });
+  return map;
+}
 
 export function hasFeature(entitlements: Entitlements | null | undefined, feature: FeatureKey) {
   if (!entitlements) return FREE_FEATURES.includes(feature);

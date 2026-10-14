@@ -19,9 +19,13 @@ export async function startYooKassaCheckout(options: {
   planSlug?: string | null;
   period?: string | null;
   metadata?: Record<string, string>;
+  paymentMethod?: "any" | "sbp";
+  savePaymentMethod?: boolean;
+  /** Проверка кассы админом: не зависит от витрины «показывать кнопки». */
+  skipStorefrontGate?: boolean;
 }): Promise<{ ok: true; paymentId: string; confirmationUrl: string } | { ok: false; error: string; status: number }> {
   const config = await getSiteConfig();
-  if (!config.paymentsEnabled) {
+  if (!config.paymentsEnabled && !options.skipStorefrontGate) {
     return { ok: false, error: "Приём платежей пока выключен", status: 503 };
   }
   const credentials = getCredentials(config.yookassaMode);
@@ -60,6 +64,8 @@ export async function startYooKassaCheckout(options: {
         kind: options.kind,
         ...(options.metadata ?? {}),
       },
+      paymentMethod: options.paymentMethod,
+      savePaymentMethod: options.savePaymentMethod,
       receipt: config.receiptsEnabled
         ? { customerEmail: options.user.email, itemDescription: options.itemDescription }
         : null,

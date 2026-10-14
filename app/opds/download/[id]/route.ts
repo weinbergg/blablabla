@@ -1,7 +1,9 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { documents } from "@/lib/db/schema";
-import { countDownloadsLastDay, recordDownload } from "@/lib/db/billing";
+import { getEntitlements, recordDownload } from "@/lib/db/billing";
+import { getSiteConfig } from "@/lib/db/settings";
+import { assertDownloadUnits } from "@/lib/download-quota";
 import { clientIpFrom } from "@/lib/file-access";
 import { buildFileResponse } from "@/lib/file-serve";
 import { authorizeOpds } from "@/lib/opds-auth";
@@ -40,14 +42,18 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     });
   }
 
-  // Счётчик берём заново: между открытием ленты и нажатием «скачать» могло
-  // пройти время и несколько других загрузок.
-  const used = await countDownloadsLastDay({ userId: session.user.id });
-  if (session.limit > 0 && used >= session.limit) {
-    return new Response(
-      `Дневной лимит скачиваний исчерпан (${session.limit} за сутки). Он обнулится в течение суток.`,
-      { status: 429, headers: { "Content-Type": "text/plain; charset=utf-8" } },
-    );
+  const [config, entitlements] = await Promise.all([getSiteConfig(), getEntitlements(session.user)]);
+  const quota = await assertDownloadUnits({
+    userId: session.user.id,
+    ip: clientIpFrom(request.headers),
+    entitlements,
+    config,
+  });
+  if (!quota.ok) {
+    return new Response(quota.response.status === 429 ? "Лимит скачиваний исчерпан." : "Отказ", {
+      status: quota.response.status,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   }
 
   await recordDownload({

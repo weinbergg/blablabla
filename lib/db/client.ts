@@ -35,6 +35,9 @@ ensureColumn("forum_posts", "updated_at", "updated_at TEXT");
 ensureColumn("annotations", "companion_document_id", "companion_document_id TEXT");
 ensureColumn("annotations", "companion_page", "companion_page INTEGER");
 ensureColumn("annotations", "companion_title", "companion_title TEXT");
+ensureColumn("subscriptions", "payment_method_id", "payment_method_id TEXT");
+ensureColumn("subscriptions", "reminded_at", "reminded_at TEXT");
+ensureColumn("download_events", "units", "units INTEGER NOT NULL DEFAULT 1");
 
 function ensureWorkTables() {
   sqlite.exec(`
@@ -124,6 +127,8 @@ function ensureBillingTables() {
       canceled_at TEXT,
       source TEXT NOT NULL DEFAULT 'yookassa',
       auto_renew INTEGER NOT NULL DEFAULT 0,
+      payment_method_id TEXT,
+      reminded_at TEXT,
       note TEXT,
       created_at TEXT NOT NULL DEFAULT (current_timestamp)
     );
@@ -156,6 +161,7 @@ function ensureBillingTables() {
       kind TEXT NOT NULL DEFAULT 'read',
       ip TEXT,
       user_agent TEXT,
+      units INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (current_timestamp)
     );
     CREATE INDEX IF NOT EXISTS download_events_user_idx ON download_events(user_id);

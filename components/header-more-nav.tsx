@@ -11,7 +11,7 @@ const MORE_LINKS = [
   { href: "/campaigns", label: "Сборы" },
   { href: "/glossaries", label: "Словари" },
   { href: "/tags", label: "Метки" },
-  { href: "/pricing", label: "Доступ и поддержка" },
+  { href: "/pricing", label: "Читательский билет" },
   { href: "/feedback", label: "Обратная связь" },
 ] as const;
 

@@ -6,18 +6,25 @@ import { AntoineMark } from "@/components/antoine-mark";
 import { HeaderAccount } from "@/components/header-account";
 import { HeaderMoreNav } from "@/components/header-more-nav";
 import { MobileMenu } from "@/components/mobile-menu";
+import { SubscriptionNotice } from "@/components/subscription-notice";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { getEntitlements } from "@/lib/db/billing";
 import { getTotalUnreadCount } from "@/lib/db/messages";
 import { getIncomingFriendRequestCount } from "@/lib/db/friends";
 
 export async function Header() {
   const user = await getCurrentUser();
-  const [unreadMessages, incomingFriendRequests] = user
-    ? await Promise.all([getTotalUnreadCount(user.id), getIncomingFriendRequestCount(user.id)])
-    : [0, 0];
+  const [unreadMessages, incomingFriendRequests, entitlements] = user
+    ? await Promise.all([
+        getTotalUnreadCount(user.id),
+        getIncomingFriendRequestCount(user.id),
+        getEntitlements(user),
+      ])
+    : [0, 0, null];
 
   return (
     <header className="relative border-b border-ink/10">
+      <SubscriptionNotice entitlements={entitlements} />
       <div className="shell flex h-20 items-center justify-between">
         <HomeLogoLink className="group flex items-center gap-3">
           <AntoineMark className="size-9 shrink-0" />
@@ -43,6 +50,12 @@ export async function Header() {
             className="hidden text-muted transition-colors hover:text-ink sm:block"
           >
             Новости
+          </Link>
+          <Link
+            href={entitlements?.source === "subscription" ? "/account" : "/pricing"}
+            className="hidden text-muted transition-colors hover:text-ink sm:block"
+          >
+            {entitlements?.source === "subscription" ? entitlements.planName : "Билет"}
           </Link>
           <Link
             href="/discuss"

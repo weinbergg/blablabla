@@ -71,3 +71,12 @@ next-env.d.ts
 
 # in-flight browser uploads streamed to disk before they're committed
 /data/tmp-uploads/
+
+# local dumps, legal source docs, scratch notes — never deploy
+/*.zip
+/Downloads.zip
+/*.docx
+/NOTES.md
+/TODO.md
+/scratch.md
+

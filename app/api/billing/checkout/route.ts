@@ -1,20 +1,14 @@
-import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import {
-  attachProviderPayment,
-  createPaymentRecord,
-  getPlanBySlug,
-} from "@/lib/db/billing";
-import { getSiteConfig } from "@/lib/db/settings";
-import { createPayment, getCredentials } from "@/lib/payments/yookassa";
+import { getPlanBySlug } from "@/lib/db/billing";
+import { startYooKassaCheckout } from "@/lib/payments/start-checkout";
 
 export const runtime = "nodejs";
 
 /**
- * Шаг 1 оплаты: создаём запись о платеже у себя и платёж в ЮKassa, отдаём
- * клиенту ссылку на оплату. Подписку здесь НЕ включаем — только после
- * подтверждения от банка в вебхуке.
+ * Шаг 1 оплаты подписки: создаём платёж в ЮKassa и отдаём ссылку.
+ * Подписку включаем только после succeeded (вебхук или /api/billing/sync).
+ * autoRenew — отдельная галочка, по оферте по умолчанию выключена.
  */
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -22,14 +16,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Нужно войти в аккаунт" }, { status: 401 });
   }
 
-  const config = await getSiteConfig();
-  if (!config.paymentsEnabled) {
-    return NextResponse.json({ error: "Приём платежей пока выключен" }, { status: 503 });
-  }
-
   const payload = (await request.json().catch(() => null)) as {
     planSlug?: string;
     period?: "month" | "year" | "lifetime";
+    autoRenew?: boolean;
   } | null;
 
   const planSlug = payload?.planSlug?.trim();
@@ -52,48 +42,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Для этого тарифа нет такой оплаты" }, { status: 400 });
   }
 
-  const credentials = getCredentials(config.yookassaMode);
-  if (!credentials) {
-    return NextResponse.json(
-      { error: "Платёжный модуль не настроен: нет ключей ЮKassa" },
-      { status: 503 },
-    );
-  }
-
-  const idempotenceKey = randomUUID();
-  const record = await createPaymentRecord({
-    userId: user.id,
+  const autoRenew = Boolean(payload?.autoRenew) && period !== "lifetime";
+  const started = await startYooKassaCheckout({
+    request,
+    user,
     kind: "subscription",
     amount,
+    description: `blablablarden — ${plan.name}`,
+    itemDescription: plan.name,
+    returnPath: "/account",
     planSlug: plan.slug,
     period,
-    description: `${plan.name}, ${period === "year" ? "год" : period === "lifetime" ? "навсегда" : "месяц"}`,
-    idempotenceKey,
+    savePaymentMethod: autoRenew,
+    metadata: { autoRenew: autoRenew ? "1" : "0", planSlug: plan.slug, period },
   });
 
-  const origin = new URL(request.url).origin;
-
-  try {
-    const payment = await createPayment({
-      credentials,
-      amount,
-      description: `blablablarden — ${plan.name}`,
-      returnUrl: `${origin}/account?payment=${record.id}`,
-      idempotenceKey,
-      metadata: { paymentId: record.id, userId: user.id, planSlug: plan.slug, period },
-      receipt: config.receiptsEnabled ? { customerEmail: user.email, itemDescription: plan.name } : null,
-    });
-
-    await attachProviderPayment(record.id, payment.id, payment);
-    const confirmationUrl = payment.confirmation?.confirmation_url;
-    if (!confirmationUrl) {
-      return NextResponse.json({ error: "ЮKassa не вернула ссылку на оплату" }, { status: 502 });
-    }
-    return NextResponse.json({ paymentId: record.id, confirmationUrl });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Не удалось создать платёж" },
-      { status: 502 },
-    );
+  if (!started.ok) {
+    return NextResponse.json({ error: started.error }, { status: started.status });
   }
+  return NextResponse.json({ paymentId: started.paymentId, confirmationUrl: started.confirmationUrl });
 }
