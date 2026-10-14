@@ -166,7 +166,7 @@ export function PricingPlans({
                 {layer?.inheritedName && (
                   <li className="flex gap-2 leading-5 text-muted">
                     <Check size={15} className="mt-0.5 shrink-0 text-ink/40" />
-                    <span>Всё из «{layer.inheritedName}»</span>
+                    <span>Всё из предыдущей</span>
                   </li>
                 )}
                 {(layer?.extra ?? plan.features).map((feature) => (

@@ -25,12 +25,37 @@ export type YooKassaMode = "test" | "live";
 
 export type YooKassaCredentials = { shopId: string; secretKey: string };
 
-export function getCredentials(mode: YooKassaMode): YooKassaCredentials | null {
-  const shopId = mode === "test" ? process.env.YOOKASSA_TEST_SHOP_ID : process.env.YOOKASSA_SHOP_ID;
-  const secretKey =
-    mode === "test" ? process.env.YOOKASSA_TEST_SECRET_KEY : process.env.YOOKASSA_SECRET_KEY;
+/** nano часто оставляет пробел, перевод строки или кавычки вокруг значения. */
+function readEnv(...names: string[]) {
+  for (const name of names) {
+    let value = process.env[name];
+    if (!value) continue;
+    value = value.replace(/^\uFEFF/, "").trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1).trim();
+    }
+    if (value) return value;
+  }
+  return "";
+}
+
+function pair(shopNames: string[], secretNames: string[]): YooKassaCredentials | null {
+  const shopId = readEnv(...shopNames);
+  const secretKey = readEnv(...secretNames);
   if (!shopId || !secretKey) return null;
   return { shopId, secretKey };
+}
+
+export function getCredentials(mode: YooKassaMode): YooKassaCredentials | null {
+  const live = pair(["YOOKASSA_SHOP_ID"], ["YOOKASSA_SECRET_KEY", "YOUKASSA_KEY"]);
+  const test = pair(["YOOKASSA_TEST_SHOP_ID"], ["YOOKASSA_TEST_SECRET_KEY", "YOUKASSA_KEY"]);
+  // Админка по умолчанию стоит на «тестовый», а в .env обычно кладут боевую
+  // пару. Если выбранной пары нет — берём ту, что заполнена.
+  if (mode === "test") return test ?? live;
+  return live ?? test;
 }
 
 export function credentialsConfigured(mode: YooKassaMode) {

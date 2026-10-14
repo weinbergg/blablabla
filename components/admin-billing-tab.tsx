@@ -495,7 +495,7 @@ function SettingsSection({
           <small className={keysReady ? "text-muted" : "text-red-700"}>
             {keysReady
               ? "Ключи найдены в переменных окружения."
-              : "Ключи не заданы: добавьте их в .env на сервере и перезапустите приложение."}
+              : "Ключи не заданы: в .env.local нужны YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY, затем перезапуск (bash deploy/release.sh или pm2 restart)."}
           </small>
         </label>
 

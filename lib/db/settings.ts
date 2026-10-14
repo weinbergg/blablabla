@@ -42,7 +42,7 @@ export type SiteConfig = {
 
 export const DEFAULT_SETTINGS: SiteConfig = {
   paymentsEnabled: false,
-  yookassaMode: "test",
+  yookassaMode: "live",
   receiptsEnabled: false,
 
   downloadsPerDayFree: 10,
