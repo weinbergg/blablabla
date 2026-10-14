@@ -29,7 +29,7 @@ async function userEmail(userId: string) {
   return row;
 }
 
-async function maybeMail(to: string, subject: string, _text: string) {
+async function maybeMail(to: string, subject: string) {
   // Письма подключим отдельно. `import("nodemailer")` ронял `next build`,
   // потому что пакета нет в dependencies. Напоминание пока живёт баннером в шапке.
   if (!process.env.SMTP_HOST) return { sent: false as const, reason: "no_smtp" };
@@ -55,15 +55,10 @@ export async function runBillingTick() {
 
     if (left <= remindAfter && left > 0 && !row.remindedAt) {
       const owner = await userEmail(row.userId);
-      const plan = await getPlanBySlug(row.planSlug);
-      const text = row.autoRenew
-        ? `Здравствуйте${owner?.name ? `, ${owner.name}` : ""}.\n\nСкоро спишем оплату тарифа «${plan?.name ?? row.planSlug}». Отключить автопродление: ${origin}/account\n\nblablablarden`
-        : `Здравствуйте${owner?.name ? `, ${owner.name}` : ""}.\n\nДоступ «${plan?.name ?? row.planSlug}» заканчивается ${new Date(row.expiresAt).toLocaleDateString("ru-RU")}. Продлить: ${origin}/pricing\n\nblablablarden`;
       if (owner?.email) {
         await maybeMail(
           owner.email,
           row.autoRenew ? "Скоро спишем оплату подписки" : "Подписка скоро закончится",
-          text,
         );
       }
       await setSubscriptionAutoRenew(row.id, Boolean(row.autoRenew), { remindedAt: new Date().toISOString() });
@@ -79,8 +74,7 @@ export async function runBillingTick() {
     }
 
     const plan = await getPlanBySlug(row.planSlug);
-    const amount =
-      row.period === "year" ? plan?.priceYearly : row.period === "lifetime" ? plan?.priceLifetime : plan?.priceMonthly;
+    const amount = row.period === "year" ? plan?.priceYearly : plan?.priceMonthly;
     if (!plan || !amount) {
       summary.skipped += 1;
       continue;
