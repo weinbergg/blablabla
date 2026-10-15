@@ -61,29 +61,41 @@ export function AccountSubscription({
 
       {source === "subscription" && period !== "lifetime" && (
         <div className="mt-6 space-y-3 border-t border-ink/10 pt-5">
-          <label className="flex items-start gap-2 text-sm leading-6">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={renew}
-              disabled={busy !== null}
-              onChange={(event) => void post({ enabled: event.target.checked })}
-            />
-            <span>
-              Автопродление
-              {hasSavedMethod ? "" : " — сначала оплатите картой с галочкой на странице тарифов, СБП часто не привязывается."}
-            </span>
-          </label>
-          {hasSavedMethod && (
+          <p className="text-sm leading-6">
+            Автопродление:{" "}
+            <span className="font-medium">{renew ? "включено" : "выключено"}</span>
+          </p>
+          <p className="text-xs leading-5 text-muted">
+            {hasSavedMethod
+              ? "Можно выключить в любой момент: доступ доживёт до оплаченной даты."
+              : "Чтобы включить, при следующей оплате выберите «С автопродлением». СБП ЮKassa часто не привязывает карту."}
+          </p>
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="text-sm text-muted underline underline-offset-2 hover:text-ink"
-              disabled={busy !== null}
-              onClick={() => void post({ unlink: true })}
+              className={renew ? "button-secondary" : "button-primary"}
+              disabled={busy !== null || (!hasSavedMethod && !renew)}
+              onClick={() => void post({ enabled: !renew })}
             >
-              {busy === "unlink" ? <Loader2 size={14} className="inline animate-spin" /> : "Отвязать карту"}
+              {busy === "toggle" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : renew ? (
+                "Выключить автопродление"
+              ) : (
+                "Включить автопродление"
+              )}
             </button>
-          )}
+            {hasSavedMethod && (
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={busy !== null}
+                onClick={() => void post({ unlink: true })}
+              >
+                {busy === "unlink" ? <Loader2 size={14} className="animate-spin" /> : "Отвязать карту"}
+              </button>
+            )}
+          </div>
           {error && <p className="text-sm text-rust">{error}</p>}
         </div>
       )}

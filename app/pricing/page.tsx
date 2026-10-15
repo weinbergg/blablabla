@@ -42,7 +42,7 @@ export default async function PricingPage() {
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-7xl px-5 pb-20 pt-8 md:px-8">
+      <main className="mx-auto max-w-[1240px] px-5 pb-20 pt-8 md:px-8">
         <Link
           href="/"
           className="mb-8 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
@@ -88,8 +88,8 @@ export default async function PricingPage() {
               {config.legalName
                 ? `Получатель — ${config.legalName}${config.legalInn ? `, ИНН ${config.legalInn}` : ""}.`
                 : ""}{" "}
-              Автопродление — только если отметить галочку при оплате; за день или за неделю придёт
-              напоминание, отключить можно в кабинете.
+              Автопродление спрашиваем перед оплатой; в кабинете его можно включить или выключить.
+              Сменить тариф — там же: повышение доплатой разницы, понижение без возврата.
               {config.supportEmail ? ` Вопросы по оплате — ${config.supportEmail}.` : ""}
             </p>
             <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">

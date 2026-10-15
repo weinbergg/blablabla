@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, BookMarked, LogOut, Mail, Users } from "lucide-react";
+import { ArrowUpRight, LogOut, Mail } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 
 type User = {
@@ -16,11 +16,9 @@ type User = {
 export function HeaderAccount({
   user,
   unreadMessages = 0,
-  incomingFriendRequests = 0,
 }: {
   user: User;
   unreadMessages?: number;
-  incomingFriendRequests?: number;
 }) {
   const router = useRouter();
 
@@ -52,30 +50,6 @@ export function HeaderAccount({
           Управление
         </Link>
       )}
-      <Link href="/invite" className="hidden text-muted transition-colors hover:text-ink sm:block">
-        Пригласить
-      </Link>
-      <Link
-        href="/library"
-        className="hidden text-muted transition-colors hover:text-ink sm:block"
-        aria-label="Моя полка"
-        title="Моя полка"
-      >
-        <BookMarked size={20} />
-      </Link>
-      <Link
-        href="/friends"
-        className="relative hidden text-muted transition-colors hover:text-ink sm:block"
-        aria-label="Друзья"
-        title="Друзья"
-      >
-        <Users size={20} />
-        {incomingFriendRequests > 0 && (
-          <span className="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-full bg-rust text-[8px] font-semibold text-white">
-            {incomingFriendRequests > 9 ? "9+" : incomingFriendRequests}
-          </span>
-        )}
-      </Link>
       <Link
         href="/messages"
         className="relative text-muted transition-colors hover:text-ink"

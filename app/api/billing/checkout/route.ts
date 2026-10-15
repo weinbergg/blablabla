@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getPlanBySlug } from "@/lib/db/billing";
+import { getActiveSubscription, getPlanBySlug } from "@/lib/db/billing";
+import { checkoutCharge } from "@/lib/plan-charge";
 import { startYooKassaCheckout } from "@/lib/payments/start-checkout";
 
 export const runtime = "nodejs";
 
 /**
- * Шаг 1 оплаты подписки: создаём платёж в ЮKassa и отдаём ссылку.
- * Подписку включаем только после succeeded (вебхук или /api/billing/sync).
- * autoRenew — отдельная галочка, по оферте по умолчанию выключена.
+ * Оформление или повышение тарифа. Сумму считает сервер: клиенту не верим.
+ * Понижение отклоняем — возврата разницы нет.
  */
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -36,29 +36,45 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Места на этом уровне закончились" }, { status: 409 });
   }
 
-  const amount =
-    period === "year" ? plan.priceYearly : period === "lifetime" ? plan.priceLifetime : plan.priceMonthly;
-  if (!amount || amount <= 0) {
-    return NextResponse.json({ error: "Для этого тарифа нет такой оплаты" }, { status: 400 });
+  const subscription = await getActiveSubscription(user.id);
+  const current = subscription ? await getPlanBySlug(subscription.planSlug) : null;
+  const charge = checkoutCharge(plan, period, current);
+  if (!charge.ok) {
+    return NextResponse.json({ error: charge.error }, { status: 400 });
   }
 
   const autoRenew = Boolean(payload?.autoRenew) && period !== "lifetime";
+  const description =
+    charge.kind === "upgrade"
+      ? `Повышение до «${plan.name}», доплата`
+      : `blablablarden — ${plan.name}`;
+
   const started = await startYooKassaCheckout({
     request,
     user,
     kind: "subscription",
-    amount,
-    description: `blablablarden — ${plan.name}`,
+    amount: charge.amount,
+    description,
     itemDescription: plan.name,
     returnPath: "/account",
     planSlug: plan.slug,
     period,
     savePaymentMethod: autoRenew,
-    metadata: { autoRenew: autoRenew ? "1" : "0", planSlug: plan.slug, period },
+    metadata: {
+      autoRenew: autoRenew ? "1" : "0",
+      planSlug: plan.slug,
+      period,
+      chargeKind: charge.kind,
+    },
   });
 
   if (!started.ok) {
     return NextResponse.json({ error: started.error }, { status: started.status });
   }
-  return NextResponse.json({ paymentId: started.paymentId, confirmationUrl: started.confirmationUrl });
+  return NextResponse.json({
+    paymentId: started.paymentId,
+    confirmationUrl: started.confirmationUrl,
+    amount: charge.amount,
+    kind: charge.kind,
+  });
 }

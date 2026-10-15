@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { HomeLogoLink } from "@/components/home-logo-link";
-import { MessagesSquare, Network } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { AntoineMark } from "@/components/antoine-mark";
 import { HeaderAccount } from "@/components/header-account";
@@ -51,33 +50,12 @@ export async function Header() {
           >
             Новости
           </Link>
-          <Link
-            href={entitlements?.source === "subscription" ? "/account" : "/pricing"}
-            className="hidden text-muted transition-colors hover:text-ink sm:block"
-          >
-            {entitlements?.source === "subscription" ? entitlements.planName : "Билет"}
-          </Link>
-          <Link
-            href="/discuss"
-            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink sm:flex"
-          >
-            <MessagesSquare size={14} />
-            Обсуждения
-          </Link>
-          <Link
-            href="/graph"
-            className="hidden items-center gap-1.5 text-muted transition-colors hover:text-ink md:flex"
-          >
-            <Network size={14} />
-            Связи
-          </Link>
-          <HeaderMoreNav />
-          <ThemeToggle className="hidden sm:grid" />
-          <HeaderAccount
-            user={user}
-            unreadMessages={unreadMessages}
-            incomingFriendRequests={incomingFriendRequests}
+          <HeaderMoreNav
+            isLoggedIn={Boolean(user)}
+            ticketLabel={entitlements?.source === "subscription" ? entitlements.planName : "Читательский билет"}
           />
+          <ThemeToggle className="hidden sm:grid" />
+          <HeaderAccount user={user} unreadMessages={unreadMessages} />
           <MobileMenu
             isAdmin={user?.role === "admin"}
             isLoggedIn={Boolean(user)}

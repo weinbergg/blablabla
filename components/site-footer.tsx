@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { AntoineMark } from "@/components/antoine-mark";
 
-const LEGAL = [
+const LINKS = [
+  { href: "/#catalog", label: "Каталог" },
+  { href: "/discuss", label: "Обсуждения" },
+  { href: "/graph", label: "Связи" },
   { href: "/pricing", label: "Читательский билет" },
   { href: "/privacy", label: "Политика данных" },
-  { href: "/consent", label: "Согласие" },
   { href: "/offer", label: "Оферта" },
 ] as const;
 
@@ -17,7 +19,7 @@ export function SiteFooter() {
           © 2026 blablablarden. Личная электронная библиотека.
         </p>
         <nav className="flex flex-wrap gap-x-4 gap-y-1">
-          {LEGAL.map((item) => (
+          {LINKS.map((item) => (
             <Link key={item.href} href={item.href} className="hover:text-ink">
               {item.label}
             </Link>
