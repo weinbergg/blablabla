@@ -30,7 +30,7 @@ case "${1:-}" in
     systemd-run --unit=blabla-release-operation --collect --wait \
       --property=Type=exec --property=UMask=0077 \
       --property="MemoryMax=$BLABLA_RELEASE_MEMORY" --property="MemorySwapMax=$BLABLA_RELEASE_SWAP" \
-      --property=MemoryOOMGroup=yes \
+      --property=OOMPolicy=kill \
       --property=CPUQuota=100% --property=Nice=10 --property=IOWeight=10 --working-directory="$APP_ROOT" \
       /usr/bin/flock --nonblock /srv/blabla-release-qhq2Vhh0/production-update.lock \
       /usr/bin/env -i PATH=/usr/bin:/bin PM2_HOME=/root/.pm2 BLABLA_RELEASE_LOCKED=1 \
