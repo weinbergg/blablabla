@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
 import { annotations, documents } from "@/lib/db/schema";
+import { validateAnchor } from "@/lib/publication-content";
+import { fileTextVersion } from "@/lib/file-version";
 import { canAnnotateFiles } from "@/lib/roles";
 
 const SHAPES = new Set(["note", "star", "flag", "question", "heart", "quote", "formula", "drawing"]);
@@ -35,6 +37,7 @@ export async function POST(request: Request) {
     body?: unknown;
     visibility?: unknown;
     allowDiscussion?: unknown;
+    textAnchor?: unknown;
     anchorText?: unknown;
     anchorRects?: unknown;
     companionDocumentId?: unknown;
@@ -99,7 +102,7 @@ export async function POST(request: Request) {
   }
 
   const [document] = await db
-    .select({ id: documents.id, title: documents.title })
+    .select({ id: documents.id, title: documents.title, fileUrl: documents.fileUrl })
     .from(documents)
     .where(eq(documents.id, documentId))
     .limit(1);
@@ -107,6 +110,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Материал не найден" }, { status: 404 });
   }
 
+  let textAnchor: string | null = null;
+  if (body?.textAnchor != null) {
+    try {
+      const anchor = validateAnchor(body.textAnchor);
+      if (anchor.documentId !== documentId || anchor.page !== page) throw new Error("Цитата относится к другому месту");
+      if (document.fileUrl) anchor.textVersion = await fileTextVersion(document.fileUrl);
+      textAnchor = JSON.stringify(anchor);
+    } catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Некорректная привязка цитаты" }, { status: 400 }); }
+  }
   const id = randomUUID();
   const createdAt = new Date().toISOString();
   await db.insert(annotations).values({
@@ -121,6 +133,7 @@ export async function POST(request: Request) {
     body: text,
     visibility: visibility as typeof annotations.$inferInsert.visibility,
     allowDiscussion,
+    textAnchor,
     anchorText,
     anchorRects,
     companionDocumentId,

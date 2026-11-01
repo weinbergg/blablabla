@@ -4,30 +4,41 @@
  * прайса за тот же период (месяц к месяцу, год к году).
  */
 
+import type { BillingPeriod } from "@/lib/billing-period";
+
 export type ChargePlan = {
   slug: string;
   sortOrder: number;
   priceMonthly: number;
   priceYearly: number | null;
   priceLifetime: number | null;
+  priceWeekly?: number | null;
   lifetime: boolean;
 };
 
-export function listPrice(plan: ChargePlan, period: "month" | "year" | "lifetime") {
+export function listPrice(plan: ChargePlan, period: BillingPeriod) {
   if (period === "lifetime" || plan.lifetime) return plan.priceLifetime ?? 0;
   if (period === "year") return plan.priceYearly ?? plan.priceMonthly * 12;
+  if (period === "week") return plan.priceWeekly ?? 0;
   return plan.priceMonthly;
 }
 
 export function checkoutCharge(
   target: ChargePlan,
-  period: "month" | "year" | "lifetime",
+  period: BillingPeriod,
   current: ChargePlan | null,
 ): { ok: true; amount: number; kind: "full" | "upgrade" } | { ok: false; error: string } {
   const full = listPrice(target, period);
   if (!full || full <= 0) return { ok: false, error: "Для этого тарифа нет такой оплаты" };
 
-  if (!current || current.slug === "free" || current.sortOrder <= 0) {
+  if (target.slug === "trial") {
+    if (current && current.slug !== "free" && current.sortOrder > 0) {
+      return { ok: false, error: "Недельный билет только для тех, у кого ещё нет оплаченного тарифа." };
+    }
+    return { ok: true, amount: full, kind: "full" };
+  }
+
+  if (!current || current.slug === "free" || current.slug === "trial" || current.sortOrder <= 0) {
     return { ok: true, amount: full, kind: "full" };
   }
   if (current.slug === target.slug) {

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { createSession, verifyPassword } from "@/lib/auth";
+import { logActivity } from "@/lib/activity";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
+import { clientIpFrom } from "@/lib/file-access";
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
@@ -29,5 +31,11 @@ export async function POST(request: Request) {
   }
 
   await createSession(user.id);
+  logActivity({
+    userId: user.id,
+    email: user.email,
+    action: "login",
+    ip: clientIpFrom(request.headers),
+  });
   return NextResponse.json({ ok: true, role: user.role });
 }

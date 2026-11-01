@@ -1,13 +1,12 @@
 "use client";
 
+import type { FeatureAvailability } from "@/lib/feature-flags";
 import { useState } from "react";
 import Link from "next/link";
 import {
-  BookMarked,
   BookOpen,
   Menu,
   MessageCircleQuestion,
-  MessagesSquare,
   Network,
   Settings,
   StickyNote,
@@ -19,12 +18,18 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export function MobileMenu({
+  allowed,
+  forumUnread,
   isAdmin,
   isLoggedIn,
+  needsTicket = true,
   incomingFriendRequests = 0,
 }: {
+  allowed: FeatureAvailability;
+  forumUnread: number;
   isAdmin: boolean;
   isLoggedIn: boolean;
+  needsTicket?: boolean;
   incomingFriendRequests?: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -41,33 +46,37 @@ export function MobileMenu({
       </button>
 
       {open && (
-        <div className="absolute inset-x-0 top-20 z-30 border-b border-ink/10 bg-paper px-6 py-4 shadow-lg">
+        <div className="absolute inset-x-0 top-16 z-30 border-b border-ink/10 bg-paper px-6 py-4 shadow-lg">
           <nav className="flex flex-col gap-4 text-sm">
             <Link href="/#catalog" onClick={() => setOpen(false)} className="text-ink">
               Каталог
             </Link>
-            <Link href="/news" onClick={() => setOpen(false)} className="text-ink">
+            {allowed.rooms && (<Link href="/seminars" onClick={() => setOpen(false)} className="text-ink">
+              Чтения
+            </Link>)}
+            {allowed.forum && (<Link href="/discuss" onClick={() => setOpen(false)} className="text-ink">
+              Обсуждения{forumUnread > 0 && <span className="ml-2 text-rust">Новых: {forumUnread}</span>}
+            </Link>)}
+            {allowed.feed && (<Link href="/news" onClick={() => setOpen(false)} className="text-ink">
               Новости
-            </Link>
-            <Link href="/channels" onClick={() => setOpen(false)} className="text-ink">
+            </Link>)}
+            {allowed.channels && (<Link href="/channels" onClick={() => setOpen(false)} className="text-ink">
               Каналы
-            </Link>
-            <Link href="/seminars" onClick={() => setOpen(false)} className="text-ink">
-              Семинары
+            </Link>)}
+            {isLoggedIn && (
+              <Link href="/library" onClick={() => setOpen(false)} className="text-ink">
+                Полка
+              </Link>
+            )}
+            <Link
+              href="/pricing"
+              onClick={() => setOpen(false)}
+              className={needsTicket ? "font-medium text-rust" : "text-ink"}
+            >
+              Билет
             </Link>
             <Link href="/campaigns" onClick={() => setOpen(false)} className="text-ink">
               Сборы
-            </Link>
-            <Link href="/pricing" onClick={() => setOpen(false)} className="text-ink">
-              Читательский билет
-            </Link>
-            <Link
-              href="/discuss"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-1.5 text-ink"
-            >
-              <MessagesSquare size={14} />
-              Обсуждения
             </Link>
             <Link
               href="/graph"
@@ -113,14 +122,6 @@ export function MobileMenu({
             </Link>
             {isLoggedIn && (
               <>
-                <Link
-                  href="/library"
-                  onClick={() => setOpen(false)}
-                  className="flex items-center gap-1.5 text-ink"
-                >
-                  <BookMarked size={14} />
-                  Моя полка
-                </Link>
                 <Link
                   href="/friends"
                   onClick={() => setOpen(false)}

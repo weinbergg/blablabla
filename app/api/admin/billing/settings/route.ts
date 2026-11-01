@@ -4,7 +4,7 @@ import { updateSiteConfig, type SiteConfig } from "@/lib/db/settings";
 
 export const dynamic = "force-dynamic";
 
-const BOOLEAN_KEYS = ["paymentsEnabled", "receiptsEnabled"] as const;
+const BOOLEAN_KEYS = ["paymentsEnabled", "receiptsEnabled", "musicEnabled"] as const;
 const NUMBER_KEYS = [
   "downloadsPerDayFree",
   "downloadsPerDayPaid",

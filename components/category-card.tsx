@@ -1,28 +1,17 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { categoryAccent } from "@/lib/category-style";
 import type { CategoryNode } from "@/lib/db/queries";
 import { countLabel } from "@/lib/pluralize";
 
 export function CategoryCard({
   category,
   href,
-  index,
   wide = false,
 }: {
   category: CategoryNode;
   href: string;
-  index: number;
-  /** When a category is left alone in the final row of the grid, spanning
-   * the full width and laying out horizontally reads as an intentional
-   * "featured" slot instead of a lopsided leftover card next to empty
-   * space. */
+  index?: number;
   wide?: boolean;
 }) {
-  const accent = categoryAccent(category.id);
-  // A description is optional when a category is created, but leaving the
-  // card without one creates an odd, uneven gap above the bottom divider —
-  // every card gets a line of text either way, curated or a plain fallback.
   const description =
     category.description ||
     (category.children.length
@@ -32,38 +21,22 @@ export function CategoryCard({
   return (
     <Link
       href={href}
-      className={`category-card group relative overflow-hidden bg-paper p-7 md:p-9 ${
-        wide ? "sm:col-span-2 lg:col-span-3" : "min-h-[280px]"
+      className={`category-card group relative flex flex-col bg-paper p-7 md:p-8 ${
+        wide ? "sm:col-span-2 lg:col-span-3" : "min-h-[220px]"
       }`}
     >
-      <div className="category-wash" style={{ backgroundColor: accent }} />
-      <div className={`relative flex h-full flex-col ${wide ? "lg:min-h-[200px]" : ""}`}>
-        <div className="flex items-start justify-between">
-          <span className="font-mono text-xs text-muted">
-            {String(index + 1).padStart(2, "0")}
-          </span>
-          <span className="grid size-11 place-items-center rounded-full bg-ink/8 font-serif text-lg text-ink">
-            {category.name.charAt(0).toUpperCase()}
-          </span>
-        </div>
-        <div className={`mt-10 ${wide ? "lg:flex lg:items-end lg:justify-between lg:gap-10" : ""}`}>
-          <div>
-            <h3 className="font-serif text-3xl tracking-tight">{category.name}</h3>
-            <p className={`mt-3 text-sm leading-6 text-muted ${wide ? "lg:max-w-md" : "max-w-xs"}`}>
-              {description}
-            </p>
-          </div>
-        </div>
-        <div className="mt-auto flex items-center justify-between border-t border-ink/10 pt-4">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-            {countLabel(category.documentCount, ["текст", "текста", "текстов"])}
-            {category.children.length
-              ? ` · ${countLabel(category.children.length, ["раздел", "раздела", "разделов"])}`
-              : ""}
-          </span>
-          <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
-        </div>
-      </div>
+      <h3 className="font-serif text-2xl tracking-tight group-hover:text-rust md:text-3xl">
+        {category.name}
+      </h3>
+      <p className={`mt-3 text-sm leading-6 text-muted ${wide ? "max-w-xl" : "max-w-sm"}`}>
+        {description}
+      </p>
+      <p className="mt-auto border-t border-ink/10 pt-4 text-sm text-muted">
+        {countLabel(category.documentCount, ["текст", "текста", "текстов"])}
+        {category.children.length
+          ? ` · ${countLabel(category.children.length, ["раздел", "раздела", "разделов"])}`
+          : ""}
+      </p>
     </Link>
   );
 }

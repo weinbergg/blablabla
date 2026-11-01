@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Minimize2,
   Send,
+  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import { ChatMessage } from "@/components/chat-message";
@@ -32,8 +33,12 @@ import {
   type ReadingProgressKind,
 } from "@/lib/reading-progress";
 import { getOfflineBook } from "@/lib/offline-store";
+import { ReadingMusic } from "@/components/reading-music";
 import { canAnnotateFiles } from "@/lib/roles";
 import type { CompanionSuggestions } from "@/lib/db/companion-suggestions";
+import { commentError, commentRequest } from "@/lib/comment-request";
+import { useFeature } from "./feature-provider";
+import { useCommentDraft } from "@/lib/use-comment-draft";
 
 const PdfReader = dynamic(
   () => import("@/components/readers/pdf-reader").then((m) => m.PdfReader),
@@ -110,6 +115,7 @@ export function DocumentWorkspace({
   initialCompanionPage = null,
   suggestions = { dictionaries: [], references: [], sameAuthor: [], sameSection: [], staffPicks: [] },
   sharedQuote = null,
+  musicEnabled = false,
 }: {
   documentId: string;
   documentTitle?: string;
@@ -133,6 +139,8 @@ export function DocumentWorkspace({
   initialCompanionPage?: number | null;
   suggestions?: CompanionSuggestions;
   sharedQuote?: string | null;
+  /** Админ может выключить эмбиент на всём сайте. */
+  musicEnabled?: boolean;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
@@ -153,7 +161,14 @@ export function DocumentWorkspace({
   const [liveAnnotations, setLiveAnnotations] = useState(annotations);
   const [marksPlace, setMarksPlace] = useState<MarksPlacement>("hidden");
   const companionFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const nativeWantedRef = useRef(false);
   const pendingCompanionJumpRef = useRef<number | null>(initialCompanionPage);
+  const companionOpenPageRef = useRef<number | null>(initialCompanionPage);
+  const [companionOverride, setCompanionOverride] = useState<string | null | undefined>(undefined);
+  const activeCompanionId = companionOverride === undefined ? companionId : companionOverride;
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [chromeOn, setChromeOn] = useState(false);
   const [companionPage, setCompanionPage] = useState<number | null>(initialCompanionPage);
   const [companionPageLabel, setCompanionPageLabel] = useState("стр.");
   const [liveCompanionTitle, setLiveCompanionTitle] = useState<string | null>(companionTitle);
@@ -182,14 +197,58 @@ export function DocumentWorkspace({
   }, []);
 
   useEffect(() => {
+    if (annotations.length === 0) return;
     setLiveAnnotations(annotations);
   }, [annotations]);
+
+  // Сначала книга (её грузит читалка), затем булавки, затем пометки со ссылкой
+  // на другую книгу. Так параллельное чтение не ждёт чужие словари и тела.
+  useEffect(() => {
+    let cancelled = false;
+    setLiveAnnotations([]);
+    (async () => {
+      try {
+        const pinsRes = await fetch(`/api/documents/${documentId}/annotations?tier=pins`);
+        if (!pinsRes.ok || cancelled) return;
+        const pins = (await pinsRes.json()) as { items: AnnotationItem[] };
+        if (!cancelled) setLiveAnnotations(pins.items ?? []);
+        const linkedRes = await fetch(`/api/documents/${documentId}/annotations?tier=linked`);
+        if (!linkedRes.ok || cancelled) return;
+        const linked = (await linkedRes.json()) as { items: AnnotationItem[] };
+        if (cancelled) return;
+        setLiveAnnotations((current) => {
+          const seen = new Set(current.map((item) => item.id));
+          const extra = (linked.items ?? []).filter((item) => !seen.has(item.id));
+          return extra.length ? [...current, ...extra] : current;
+        });
+      } catch {
+        /* книга уже открыта, пометки можно догрузить обновлением */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
 
   useEffect(() => {
     if (liveAnnotations.length === 0 && marksPlace !== "hidden") {
       setMarksPlace("hidden");
     }
   }, [liveAnnotations.length, marksPlace]);
+
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      const active = document.fullscreenElement === stageRef.current;
+      setNativeFullscreen(active);
+      if (nativeWantedRef.current && !document.fullscreenElement) {
+        nativeWantedRef.current = false;
+        setFullscreen(false);
+      }
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
 
   useEffect(() => {
     setCompanionPage(initialCompanionPage);
@@ -203,19 +262,47 @@ export function DocumentWorkspace({
   }, []);
 
   function setCompanion(nextId: string, nextPage?: number | null) {
+    const id = nextId || null;
+    const page = nextPage && nextPage >= 1 ? Math.round(nextPage) : null;
+    companionOpenPageRef.current = page;
+    pendingCompanionJumpRef.current = page;
+    setCompanionOverride(id);
+    if (page) setCompanionPage(page);
     const url = new URL(window.location.href);
-    if (nextId) {
-      url.searchParams.set("with", nextId);
-      if (nextPage && nextPage >= 1) {
-        url.searchParams.set("withPage", String(nextPage));
-      } else {
-        url.searchParams.delete("withPage");
-      }
+    if (id) {
+      url.searchParams.set("with", id);
+      if (page) url.searchParams.set("withPage", String(page));
+      else url.searchParams.delete("withPage");
     } else {
       url.searchParams.delete("with");
       url.searchParams.delete("withPage");
     }
-    router.push(`${url.pathname}${url.search}`);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }
+
+  function toggleFullscreen() {
+    const node = stageRef.current;
+    if (!node) return;
+    if (fullscreen || document.fullscreenElement) {
+      nativeWantedRef.current = false;
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => setFullscreen(false));
+      }
+      setFullscreen(false);
+      return;
+    }
+    setChromeOn(true);
+    setFullscreen(true);
+    if (typeof node.requestFullscreen === "function") {
+      nativeWantedRef.current = true;
+      void node.requestFullscreen()
+        .then(() => {
+          nativeWantedRef.current = true;
+        })
+        .catch(() => {
+          nativeWantedRef.current = false;
+        });
+    }
   }
 
   const progressKind: ReadingProgressKind | null = isPdf
@@ -318,7 +405,7 @@ export function DocumentWorkspace({
   }, [fullscreen]);
 
   async function replyToAnnotation(annotationId: string, body: string) {
-    await fetch("/api/comments", {
+    await commentRequest("/api/comments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ documentId, body, annotationId }),
@@ -347,32 +434,32 @@ export function DocumentWorkspace({
   }, [embed, scrollReaderIntoView, sharedQuote]);
 
   const syncCompanionPageInUrl = useCallback((nextPage: number) => {
-    if (!companionId) return;
+    if (!activeCompanionId) return;
     try {
       const url = new URL(window.location.href);
-      url.searchParams.set("with", companionId);
+      url.searchParams.set("with", activeCompanionId);
       url.searchParams.set("withPage", String(nextPage));
       window.history.replaceState(null, "", url.toString());
     } catch {
       /* ignore */
     }
-  }, [companionId]);
+  }, [activeCompanionId]);
 
   function jumpCompanionPage(target: number) {
-    if (!companionId) return;
+    if (!activeCompanionId) return;
     const nextPage = Math.max(1, Math.round(target));
     pendingCompanionJumpRef.current = nextPage;
     setCompanionPage(nextPage);
     syncCompanionPageInUrl(nextPage);
     companionFrameRef.current?.contentWindow?.postMessage(
-      { type: "blabla:reader-jump", documentId: companionId, page: nextPage },
+      { type: "blabla:reader-jump", documentId: activeCompanionId, page: nextPage },
       window.location.origin,
     );
   }
 
   function openLinkedCompanion(item: AnnotationItem) {
     if (!item.companionDocumentId || !item.companionPage) return;
-    if (companionId === item.companionDocumentId) {
+    if (activeCompanionId === item.companionDocumentId) {
       jumpCompanionPage(item.companionPage);
       return;
     }
@@ -409,16 +496,16 @@ export function DocumentWorkspace({
   );
 
   const companionTarget =
-    companionId && companionPage
+    activeCompanionId && companionPage
       ? {
-          documentId: companionId,
+          documentId: activeCompanionId,
           page: companionPage,
           pageLabel: companionPageLabel,
           title: liveCompanionTitle,
         }
-      : companionId
+      : activeCompanionId
         ? {
-            documentId: companionId,
+            documentId: activeCompanionId,
             page: null,
             pageLabel: companionPageLabel,
             title: liveCompanionTitle,
@@ -426,13 +513,12 @@ export function DocumentWorkspace({
         : null;
 
   const companionSrc = useMemo(() => {
-    if (!companionId) return "";
+    if (!activeCompanionId) return "";
     const params = new URLSearchParams({ panel: "1" });
-    if (initialCompanionPage && initialCompanionPage >= 1) {
-      params.set("page", String(initialCompanionPage));
-    }
-    return `/documents/${companionId}?${params.toString()}`;
-  }, [companionId, initialCompanionPage]);
+    const openPage = companionOpenPageRef.current;
+    if (openPage && openPage >= 1) params.set("page", String(openPage));
+    return `/documents/${activeCompanionId}?${params.toString()}`;
+  }, [activeCompanionId]);
 
   useEffect(() => {
     if (!embed || window.parent === window) return;
@@ -477,7 +563,7 @@ export function DocumentWorkspace({
   }, [appendLiveAnnotation, documentId, embed, handlePageChange, numPages]);
 
   useEffect(() => {
-    if (embed || !companionId) return;
+    if (embed || !activeCompanionId) return;
     function handleMessage(event: MessageEvent) {
       if (event.origin !== window.location.origin) return;
       const data = event.data as {
@@ -493,7 +579,7 @@ export function DocumentWorkspace({
         appendLiveAnnotation(data.annotation);
         return;
       }
-      if (data.type !== "blabla:reader-page" || data.documentId !== companionId) return;
+      if (data.type !== "blabla:reader-page" || data.documentId !== activeCompanionId) return;
       const nextPage =
         typeof data.page === "number"
           ? data.page
@@ -510,13 +596,13 @@ export function DocumentWorkspace({
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [appendLiveAnnotation, companionId, embed, syncCompanionPageInUrl]);
+  }, [activeCompanionId, appendLiveAnnotation, embed, syncCompanionPageInUrl]);
 
-  const showCompanionPanel = Boolean(companionId && !embed && !fullscreen);
+  const showCompanionPanel = Boolean(activeCompanionId && !embed && !fullscreen);
   const effectiveMarksPlace: MarksPlacement =
     showCompanionPanel && marksPlace === "left" ? "below" : marksPlace;
   const showLeftMarks = !embed && !fullscreen && effectiveMarksPlace === "left";
-  const marksLayoutClass = showLeftMarks ? "lg:flex lg:items-start lg:gap-3" : "";
+  const marksLayoutClass = fullscreen ? "h-full min-h-0" : showLeftMarks ? "lg:flex lg:items-start lg:gap-3" : "";
   const canJumpPages = isPdf || isEpub || isTxt;
   const readerCompact = embed || showCompanionPanel;
 
@@ -551,16 +637,17 @@ export function DocumentWorkspace({
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {!embed && (
               <CompanionPicker
-                companionId={companionId}
+                companionId={activeCompanionId}
                 editions={otherEditions}
                 suggestions={suggestions}
                 onPick={(id) => setCompanion(id)}
               />
             )}
+            {musicEnabled && !embed && <ReadingMusic />}
             {canFullscreen && (
               <button
                 type="button"
-                onClick={() => setFullscreen(true)}
+                onClick={toggleFullscreen}
                 className="icon-button shrink-0"
                 aria-label="Развернуть на весь экран"
                 title="Читать на весь экран"
@@ -572,9 +659,20 @@ export function DocumentWorkspace({
         </div>
       )}
 
-      <div className={fullscreen ? "fixed inset-0 z-50 flex flex-col bg-paper" : ""}>
+      <div
+        ref={stageRef}
+        className={
+          fullscreen
+            ? `reader-stage is-fullscreen overflow-hidden bg-paper ${chromeOn ? "chrome-visible" : ""} ${
+                nativeFullscreen
+                  ? "relative h-full"
+                  : "fixed inset-0 z-[80] h-[100dvh]"
+              }`
+            : "reader-stage"
+        }
+      >
         {fullscreen && (
-          <div className="flex items-center justify-between gap-3 border-b border-ink/10 px-4 py-2 md:px-8">
+          <div className="reader-chrome flex items-center justify-between gap-3 px-4 py-2 md:px-8">
             <div className="min-w-0">
               <p className="truncate font-serif text-base">{documentTitle || "Текст"}</p>
               <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
@@ -583,17 +681,23 @@ export function DocumentWorkspace({
                   ` · ${isEpub ? "глава" : isTxt ? "лист" : "стр."} ${page}/${numPages}`}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setFullscreen(false)}
-              className="icon-button"
-              aria-label="Свернуть"
-            >
-              <Minimize2 size={15} />
-            </button>
+            <div className="flex items-center gap-2">
+              {musicEnabled && !embed && <ReadingMusic />}
+              <button type="button" className="icon-button" aria-expanded={chromeOn}
+                aria-label={chromeOn ? "Скрыть инструменты чтения" : "Показать инструменты чтения"}
+                onClick={() => setChromeOn(value => !value)}><SlidersHorizontal size={15} /></button>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="icon-button"
+                aria-label="Свернуть"
+              >
+                <Minimize2 size={15} />
+              </button>
+            </div>
           </div>
         )}
-        <div className={fullscreen ? "min-h-0 flex-1 overflow-y-auto px-4 pb-12 md:px-8" : ""}>
+        <div className={fullscreen ? "min-h-0 flex-1" : ""}>
           {showCompanionPanel ? (
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.16fr)_minmax(24rem,0.94fr)] 2xl:grid-cols-[minmax(0,1.08fr)_minmax(28rem,0.92fr)] xl:items-start">
               <div className="min-w-0">
@@ -624,7 +728,7 @@ export function DocumentWorkspace({
                       allowLeftPlacement={false}
                     />
                   )}
-                  <div ref={readerHostRef} className="min-w-0 flex-1">
+                  <div ref={readerHostRef} className={fullscreen ? "h-full min-h-0 min-w-0" : "min-w-0 flex-1"}>
                     {progressReady && readerUrl && isPdf && (
                       <PdfReader
                         url={readerUrl}
@@ -772,14 +876,14 @@ export function DocumentWorkspace({
                   ref={companionFrameRef}
                   title={liveCompanionTitle || "Параллельный текст"}
                   src={companionSrc}
-                  loading="lazy"
+                  loading="eager"
                   className="h-[72vh] min-h-[34rem] w-full rounded-2xl border border-ink/10 bg-paper"
                   onLoad={() => {
                     const pending = pendingCompanionJumpRef.current ?? companionPage;
-                    if (!companionId || !pending) return;
+                    if (!activeCompanionId || !pending) return;
                     window.setTimeout(() => {
                       companionFrameRef.current?.contentWindow?.postMessage(
-                        { type: "blabla:reader-jump", documentId: companionId, page: pending },
+                        { type: "blabla:reader-jump", documentId: activeCompanionId, page: pending },
                         window.location.origin,
                       );
                     }, 0);
@@ -814,7 +918,7 @@ export function DocumentWorkspace({
                     onOpenLinkedCompanion={openLinkedCompanion}
                   />
                 )}
-                  <div ref={readerHostRef} className="min-w-0 flex-1">
+                  <div ref={readerHostRef} className={fullscreen ? "h-full min-h-0 min-w-0" : "min-w-0 flex-1"}>
                     {progressReady && readerUrl && isPdf && (
                       <PdfReader
                       url={readerUrl}
@@ -905,7 +1009,7 @@ export function DocumentWorkspace({
                 </div>
               </div>
 
-              {!embed && (
+              {!embed && !fullscreen && (
                 <div className="mx-auto mt-10 max-w-3xl space-y-6">
                     {canJumpPages && (
                       <BookmarksPanel
@@ -970,17 +1074,25 @@ function CommentThread({
   onReport?: (commentId: string) => void;
 }) {
   const router = useRouter();
-  const [body, setBody] = useState("");
+  const draftScope = currentUser ? `${currentUser.id}:document:${documentId}` : null;
+  const commentsEnabled = useFeature("comments");
+  const [body, setBody] = useCommentDraft(draftScope);
   const [attachPage, setAttachPage] = useState(Boolean(currentPage));
   const [replyTo, setReplyTo] = useState<string | null>(null);
-  const [replyBody, setReplyBody] = useState("");
+  const [replyBody, setReplyBody] = useCommentDraft(draftScope && replyTo ? `${draftScope}:reply:${replyTo}` : null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submitting = useRef(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({ general: true });
   const composeRef = useRef<HTMLTextAreaElement | null>(null);
 
   const pageComments = useMemo(() => comments.filter((c) => !c.annotationId), [comments]);
-  const topLevel = useMemo(() => pageComments.filter((c) => !c.parentId), [pageComments]);
+  const topLevel = useMemo(() => {
+    const ids = new Set(pageComments.map((comment) => comment.id));
+    // Keep existing replies visible if their parent was removed by an older version.
+    return pageComments.filter((comment) => !comment.parentId || !ids.has(comment.parentId));
+  }, [pageComments]);
   const repliesByParent = useMemo(() => {
     const map = new Map<string, CommentItem[]>();
     for (const comment of pageComments) {
@@ -1019,7 +1131,6 @@ function CommentThread({
       const queuedBody = detail?.body?.trim();
       if (!queuedBody) return;
       setBody((current) => (current.trim() ? `${current.trim()}\n\n${queuedBody}` : queuedBody));
-      setReplyBody("");
       setReplyTo(null);
       setSectionOpen((current) => ({ ...current, general: true }));
       window.requestAnimationFrame(() => {
@@ -1029,37 +1140,49 @@ function CommentThread({
     }
     window.addEventListener("blabla:discussion-share", handleDiscussionShare as EventListener);
     return () => window.removeEventListener("blabla:discussion-share", handleDiscussionShare as EventListener);
-  }, []);
+  }, [setBody]);
 
   async function postComment(text: string, page: number | null, parentId: string | null) {
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true);
-    const response = await fetch("/api/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ documentId, body: text, page, parentId }),
-    });
-    setBusy(false);
-    if (response.ok) {
-      setBody("");
-      setReplyBody("");
-      setReplyTo(null);
+    setError("");
+    try {
+      await commentRequest("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId, body: text, page, parentId }),
+      });
+      if (parentId) {
+        setReplyBody("");
+        setReplyTo(null);
+        setCollapsed((current) => ({ ...current, [`replies:${parentId}`]: false }));
+      } else {
+        setBody("");
+      }
+      setSectionOpen((current) => ({ ...current, [page != null ? `p:${page}` : "general"]: true }));
       router.refresh();
+    } catch (failure) {
+      setError(commentError(failure));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
   }
 
   async function editComment(id: string, text: string) {
-    const response = await fetch(`/api/comments/${id}`, {
+    await commentRequest(`/api/comments/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ body: text }),
     });
-    if (response.ok) router.refresh();
+    router.refresh();
   }
 
   async function deleteComment(id: string) {
     if (!window.confirm("Удалить комментарий?")) return;
-    const response = await fetch(`/api/comments/${id}`, { method: "DELETE" });
-    if (response.ok) router.refresh();
+    await commentRequest(`/api/comments/${id}`, { method: "DELETE" });
+    router.refresh();
   }
 
   function toChatItem(comment: CommentItem) {
@@ -1107,7 +1230,7 @@ function CommentThread({
               onJumpToPage={onJumpToPage}
               onReport={onReport}
               compact={bodyCollapsed}
-              onReply={currentUser && !bodyCollapsed ? () => setReplyTo(comment.id) : undefined}
+              onReply={currentUser && !bodyCollapsed && !busy ? () => setReplyTo(comment.id) : undefined}
               onEdit={isOwn && !bodyCollapsed ? (text) => editComment(comment.id, text) : undefined}
               onDelete={isOwn && !bodyCollapsed ? () => deleteComment(comment.id) : undefined}
             />
@@ -1159,6 +1282,8 @@ function CommentThread({
               >
                 <input
                   value={replyBody}
+                  disabled={busy}
+                  maxLength={8000}
                   onChange={(event) => setReplyBody(event.target.value)}
                   placeholder="Ответить…"
                   className="flex-1 rounded-lg border border-ink/15 bg-white/60 px-3 py-1.5 text-sm outline-none focus:border-ink/40 dark:bg-white/5"
@@ -1175,6 +1300,7 @@ function CommentThread({
     );
   }
 
+  if (!commentsEnabled) return <p className="py-6 text-sm text-muted">Комментарии временно недоступны.</p>;
   return (
     <aside className="rounded-2xl border border-ink/10 bg-paper p-6">
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -1210,6 +1336,7 @@ function CommentThread({
         Здесь читают вместе: вопросы к месту в тексте, параллели с другими авторами,
         споры о переводе. Стрелка слева сворачивает нить — удобно, когда их много.
       </p>
+      {error && <p role="alert" className="mb-3 text-sm text-rust">{error}</p>}
 
       {currentUser ? (
         <form
@@ -1224,6 +1351,8 @@ function CommentThread({
           <textarea
             ref={composeRef}
             value={body}
+            disabled={busy}
+            maxLength={8000}
             onChange={(event) => setBody(event.target.value)}
             placeholder="Поделитесь мыслью… Можно формулы: $E=mc^2$ или $$\\int f$$"
             rows={3}

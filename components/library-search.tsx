@@ -56,8 +56,8 @@ export function LibrarySearch({
   const active = query.trim().length > 0;
 
   return (
-    <div className="relative mx-auto w-full max-w-2xl">
-      <div className="flex items-center gap-3 rounded-xl border border-ink/15 bg-white/60 px-4 shadow-[0_12px_40px_rgba(25,31,40,0.06)] backdrop-blur dark:bg-white/5 dark:shadow-none">
+    <div className="relative mx-auto w-full max-w-2xl text-left">
+      <div className="flex items-center gap-3 border border-ink/15 bg-paper px-4">
         <Search size={19} className="shrink-0 text-muted" />
         <input
           value={query}
@@ -82,7 +82,7 @@ export function LibrarySearch({
       </div>
 
       {active && (
-        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-2xl border border-ink/10 bg-[#fbfaf7] p-2 text-left shadow-2xl dark:bg-[#1b1e25]">
+        <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-20 overflow-hidden rounded-xl border border-ink/10 bg-[var(--card)] p-2 text-left shadow-lg">
           {results.length ? (
             results.map((doc) => (
               <Link

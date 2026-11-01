@@ -16,10 +16,10 @@ function ringCenters(count: number, radius: number, cx: number, cy: number, star
 }
 
 const LINKS = ringCenters(6, 16, 32, 32, -90);
-const LINK_RADIUS = 11;
-const LINK_STROKE = 5;
-const NESTED_RADIUS = 4.5;
-const NESTED_STROKE = 2.2;
+const LINK_RADIUS = 10.5;
+const LINK_STROKE = 3.4;
+const NESTED_RADIUS = 4.2;
+const NESTED_STROKE = 1.8;
 
 export function AntoineMark({ className }: { className?: string }) {
   return (

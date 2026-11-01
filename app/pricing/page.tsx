@@ -1,10 +1,12 @@
+import { featureEnabled } from "@/lib/features";
+import { PageView } from "@/components/page-view";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Header } from "@/components/header";
 import { SiteFooter } from "@/components/site-footer";
 import { PricingPlans, type PricingPlan } from "@/components/pricing-plans";
 import { getCurrentUser } from "@/lib/auth";
-import { getEntitlements, getPlans } from "@/lib/db/billing";
+import { getEntitlements, getPlans, hasUsedTrial } from "@/lib/db/billing";
 import { getSiteConfig } from "@/lib/db/settings";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +19,7 @@ export const metadata = {
 
 export default async function PricingPage() {
   const user = await getCurrentUser();
+  const hostsEnabled = await featureEnabled("host_programs", user);
   const [plans, config, entitlements] = await Promise.all([
     getPlans({ onlyActive: true }),
     getSiteConfig(),
@@ -31,6 +34,7 @@ export default async function PricingPage() {
     priceMonthly: plan.priceMonthly,
     priceYearly: plan.priceYearly,
     priceLifetime: plan.priceLifetime,
+    priceWeekly: plan.priceWeekly,
         features: plan.features,
     seatLimit: plan.seatLimit,
     seatsTaken: plan.seatsTaken ?? 0,
@@ -41,6 +45,7 @@ export default async function PricingPage() {
 
   return (
     <>
+      <PageView section="pricing" />
       <Header />
       <main className="mx-auto max-w-[1240px] px-5 pb-20 pt-8 md:px-8">
         <Link
@@ -52,19 +57,23 @@ export default async function PricingPage() {
 
         <header className="mb-10 max-w-2xl">
           <p className="eyebrow mb-2">Доступ и поддержка</p>
-          <h1 className="font-serif text-4xl tracking-tight md:text-5xl">
+          <h1 className="display">
             Библиотека открыта. Инструменты — по билету
           </h1>
           <p className="mt-4 text-base leading-7 text-muted">{config.pricingIntro}</p>
         </header>
 
-        <PricingPlans
+        <nav className="mb-7 flex flex-wrap gap-5 border-b border-ink/15 pb-4 text-sm"><a href="#tickets" className="text-rust">Читательские билеты</a>{hostsEnabled && <a href="#programmes" className="text-muted hover:text-rust">Программы ведущих</a>}</nav>
+        <section id="tickets" className="scroll-mt-24"><h2 className="mb-5 font-serif text-3xl">Читательские билеты</h2><PricingPlans
           plans={cards}
           currentPlanSlug={entitlements.source === "subscription" ? entitlements.planSlug : null}
           paymentsEnabled={config.paymentsEnabled}
           signedIn={Boolean(user)}
+          trialUsed={user ? await hasUsedTrial(user.email, user.id) : false}
         />
 
+        </section>
+        {hostsEnabled && <section id="programmes" className="mt-14 grid scroll-mt-24 gap-8 border-y border-ink/20 py-9 sm:grid-cols-[1fr_14rem]"><div><p className="eyebrow">Отдельный формат участия</p><h2 className="mt-3 font-serif text-3xl">Программы ведущих</h2><p className="mt-4 max-w-2xl text-sm leading-7 text-muted">Регулярные совместные чтения, семинары и занятия с ведущим. Билет даёт инструменты библиотеки; участие в программе организатора оформляется отдельно.</p><Link href="/hosts" className="mt-5 inline-block text-sm text-rust">Условия для ведущих и калькулятор →</Link></div><div><p className="font-serif text-4xl">399 ₽ <span className="text-lg text-muted">/ месяц</span></p><p className="mt-3 text-xs leading-6 text-muted">Предварительная стоимость программы. Приём оплаты пока не активирован.</p><Link href="/seminars" className="button-secondary mt-5">Выбрать чтение</Link></div></section>}
         <section className="mt-16 grid gap-8 border-t border-ink/10 pt-10 md:grid-cols-3">
           <div>
             <h2 className="mb-2 font-serif text-xl tracking-tight">Что остаётся бесплатным</h2>

@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       title: doc.title,
       authorNames: doc.authors.map((author) => author.name).join(", "),
       language: doc.language,
+      format: doc.fileType.toLowerCase(),
       score: scoreSearchDocument(
         {
           title: doc.title,
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
       title: row.title,
       authorNames: row.authorNames,
       language: row.language,
+      format: row.format,
     }));
 
   return NextResponse.json({ documents: ranked });

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { createSession, hashPassword } from "@/lib/auth";
+import { logActivity } from "@/lib/activity";
 import { db } from "@/lib/db/client";
 import { invites, users } from "@/lib/db/schema";
 
@@ -132,5 +133,6 @@ export async function POST(request: Request) {
   }
 
   await createSession(userId);
+  logActivity({ userId, email, action: "register" });
   return NextResponse.json({ ok: true });
 }

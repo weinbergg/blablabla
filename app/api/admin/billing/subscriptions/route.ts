@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     subscriptionId?: string;
     user?: string;
     planSlug?: string;
-    period?: "month" | "year" | "lifetime";
+    period?: "week" | "month" | "year" | "lifetime";
     note?: string;
   };
 

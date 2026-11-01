@@ -1,5 +1,7 @@
 "use client";
 
+import { commentRequest } from "@/lib/comment-request";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bookmark, ChevronLeft, ChevronRight, Eye, EyeOff, List, Loader2, MapPin, PenTool, Search } from "lucide-react";
 import {
@@ -19,13 +21,19 @@ import {
 import { PageJumpInput } from "./page-jump-input";
 import { ReaderSearchPanel } from "./reader-search-panel";
 import { ReaderToc } from "./reader-toc";
+import { AnchorNavigator } from "./anchor-navigator";
+import { rangeMatchesAnchor, highlightAnchor } from "@/lib/text-anchor";
 import { SelectionLookup } from "./selection-lookup";
+import { usePageSwipe } from "./use-page-swipe";
 import { ZoomControls } from "./zoom-controls";
 import { addBookmark } from "@/lib/bookmarks";
 import { gutenbergIdFromHref, isExternalHttp, isIgnorableHref } from "@/lib/epub-links";
 import { pickReadableEpubHref, resolveEpubSpineHref } from "@/lib/epub-spine";
 import { buildSearchExcerpt } from "@/lib/reader-search";
-import { isTypingTarget } from "@/lib/reader-keys";
+import { readerPageDirection } from "@/lib/reader-keys";
+import { readerDocumentOffset } from "@/lib/reader-selection";
+import { loadReadingProgress, saveReadingProgress } from "@/lib/reading-progress";
+import { anchorSource } from "./quote-publish";
 
 type TocItem = { label: string; href: string; kind?: "contents" };
 type EpubSearchSection = {
@@ -35,6 +43,7 @@ type EpubSearchSection = {
   unload?: () => void;
 };
 type EpubSearchBook = {
+  getRange: (cfi: string) => Promise<Range>;
   load: (target: string) => Promise<unknown>;
   path?: { relative?: (href: string) => string };
   resolve?: (href: string, absolute?: boolean) => string;
@@ -143,11 +152,9 @@ function dedupeEpubToc(items: TocItem[]) {
  *
  * Book content itself renders inside an iframe (epub.js's own doing), so a
  * normal DOM click there never reaches this component's listeners — the two
- * documents don't bubble events across the boundary. Rather than forwarding
- * synthetic events across that gap, a transparent capture layer is placed on
- * top of the iframe only while placing a sticker or drawing, which is also
- * arguably better UX: it makes unambiguous that you're marking the page, not
- * navigating/selecting it.
+ * documents don't bubble events across the boundary. Annotation and lookup
+ * listeners therefore watch each rendered content document directly. Only
+ * freehand drawing needs a layer that captures gestures above the text.
  */
 export function EpubReader({
   url,
@@ -201,6 +208,8 @@ export function EpubReader({
   const spineHrefRef = useRef<string | null>(null);
   const screenKeyRef = useRef("1:1");
   const locationTargetRef = useRef<string | null>(null);
+  const currentCfiRef = useRef<string | null>(null);
+  const [returnCfi, setReturnCfi] = useState<string | null>(null);
   const documentIdRef = useRef(documentId);
   documentIdRef.current = documentId;
   const [loading, setLoading] = useState(true);
@@ -208,21 +217,15 @@ export function EpubReader({
   const [section, setSection] = useState(1);
   const [screenKey, setScreenKey] = useState("1:1");
   const [totalSections, setTotalSections] = useState(0);
-  // A fixed "70vh" reads fine outside fullscreen, but in fullscreen mode it
-  // wastes most of the screen on a tall monitor and can overflow it on a
-  // short one (a phone in landscape, or a laptop with a tall toolbar/URL
-  // bar) — so in fullscreen the height instead tracks the actual space
-  // between the reader and the bottom of the viewport, the same approach
-  // used for the PDF reader.
-  const [height, setHeight] = useState("70vh");
 
   const [annotations, setAnnotations] = useState<AnnotationItem[]>(initialAnnotations);
   // The book's own text lives inside epub.js's iframe, a separate document
   // from this component's — tracked here so `SelectionLookup` can watch
   // *that* document's selection instead of the outer page's (which never
   // sees a selection made inside the iframe at all).
-  const [selectionDoc, setSelectionDoc] = useState<Document | null>(null);
+  const [selectionDocs, setSelectionDocs] = useState<Document[]>([]);
   const [placing, setPlacing] = useState(false);
+  const placingRef = useRef(placing); placingRef.current = placing;
   const [drawMode, setDrawMode] = useState(false);
   const [drawPaths, setDrawPaths] = useState<string[]>([]);
   const [drawColor, setDrawColor] = useState(COLOR_PRESETS[0]);
@@ -299,6 +302,11 @@ export function EpubReader({
     const host = containerRef.current;
     if (!rendition || !host) return;
     try {
+      for (const iframe of host.querySelectorAll("iframe")) {
+        const root = iframe.contentDocument?.documentElement;
+        root?.style.setProperty("--blabla-column-width", `${host.clientWidth}px`);
+        root?.style.setProperty("--blabla-column-height", `${Math.max(40, host.clientHeight - 40)}px`);
+      }
       rendition.resize(host.clientWidth, host.clientHeight);
     } catch {
       /* ignore transient epub.js layout failures */
@@ -370,43 +378,29 @@ export function EpubReader({
     void (delta >= 0 ? rendition.next() : rendition.prev());
   }, []);
 
-  useEffect(() => {
-    function handleKey(event: KeyboardEvent) {
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      if (isTypingTarget(event.target)) return;
-      event.preventDefault();
-      if (event.key === "ArrowRight") stepPage(1);
-      if (event.key === "ArrowLeft") stepPage(-1);
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [stepPage]);
+  usePageSwipe(wrapRef, stepPage, !loading && !placing && !drawMode, selectionDocs);
 
   useEffect(() => {
-    if (!fullscreen) {
-      setHeight("70vh");
-      return;
+    function handleKey(event: KeyboardEvent) {
+      const direction = readerPageDirection(event);
+      if (!direction) return;
+      event.preventDefault();
+      stepPage(direction);
     }
-    const root = rootRef.current;
-    if (!root) return;
-    function update() {
-      const top = root!.getBoundingClientRect().top;
-      setHeight(`${Math.max(240, window.innerHeight - top - 12)}px`);
-    }
-    const observer = new ResizeObserver(update);
-    observer.observe(root);
-    window.addEventListener("resize", update);
-    window.addEventListener("orientationchange", update);
-    update();
+    window.addEventListener("keydown", handleKey);
+    for (const doc of selectionDocs) doc.addEventListener("keydown", handleKey);
     return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-      window.removeEventListener("orientationchange", update);
+      window.removeEventListener("keydown", handleKey);
+      for (const doc of selectionDocs) doc.removeEventListener("keydown", handleKey);
     };
-  }, [fullscreen]);
+  }, [stepPage, selectionDocs]);
+
 
   useEffect(() => {
     let cancelled = false;
+    const savedPosition = documentId ? loadReadingProgress(documentId) : null;
+    const source = documentId ? anchorSource(documentId, url).catch(() => null) : Promise.resolve(null);
+    let textVersion: string | undefined;
 
     (async () => {
       try {
@@ -497,8 +491,10 @@ export function EpubReader({
         }
 
         function syncSelectionDoc() {
-          const contentsList = rendition.getContents() as unknown as { document: Document }[];
-          setSelectionDoc(contentsList[0]?.document ?? null);
+          const docs = getRenderedContents().flatMap((content) => content.document ? [content.document] : []);
+          setSelectionDocs((current) =>
+            current.length === docs.length && current.every((doc, index) => doc === docs[index]) ? current : docs,
+          );
         }
 
         function getRenderedContents() {
@@ -530,18 +526,34 @@ export function EpubReader({
           return null;
         }
 
+        function scrollColumnTo(el: Element) {
+          const scroller = containerRef.current?.querySelector(".epub-container");
+          if (!(scroller instanceof HTMLElement)) return false;
+          const page = scroller.clientWidth;
+          if (page < 40) return false;
+          const scrollerRect = scroller.getBoundingClientRect();
+          const rect = el.getBoundingClientRect();
+          const offset = readerDocumentOffset(scroller, el.ownerDocument);
+          if (!offset) return false;
+          const absolute = scroller.scrollLeft + offset.left + rect.left - scrollerRect.left;
+          const snapped = Math.max(0, Math.floor(absolute / page) * page);
+          scroller.scrollTo({ left: snapped });
+          return true;
+        }
+
         async function displayAnchorByCfi(href: string) {
           const target = findAnchorTarget(href);
-          const cfiFromNode = target?.item.cfiFromNode;
-          if (!target || !cfiFromNode) return false;
-          try {
-            const cfi = cfiFromNode(target.el);
-            if (!cfi) return false;
-            await rendition.display(cfi);
-            return true;
-          } catch {
-            return false;
+          if (!target) return false;
+          const cfiFromNode = target.item.cfiFromNode;
+          if (cfiFromNode) {
+            try {
+              const cfi = cfiFromNode.call(target.item, target.el);
+              if (cfi) { await rendition.display(cfi); return true; }
+            } catch {
+              /* the column scroll below still lands on the anchor */
+            }
           }
+          return scrollColumnTo(target.el);
         }
 
         async function displayInternal(href: string) {
@@ -584,7 +596,13 @@ export function EpubReader({
           for (const candidate of resolvedCandidates) {
             try {
               locationTargetRef.current = candidate;
-              await rendition.display(candidate);
+              const fileOnly = candidate.includes("#") ? (candidate.split("#")[0] ?? candidate) : candidate;
+              await rendition.display(fileOnly || candidate);
+              if (candidate.includes("#")) {
+                await waitForLayout();
+                locationTargetRef.current = candidate;
+                if (await displayAnchorByCfi(candidate)) return true;
+              }
               return true;
             } catch {
               const displayTarget = candidate.includes("#") ? (candidate.split("#")[0] ?? candidate) : candidate;
@@ -619,6 +637,7 @@ export function EpubReader({
         async function followHref(raw: string) {
           const href = raw.trim();
           if (!href || isIgnorableHref(href)) return;
+          if (currentCfiRef.current) setReturnCfi(currentCfiRef.current);
           setLinkNote(null);
           const hash = href.includes("#") ? href.slice(href.indexOf("#")) : "";
 
@@ -669,44 +688,43 @@ export function EpubReader({
           on?: (event: string, listener: (href: string) => void) => void;
         }) => {
           try {
+            const host = containerRef.current;
+            if (host) {
+              contents.document.documentElement.style.setProperty("--blabla-column-width", `${host.clientWidth}px`);
+              contents.document.documentElement.style.setProperty("--blabla-column-height", `${Math.max(40, host.clientHeight - 40)}px`);
+            }
             const styleId = "blabla-epub-guard";
             if (!contents.document.getElementById(styleId)) {
               const style = contents.document.createElement("style");
               style.id = styleId;
-              // body обязан быть во всю ширину «ленты» колонок, иначе
-              // overflow:hidden обрежет всё после первой страницы. А зазор
-              // между колонками обнуляем: epub.js листает ровно на ширину
-              // окна, и при ненулевом зазоре шаг не совпадает с шириной
-              // колонки — у каждой строки срезается правый край.
+              // epub.js keeps body one column wide and expands its iframe to
+              // contain every column. Clip at html / the viewport, never body:
+              // clipping body makes all subsequent pages invisible and unselectable.
               style.textContent = `
+                html { overflow: hidden !important; }
+                body { overflow: visible !important; }
                 html, body {
-                  width: 100% !important;
-                  max-width: 100% !important;
-                  overflow: hidden !important;
-                  overflow-x: hidden !important;
                   column-gap: 0 !important;
+                  -webkit-user-select: text !important;
+                  user-select: text !important;
                 }
-                body * {
-                  box-sizing: border-box !important;
+                body > *, div, section, article, figure, table, pre {
                   max-width: 100% !important;
+                  box-sizing: border-box;
                 }
-                img, svg, video, canvas, table, pre {
-                  max-width: 100% !important;
+                img, svg, video, canvas {
+                  max-width: min(100%, var(--blabla-column-width)) !important;
+                  max-height: var(--blabla-column-height) !important;
                   height: auto !important;
+                  object-fit: contain;
+                  break-inside: avoid;
                 }
               `;
               contents.document.head.appendChild(style);
             }
-            contents.document.documentElement.style.height = "100%";
-            contents.document.documentElement.style.width = "100%";
-            contents.document.documentElement.style.maxWidth = "100%";
             contents.document.documentElement.style.overflow = "hidden";
-            contents.document.documentElement.style.overflowX = "hidden";
-            contents.document.body.style.height = "100%";
-            contents.document.body.style.minHeight = "100%";
-            contents.document.body.style.overflow = "hidden";
-            contents.document.body.style.overflowX = "hidden";
-            contents.document.body.style.wordBreak = "break-word";
+            contents.document.body.style.overflow = "visible";
+            contents.document.body.style.columnGap = "0";
             for (const element of Array.from(contents.document.querySelectorAll("img, svg, video, canvas, table, pre"))) {
               const node = element as HTMLElement;
               node.style.maxWidth = "100%";
@@ -729,16 +747,19 @@ export function EpubReader({
           const interceptAnchor = (anchor: HTMLAnchorElement) => {
             if (anchor.dataset.blablaLink === "1") return;
             anchor.dataset.blablaLink = "1";
+            // Routing below owns the click. epub.js's default onclick would
+            // navigate a second time, including while placing a note on a link.
+            anchor.onclick = null;
             anchor.target = "_self";
             const originalHref = anchor.getAttribute("href")?.trim() ?? "";
-            if (originalHref) {
+            if (originalHref && originalHref !== "#") {
               anchor.dataset.blablaHref = originalHref;
-              anchor.setAttribute("href", "#");
             }
             const handleAnchor = (event: Event) => {
               const href = anchor.dataset.blablaHref?.trim() ?? "";
               if (!href || isIgnorableHref(href)) return;
               event.preventDefault();
+              if (placingRef.current || drawModeRef.current || !contents.document.getSelection()?.isCollapsed) return;
               event.stopPropagation();
               if ("stopImmediatePropagation" in event) {
                 event.stopImmediatePropagation();
@@ -752,12 +773,8 @@ export function EpubReader({
             interceptAnchor(anchor as HTMLAnchorElement);
           }
           const anchorFromTarget = (target: EventTarget | null) => {
-            let node = target instanceof Node ? target : null;
-            while (node) {
-              if (node instanceof HTMLAnchorElement && node.hasAttribute("href")) return node;
-              node = node.parentNode;
-            }
-            return null;
+            const element = target as Element | null;
+            return element?.closest?.("a[href]") as HTMLAnchorElement | null;
           };
           const onClick = (event: MouseEvent) => {
             const anchor = anchorFromTarget(event.target);
@@ -765,6 +782,7 @@ export function EpubReader({
             const href = anchor.dataset.blablaHref?.trim() ?? anchor.getAttribute("href")?.trim() ?? "";
             if (!href || isIgnorableHref(href)) return;
             event.preventDefault();
+            if (placingRef.current || drawModeRef.current || !contents.document.getSelection()?.isCollapsed) return;
             event.stopPropagation();
             event.stopImmediatePropagation();
             void followHref(href);
@@ -778,6 +796,7 @@ export function EpubReader({
             start: { index: number; cfi?: string; displayed?: { page: number; total: number } };
           }) => {
             const total = (book.spine as unknown as { length?: number }).length || 1;
+            currentCfiRef.current = location.start.cfi ?? null;
             const index = location.start.index + 1;
             const spineHref = spineOf().get(Math.max(0, index - 1))?.href ?? null;
             // Paginated EPUB: many visual screens share one spine index.
@@ -812,6 +831,9 @@ export function EpubReader({
             setScreenKey(nextScreenKey);
             setTotalSections(displayTotal);
             onPageChange(displayIndex, displayTotal);
+            if (documentId && textVersion && location.start.cfi) saveReadingProgress(documentId, {
+              kind: "epub", page: displayIndex, total: displayTotal, epubCfi: location.start.cfi, textVersion,
+            });
             syncSelectionDoc();
           },
         );
@@ -824,6 +846,8 @@ export function EpubReader({
         });
 
         await book.ready;
+        textVersion = (await source)?.textVersion;
+        if (cancelled) return;
         try {
           const nav = await book.loaded.navigation;
           const flat: TocItem[] = [];
@@ -874,7 +898,15 @@ export function EpubReader({
             pickReadableEpubHref(book.spine, preferredHrefs, page) ??
             undefined;
           locationTargetRef.current = initialHref ?? null;
-          if (initialHref) {
+          const resume = savedPosition?.kind === "epub" && savedPosition.page === page &&
+            savedPosition.textVersion === textVersion && textVersion && savedPosition.epubCfi && !window.location.hash;
+          let resumed = false;
+          if (resume) {
+            try { await rendition.display(savedPosition.epubCfi); resumed = true; } catch { /* chapter fallback */ }
+          }
+          if (resumed) {
+            // Restored the visual screen, not just the first page of its chapter.
+          } else if (initialHref) {
             const opened = await displayInternal(initialHref);
             if (!opened) await rendition.display(initialHref);
           } else {
@@ -1028,13 +1060,12 @@ export function EpubReader({
 
   async function createAnnotation(draft: AnnotationDraft) {
     if (!documentId) return;
-    const response = await fetch("/api/annotations", {
+    const { id, mirror } = await commentRequest<{ id: string; mirror?: AnnotationItem }>("/api/annotations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ documentId, ...draft }),
     });
-    if (!response.ok) return;
-    const { id, mirror } = (await response.json()) as { id: string; mirror?: AnnotationItem };
+    if (!id) throw new Error("Сервер не подтвердил сохранение пометки.");
     const createdAt = new Date().toISOString();
     setAnnotations((current) => [
       ...current,
@@ -1050,6 +1081,7 @@ export function EpubReader({
         body: draft.body,
         visibility: draft.visibility,
         allowDiscussion: draft.allowDiscussion,
+        textAnchor: draft.textAnchor,
         anchorText: draft.anchorText,
         anchorRects: draft.anchorRects,
         companionDocumentId: draft.companionDocumentId ?? null,
@@ -1062,11 +1094,16 @@ export function EpubReader({
   }
 
   async function deleteAnnotation(id: string) {
+    await commentRequest(`/api/annotations/${id}`, { method: "DELETE" });
     setAnnotations((current) => current.filter((item) => item.id !== id));
-    await fetch(`/api/annotations/${id}`, { method: "DELETE" });
   }
 
   async function updateAnnotation(id: string, patch: AnnotationUpdate) {
+    await commentRequest(`/api/annotations/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
     setAnnotations((current) =>
       current.map((item) =>
         item.id === id
@@ -1082,11 +1119,6 @@ export function EpubReader({
           : item,
       ),
     );
-    await fetch(`/api/annotations/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
   }
 
   function toggleDrawMode() {
@@ -1099,27 +1131,30 @@ export function EpubReader({
   async function savePageDrawing() {
     if (!drawPaths.length) return;
     setDrawSaving(true);
-    await createAnnotation({
-      page: sectionRef.current,
-      x: PAGE_DRAWING_PIN.x,
-      y: PAGE_DRAWING_PIN.y,
-      shape: "drawing",
-      color: drawColor,
-      body: JSON.stringify({
-        paths: drawPaths,
-        viewBox: PAGE_DRAWING_VIEWBOX,
-        fullPage: true,
-        strokeWidth: PAGE_STROKE_PRESETS[drawStrokeWidth],
-        screenKey: screenKeyRef.current,
-      }),
-      visibility: drawVisibility,
-      allowDiscussion: false,
-      anchorText: null,
-      anchorRects: null,
-    });
-    setDrawSaving(false);
-    setDrawPaths([]);
-    setDrawMode(false);
+    try {
+      await createAnnotation({
+        page: sectionRef.current,
+        x: PAGE_DRAWING_PIN.x,
+        y: PAGE_DRAWING_PIN.y,
+        shape: "drawing",
+        color: drawColor,
+        body: JSON.stringify({
+          paths: drawPaths,
+          viewBox: PAGE_DRAWING_VIEWBOX,
+          fullPage: true,
+          strokeWidth: PAGE_STROKE_PRESETS[drawStrokeWidth],
+          screenKey: screenKeyRef.current,
+        }),
+        visibility: drawVisibility,
+        allowDiscussion: false,
+        anchorText: null,
+        anchorRects: null,
+      });
+      setDrawPaths([]);
+      setDrawMode(false);
+    } finally {
+      setDrawSaving(false);
+    }
   }
 
   // Only ever one section on screen at a time (no spread mode for EPUB), so
@@ -1161,13 +1196,25 @@ export function EpubReader({
       ref={rootRef}
       className={
         fullscreen
-          ? "overflow-hidden rounded-2xl border border-ink/10 bg-ink/[0.02] p-2 md:p-2.5"
+          ? "relative flex h-full min-h-0 flex-col bg-paper"
           : compact
             ? "overflow-hidden rounded-2xl border border-ink/10 bg-ink/[0.02] p-3 md:p-4"
             : "overflow-hidden rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-6"
       }
     >
-      <div className="flex flex-wrap items-start justify-between gap-3 pb-3 md:pb-4">
+      <AnchorNavigator documentId={documentId} fileUrl={url} containerRef={wrapRef} ready={!loading} page={section} pageCount={totalSections} onNavigate={goToSection} docs={selectionDocs} resolveCfi={async anchor => {
+        const rendition = renditionRef.current; const book = bookRef.current;
+        if (!rendition || !book || !anchor.cfi) return false;
+        try {
+          const range = await book.getRange(anchor.cfi);
+          if (!rangeMatchesAnchor(range, anchor)) return false;
+          await rendition.display(anchor.cfi);
+          const visibleRange = rendition.getRange(anchor.cfi);
+          if (!visibleRange || !rangeMatchesAnchor(visibleRange, anchor)) return false;
+          highlightAnchor(visibleRange, false); return true;
+        } catch { return false; }
+      }} />
+      <div className={fullscreen ? "reader-toolbar flex flex-wrap items-center justify-between gap-3" : "flex flex-wrap items-start justify-between gap-3 pb-3 md:pb-4"}>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <button type="button" onClick={() => stepSection(-1)} className="icon-button" aria-label="Предыдущая глава" title="Предыдущая глава">
             <ChevronLeft size={16} />
@@ -1183,6 +1230,10 @@ export function EpubReader({
           <button type="button" onClick={() => stepSection(1)} className="icon-button" aria-label="Следующая глава" title="Следующая глава">
             <ChevronRight size={16} />
           </button>
+          {returnCfi && <button type="button" className="inline-flex min-h-10 items-center gap-1 px-2 text-xs text-rust"
+            onClick={() => { const target = returnCfi; setReturnCfi(null); void renditionRef.current?.display(target).catch(() => setLinkNote("Не удалось вернуться к предыдущему месту.")); }}>
+            <ChevronLeft size={14} />Назад к чтению
+          </button>}
           {!loading && (
             <button
               type="button"
@@ -1217,11 +1268,13 @@ export function EpubReader({
           <button
             type="button"
             onClick={() => setShowAnnotations((v) => !v)}
-            className={`icon-button ${!showAnnotations ? "border-rust text-rust" : ""}`}
-            aria-label={showAnnotations ? "Скрыть пометки" : "Показать пометки"}
-            title={showAnnotations ? "Скрыть пометки и рисунки" : "Показать пометки и рисунки"}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs ${
+              showAnnotations ? "border-ink/20 text-ink" : "border-rust bg-rust/10 text-rust"
+            }`}
+            aria-pressed={showAnnotations}
           >
             {showAnnotations ? <Eye size={14} /> : <EyeOff size={14} />}
+            {showAnnotations ? "Пометки" : "Пометки скрыты"}
           </button>
           {documentId && (
             <button
@@ -1243,6 +1296,7 @@ export function EpubReader({
             <>
               <button
                 type="button"
+                onPointerDown={(event) => event.preventDefault()}
                 onClick={() => {
                   setPlacing((p) => !p);
                   setDrawMode(false);
@@ -1314,7 +1368,7 @@ export function EpubReader({
         </p>
       )}
 
-      <div className="relative">
+      <div className={fullscreen ? "relative min-h-0 flex-1" : "relative"}>
         <ReaderToc
           open={tocOpen && !loading}
           items={toc.map((item, i) => ({
@@ -1335,7 +1389,7 @@ export function EpubReader({
         <div
           ref={wrapRef}
           className="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-paper"
-          style={{ height, minHeight: 240 }}
+          style={{ height: fullscreen ? "100%" : "70vh", minHeight: fullscreen ? 0 : 240 }}
         >
           {loading && (
             <div className="absolute inset-0 z-10 grid place-items-center">
@@ -1354,9 +1408,9 @@ export function EpubReader({
                 type="button"
                 onClick={() => stepPage(-1)}
                 aria-label="Предыдущая страница"
-                className="group absolute left-2 top-1/2 z-30 hidden -translate-y-1/2 md:flex"
+                className="page-edge absolute inset-y-0 left-0 z-30 flex w-[22%] max-w-[5.5rem] items-center justify-start"
               >
-                <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-hover:border-ink/20 group-hover:text-ink">
+                <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted shadow-sm transition-opacity">
                   <ChevronLeft size={20} />
                 </span>
               </button>
@@ -1364,20 +1418,25 @@ export function EpubReader({
                 type="button"
                 onClick={() => stepPage(1)}
                 aria-label="Следующая страница"
-                className="group absolute right-2 top-1/2 z-30 hidden -translate-y-1/2 md:flex"
+                className="page-edge absolute inset-y-0 right-0 z-30 flex w-[22%] max-w-[5.5rem] items-center justify-end"
               >
-                <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-hover:border-ink/20 group-hover:text-ink">
+                <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted shadow-sm transition-opacity">
                   <ChevronRight size={20} />
                 </span>
               </button>
             </>
           )}
-          {placing && !drawMode && <div className="absolute inset-0 z-20 cursor-crosshair" />}
           {documentId && (
             <AnnotationLayer
+              documentId={documentId}
               pageNumber={section}
               items={annotations}
               containerRef={wrapRef}
+              selectionDocs={selectionDocs}
+              cfiForRange={range => {
+                const contents = renditionRef.current?.getContents() as unknown as { document: Document; cfiFromRange: (range: Range) => string }[] | undefined;
+                try { return contents?.find(item => item.document === range.startContainer.ownerDocument)?.cfiFromRange(range); } catch { return undefined; }
+              }}
               currentUserId={currentUserId ?? null}
               placing={placing}
               comments={comments}
@@ -1394,9 +1453,12 @@ export function EpubReader({
               hidden={!showAnnotations}
             />
           )}
-          <SelectionLookup
+          <SelectionLookup onAnnotate={canAnnotate ? () => setPlacing(true) : undefined} documentId={documentId} fileUrl={url} page={section} cfiForRange={range => {
+            const contents = renditionRef.current?.getContents() as unknown as { document: Document; cfiFromRange: (range: Range) => string }[] | undefined;
+            try { return contents?.find(item => item.document === range.startContainer.ownerDocument)?.cfiFromRange(range); } catch { return undefined; }
+          }}
             containerRef={wrapRef}
-            doc={selectionDoc}
+            docs={selectionDocs}
             suppressed={placing || drawMode}
             language={language}
           />

@@ -8,6 +8,7 @@ import { DocumentEditForm } from "@/components/document-edit-form";
 import { LibraryButton } from "@/components/library-button";
 import { OfflineBookButton } from "@/components/offline-book-button";
 import { RateReviewPanel, StarRating } from "@/components/rate-review";
+import { AnnotatedDownload } from "@/components/annotated-download";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import { RelatedTexts } from "@/components/related-texts";
 import { WorkEditions } from "@/components/work-editions";
@@ -17,15 +18,18 @@ import {
   flattenCategoryOptions,
   getCategoryTrail,
   getCategoryTree,
-  getDocumentAnnotations,
+  countVisibleAnnotations,
   getDocumentById,
   getDocumentComments,
   getDocumentEditHistory,
   getRelatedDocuments,
 } from "@/lib/db/queries";
-import { getFundedCampaignForDocument } from "@/lib/db/events";
+import { getFundedCampaignForDocument, listOpenSeminarsForDocument } from "@/lib/db/events";
+import { listTopicsForDocument } from "@/lib/db/forum";
+import { formatWhen } from "@/lib/db/channels";
 import { getWorkForDocument } from "@/lib/db/works";
 import { getCompanionSuggestions } from "@/lib/db/companion-suggestions";
+import { getSiteConfig } from "@/lib/db/settings";
 import { languageLabel } from "@/lib/languages";
 import { clientIpFrom, downloadHrefFor, readHrefFor, viewerKeyFor } from "@/lib/file-access";
 import { isAdminRole } from "@/lib/roles";
@@ -66,7 +70,6 @@ export default async function DocumentPage({
   const readHref = document.fileUrl ? await readHrefFor(document.id, viewerKey) : null;
 
   if (embed) {
-    const annotations = await getDocumentAnnotations(document.id, currentUser?.id ?? null);
     const authorNames = document.authors.map((a) => a.name).join(", ");
     return (
       <div className="min-h-screen bg-paper p-3 md:p-4">
@@ -78,7 +81,7 @@ export default async function DocumentPage({
           fileUrl={readHref}
           fileType={document.fileType}
           comments={[]}
-          annotations={annotations}
+          annotations={[]}
           currentUser={currentUser}
           language={document.language}
           embed
@@ -94,13 +97,13 @@ export default async function DocumentPage({
       ? Number.parseInt(query.withPage, 10)
       : null;
 
-  const [trail, comments, history, tree, annotations, libraryItem, ratingSummary, publicReviews, related, work, companion, suggestions, fundedCampaign] =
+  const [trail, comments, history, tree, annotationCount, libraryItem, ratingSummary, publicReviews, related, work, companion, suggestions, fundedCampaign, readings, bookTopics, siteConfig] =
     await Promise.all([
       getCategoryTrail(document.categoryId),
-      getDocumentComments(document.id),
+      getDocumentComments(document.id, currentUser?.id ?? null),
       getDocumentEditHistory(document.id),
       getCategoryTree(),
-      getDocumentAnnotations(document.id, currentUser?.id ?? null),
+      countVisibleAnnotations(document.id, currentUser?.id ?? null),
       currentUser ? getLibraryStatusForDocument(currentUser.id, document.id) : Promise.resolve(null),
       getRatingSummary(document.id),
       getPublicReviews(document.id, currentUser?.id ?? null),
@@ -109,6 +112,9 @@ export default async function DocumentPage({
       companionId ? getDocumentById(companionId) : Promise.resolve(null),
       getCompanionSuggestions(document.id),
       getFundedCampaignForDocument(document.id),
+      listOpenSeminarsForDocument(document.id),
+      listTopicsForDocument(document.id, 4),
+      getSiteConfig(),
     ]);
 
   const authorNames = document.authors.map((a) => a.name).join(", ");
@@ -145,16 +151,16 @@ export default async function DocumentPage({
   return (
     <>
       <Header />
-      <main className="shell py-12 md:py-16">
+      <main className="shell py-6 md:py-8">
         <Link
           href={`/catalog/${trail.map((t) => t.slug).join("/")}`}
-          className="mb-8 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
+          className="mb-4 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
         >
           <ArrowLeft size={15} />
           {trail[trail.length - 1]?.name}
         </Link>
 
-        <nav className="mb-6 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <nav className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
           {trail.map((item, index) => (
             <span key={item.id} className="flex items-center gap-1.5">
               {index > 0 && <span>/</span>}
@@ -168,11 +174,9 @@ export default async function DocumentPage({
           ))}
         </nav>
 
-        <div className="mb-10 flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-          <div className="max-w-2xl">
-            <h1 className="font-serif text-4xl leading-tight tracking-tight md:text-5xl">
-              {document.title}
-            </h1>
+        <div className="mb-6">
+          <div className="max-w-3xl">
+            <h1 className="font-serif text-3xl leading-tight tracking-tight md:text-4xl">{document.title}</h1>
             {document.alternateTitle && (
               <p className="mt-1 text-lg italic text-muted">{document.alternateTitle}</p>
             )}
@@ -264,16 +268,23 @@ export default async function DocumentPage({
             )}
           </div>
 
-          <div className="flex shrink-0 flex-col items-start gap-3 md:items-end">
-            {currentUser && (
-              <LibraryButton documentId={document.id} initialStatus={libraryItem?.status ?? null} />
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            {document.fileUrl && (
+              <a
+                href={downloadHrefFor(document.id)}
+                download={document.fileName || undefined}
+                className="button-primary"
+              >
+                <ArrowDownToLine size={15} />
+                Скачать
+              </a>
             )}
-            {currentUser && libraryItem && (
-              <RateReviewPanel
+            {readHref && (
+              <OfflineBookButton
                 documentId={document.id}
-                status={libraryItem.status}
-                initialRating={libraryItem.rating}
-                initialReview={libraryItem.reviewBody}
+                title={document.title}
+                fileType={document.fileType}
+                sourceUrl={readHref}
               />
             )}
             <ShareWithFriends
@@ -284,34 +295,19 @@ export default async function DocumentPage({
                 excerpt: authorNames || null,
               }}
             />
-            {document.fileUrl && (
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href={downloadHrefFor(document.id)}
-                  download={document.fileName || undefined}
-                  className="button-primary"
-                >
-                  <ArrowDownToLine size={15} />
-                  Скачать
-                </a>
-                {readHref && (
-                  <OfflineBookButton
-                    documentId={document.id}
-                    title={document.title}
-                    fileType={document.fileType}
-                    sourceUrl={readHref}
-                  />
-                )}
-                {document.fileType === "PDF" && annotations.length > 0 && (
-                  <a
-                    href={`/api/documents/${document.id}/download-annotated`}
-                    className="button-secondary"
-                    title="Скачать PDF с отмеченными страницами и списком пометок"
-                  >
-                    С пометками
-                  </a>
-                )}
-              </div>
+            {currentUser && (
+              <LibraryButton documentId={document.id} initialStatus={libraryItem?.status ?? null} />
+            )}
+            {document.fileType === "PDF" && annotationCount > 0 && (
+              <AnnotatedDownload documentId={document.id} />
+            )}
+            {currentUser && libraryItem && (
+              <RateReviewPanel
+                documentId={document.id}
+                status={libraryItem.status}
+                initialRating={libraryItem.rating}
+                initialReview={libraryItem.reviewBody}
+              />
             )}
             {currentUser && (
               <DocumentEditForm
@@ -336,6 +332,59 @@ export default async function DocumentPage({
           </div>
         </div>
 
+        {(readings.length > 0 || bookTopics.length > 0) && (
+          <section className="mb-10 grid gap-10 border-y border-ink/10 py-8 sm:grid-cols-2">
+            <div>
+              <h2 className="font-serif text-2xl tracking-tight">Чтения</h2>
+              {readings.length === 0 ? (
+                <p className="mt-2 text-sm text-muted">
+                  Живой встречи по этой книге пока нет.{" "}
+                  <Link href="/seminars" className="hover:underline">
+                    Расписание
+                  </Link>
+                </p>
+              ) : (
+                <ul className="mt-4 space-y-3 text-sm">
+                  {readings.map((item) => (
+                    <li key={item.id}>
+                      <Link href={`/seminars/${item.slug}`} className="font-medium hover:underline">
+                        {item.title}
+                      </Link>
+                      <p className="text-muted">
+                        {item.kind === "rehearsal" ? "репетиторство" : "семинар"}
+                        {item.startsAt ? ` · ${formatWhen(item.startsAt)}` : ""}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <h2 className="font-serif text-2xl tracking-tight">Обсуждение</h2>
+              {bookTopics.length === 0 ? (
+                <p className="mt-2 text-sm text-muted">
+                  <Link
+                    href={`/discuss?documentId=${document.id}&title=${encodeURIComponent(document.title)}`}
+                    className="hover:underline"
+                  >
+                    Открыть тему
+                  </Link>
+                </p>
+              ) : (
+                <ul className="mt-4 space-y-3 text-sm">
+                  {bookTopics.map((topic) => (
+                    <li key={topic.id}>
+                      <Link href={`/discuss/${topic.id}`} className="font-medium hover:underline">
+                        {topic.title}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        )}
+
         <DocumentWorkspace
           documentId={document.id}
           documentTitle={document.title}
@@ -344,9 +393,10 @@ export default async function DocumentPage({
           fileUrl={readHref}
           fileType={document.fileType}
           comments={comments}
-          annotations={annotations}
+          annotations={[]}
           currentUser={currentUser}
           language={document.language}
+          musicEnabled={siteConfig.musicEnabled}
           onShelf={Boolean(libraryItem)}
           initialCloudPage={libraryItem?.progressPage ?? null}
           editions={companionChoices}

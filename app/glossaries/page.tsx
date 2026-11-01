@@ -23,7 +23,7 @@ export default async function GlossariesPage() {
           Вернуться в библиотеку
         </Link>
         <p className="eyebrow mb-3">Учёба</p>
-        <h1 className="mb-8 font-serif text-4xl tracking-tight">Словари</h1>
+        <h1 className="display mb-8">Словари</h1>
         <GlossariesClient initial={glossaries} currentUserId={user?.id ?? null} />
       </main>
     </>

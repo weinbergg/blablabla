@@ -20,7 +20,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
   }, []);
 
   if (!mounted) {
-    return <span className={`icon-button opacity-0 ${className}`} aria-hidden="true" />;
+    return <span className={`icon-button icon-round opacity-0 ${className}`} aria-hidden="true" />;
   }
 
   return (
@@ -31,7 +31,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
         setDark(next);
         applyTheme(next);
       }}
-      className={`icon-button ${className}`}
+      className={`icon-button icon-round ${className}`}
       aria-label={dark ? "Включить светлую тему" : "Включить тёмную тему"}
       title={dark ? "Светлая тема" : "Тёмная тема"}
     >

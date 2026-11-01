@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Megaphone, UserPlus, Users } from "lucide-react";
 import { countLabel } from "@/lib/pluralize";
@@ -194,22 +194,26 @@ export function InvitePage({
   );
 }
 
-function InviteLink({ code }: { code: string }) {
+export function InviteLink({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
-  const link = typeof window !== "undefined" ? `${window.location.origin}/register?code=${code}` : "";
+  const [link, setLink] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { setLink(`${window.location.origin}/register?code=${encodeURIComponent(code)}`); }, [code]);
 
   return (
-    <button
+    <div><button
       type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(link);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+      aria-label="Скопировать приглашение"
+      disabled={!link}
+      onClick={async () => {
+        setError("");
+        try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+        catch { setError("Не удалось скопировать. Выделите ссылку ниже."); }
       }}
       className="flex w-full items-center justify-between gap-2 rounded-xl border border-ink/10 bg-ink/[0.03] px-3 py-2 text-left text-xs"
     >
       <span className="truncate">{link}</span>
       {copied ? <Check size={14} /> : <Copy size={14} />}
-    </button>
+    </button>{error && <p role="status" className="mt-2 break-all text-xs leading-5 text-muted">{error}<br />{link}</p>}</div>
   );
 }

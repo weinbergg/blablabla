@@ -23,9 +23,11 @@ export async function remainingDownloadUnits(options: {
   config: SiteConfig;
 }) {
   const userLimit =
-    options.entitlements.source === "free"
-      ? options.config.downloadsPerDayFree
-      : options.config.downloadsPerDayPaid;
+    options.entitlements.planSlug === "trial"
+      ? 1
+      : options.entitlements.source === "free"
+        ? options.config.downloadsPerDayFree
+        : options.config.downloadsPerDayPaid;
   if (userLimit === 0) return Number.POSITIVE_INFINITY;
 
   const [usedUser, usedIp, burstUser] = await Promise.all([

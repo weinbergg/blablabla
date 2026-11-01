@@ -12,6 +12,8 @@ Next.js кладёт CSS/JS в файлы с хешем в имени (`page-a1b
 
 ## Оплата (ЮKassa) после выгрузки
 
+Историческая справка о существующей интеграции. Для текущего обновления настройки магазина, webhook, cron и тарифы **сохраняются**; перечисленное ниже не является инструкцией активировать новые платежи.
+
 В `/var/www/blabla/.env.local` (не в git):
 
 ```
@@ -35,30 +37,17 @@ CRON_SECRET=случайная-длинная-строка
 0 8 * * * curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://blablablarden.ru/api/cron/billing
 ```
 
-## Как деплоить (единственный правильный способ)
+## Подготовка текущего выпуска
 
-```bash
-cd /var/www/blabla
-bash scripts/maintenance.sh on "около 10 минут"   # по желанию
-bash deploy/release.sh                            # или: npm run deploy
-bash scripts/maintenance.sh off
-```
+Актуальные команды: [docs/release-preparation.md](../docs/release-preparation.md#текущий-путь-git-коммит--сборка--обновление-основного-сайта). Владелец отказался от параллельного просмотра. После публикации release-коммита запускает `release.sh --prepare-git <SHA>` из отдельного checkout в Termius: ограниченная по памяти сборка без production DB/env и без второго сайта. Репетиция миграций уже успешна. Переключение — `--apply-approved-production`; статус и откат доступны тем же скриптом. Без аргументов deploy ничего не меняет.
 
-`deploy/release.sh`:
-
-1. Собирает в `.next-building` (живой `.next` не трогает)
-2. Копирует хеши в `static-assets/` (накопительно; nginx отдаёт оттуда)
-3. Атомарно подменяет `.next`
-4. Перезапускает pm2
-5. Проверяет, что CSS отдаётся с HTTP 200
-
-`deploy/fix-static.sh` — просто вызываёт `release.sh`.
+`deploy/release.sh --check /offline/source.db /reports /copied/app-root --bootstrap` сохраняет прежний offline-режим. Production-режимы работают только из проверенного private-каталога на VPS под root. `git pull main`, db:push с подавлением ошибок, массовый pkill и npm ci в работающем приложении не используются. Изменения ещё не опубликованы в GitHub; push в этой сессии не выполняется.
 
 ## Запрещено на проде
 
 ```bash
 rm -rf .next && npm run build
-pm2 restart … без release.sh
+pm2 restart … без проверенного snapshot, миграций и согласованного переключения
 править nginx location /_next/static на `.next/static` вместо static-assets
 ```
 

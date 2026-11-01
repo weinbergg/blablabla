@@ -20,6 +20,25 @@ export function serializeShareMessage(payload: SharePayload) {
   return `${SHARE_PREFIX}${encodeURIComponent(JSON.stringify(normalizePayload(payload)))}`;
 }
 
+/** Plain preview for lists: a forwarded card should not show the encoded blob. */
+export function readableMessage(body: string) {
+  const trimmed = body.trim();
+  const direct = parseShareMessage(trimmed);
+  if (direct) return direct.excerpt?.trim() || direct.title;
+  const compact = trimmed.replace(/\s+/g, "");
+  const marker = "blabla-share:";
+  const at = compact.indexOf(marker);
+  if (at >= 0) {
+    const parsed = parseShareMessage(compact.slice(at));
+    if (parsed) {
+      const lead = trimmed.slice(0, Math.max(0, trimmed.indexOf("blabla"))).trim();
+      const quote = parsed.excerpt?.trim() || parsed.title;
+      return lead ? `${lead} ${quote}` : quote;
+    }
+  }
+  return trimmed;
+}
+
 export function parseShareMessage(body: string): SharePayload | null {
   const trimmed = body.trim();
   if (!trimmed.startsWith(SHARE_PREFIX)) return null;

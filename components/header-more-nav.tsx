@@ -5,17 +5,13 @@ import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 
 const LIBRARY = [
-  { href: "/discuss", label: "Обсуждения" },
-  { href: "/graph", label: "Связи" },
-  { href: "/channels", label: "Каналы" },
-  { href: "/seminars", label: "Семинары" },
   { href: "/campaigns", label: "Сборы" },
+  { href: "/graph", label: "Связи" },
   { href: "/glossaries", label: "Словари" },
   { href: "/tags", label: "Метки" },
 ] as const;
 
 const ACCOUNT = [
-  { href: "/library", label: "Моя полка" },
   { href: "/notes", label: "Пометки" },
   { href: "/friends", label: "Друзья" },
   { href: "/invite", label: "Пригласить" },
@@ -23,9 +19,11 @@ const ACCOUNT = [
 
 export function HeaderMoreNav({
   isLoggedIn,
+  hasTicket,
   ticketLabel,
 }: {
   isLoggedIn: boolean;
+  hasTicket: boolean;
   ticketLabel: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -74,13 +72,15 @@ export function HeaderMoreNav({
             </Link>
           ))}
           <div className="my-2 border-t border-ink/10" />
-          <Link
-            href="/pricing"
-            onClick={() => setOpen(false)}
-            className="block px-3 py-1.5 text-sm text-ink hover:bg-ink/[0.04]"
-          >
-            {ticketLabel}
-          </Link>
+          {hasTicket && (
+            <Link
+              href="/pricing"
+              onClick={() => setOpen(false)}
+              className="block px-3 py-1.5 text-sm text-ink hover:bg-ink/[0.04]"
+            >
+              {ticketLabel}
+            </Link>
+          )}
           <Link
             href="/feedback"
             onClick={() => setOpen(false)}

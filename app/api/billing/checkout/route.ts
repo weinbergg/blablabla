@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getActiveSubscription, getPlanBySlug } from "@/lib/db/billing";
+import { isBillingPeriod } from "@/lib/billing-period";
+import { getActiveSubscription, getPlanBySlug, hasUsedTrial } from "@/lib/db/billing";
+import { clientIpFrom } from "@/lib/file-access";
+import { logActivity } from "@/lib/activity";
 import { checkoutCharge } from "@/lib/plan-charge";
 import { startYooKassaCheckout } from "@/lib/payments/start-checkout";
 
@@ -18,19 +21,30 @@ export async function POST(request: Request) {
 
   const payload = (await request.json().catch(() => null)) as {
     planSlug?: string;
-    period?: "month" | "year" | "lifetime";
+    period?: string;
     autoRenew?: boolean;
   } | null;
 
   const planSlug = payload?.planSlug?.trim();
   const period = payload?.period ?? "month";
-  if (!planSlug || !["month", "year", "lifetime"].includes(period)) {
+  if (!planSlug || !isBillingPeriod(period)) {
     return NextResponse.json({ error: "Не указан тариф" }, { status: 400 });
   }
 
   const plan = await getPlanBySlug(planSlug);
   if (!plan || !plan.active) {
     return NextResponse.json({ error: "Тариф недоступен" }, { status: 404 });
+  }
+  if (plan.slug === "trial") {
+    if (period !== "week") {
+      return NextResponse.json({ error: "Недельный билет оформляется только на семь дней" }, { status: 400 });
+    }
+    if (await hasUsedTrial(user.email, user.id)) {
+      return NextResponse.json(
+        { error: "Недельный билет на эту почту уже оформляли — повторно нельзя." },
+        { status: 409 },
+      );
+    }
   }
   if (plan.seatLimit != null && (plan.seatsTaken ?? 0) >= plan.seatLimit) {
     return NextResponse.json({ error: "Места на этом уровне закончились" }, { status: 409 });
@@ -43,7 +57,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: charge.error }, { status: 400 });
   }
 
-  const autoRenew = Boolean(payload?.autoRenew) && period !== "lifetime";
+  const autoRenew = Boolean(payload?.autoRenew) && period !== "lifetime" && plan.slug !== "trial";
   const description =
     charge.kind === "upgrade"
       ? `Повышение до «${plan.name}», доплата`
@@ -71,6 +85,15 @@ export async function POST(request: Request) {
   if (!started.ok) {
     return NextResponse.json({ error: started.error }, { status: started.status });
   }
+  logActivity({
+    userId: user.id,
+    email: user.email,
+    action: "checkout",
+    targetType: "plan",
+    targetId: plan.slug,
+    meta: { period, amount: charge.amount },
+    ip: clientIpFrom(request.headers),
+  });
   return NextResponse.json({
     paymentId: started.paymentId,
     confirmationUrl: started.confirmationUrl,

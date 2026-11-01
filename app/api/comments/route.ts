@@ -1,3 +1,4 @@
+import { featureDenied } from "@/lib/features";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
@@ -7,6 +8,7 @@ import { annotations, comments, documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: Request) {
+  const featureBlock = await featureDenied(["comments"]); if (featureBlock) return featureBlock;
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
@@ -29,6 +31,16 @@ export async function POST(request: Request) {
   if (!documentId || !text) {
     return NextResponse.json({ error: "Пустой комментарий." }, { status: 400 });
   }
+  if (text.length > 8000) {
+    return NextResponse.json({ error: "Комментарий не должен превышать 8000 символов." }, { status: 400 });
+  }
+  if (body?.page != null && (typeof body.page !== "number" || !Number.isSafeInteger(body.page) || body.page < 1)) {
+    return NextResponse.json({ error: "Некорректная страница." }, { status: 400 });
+  }
+  if ((body?.parentId != null && typeof body.parentId !== "string") ||
+      (body?.annotationId != null && typeof body.annotationId !== "string")) {
+    return NextResponse.json({ error: "Некорректная ссылка на обсуждение." }, { status: 400 });
+  }
 
   const [document] = await db
     .select({ id: documents.id })
@@ -37,6 +49,17 @@ export async function POST(request: Request) {
     .limit(1);
   if (!document) {
     return NextResponse.json({ error: "Материал не найден" }, { status: 404 });
+  }
+
+  if (parentId) {
+    const [parent] = await db.select().from(comments).where(eq(comments.id, parentId)).limit(1);
+    if (!parent || parent.documentId !== documentId || parent.annotationId !== annotationId) {
+      return NextResponse.json({ error: "Исходный комментарий не найден в этом обсуждении." }, { status: 404 });
+    }
+    if (parent.parentId) {
+      return NextResponse.json({ error: "Ответьте на исходный комментарий этой ветки." }, { status: 400 });
+    }
+    page = parent.page;
   }
 
   if (annotationId) {
@@ -59,8 +82,9 @@ export async function POST(request: Request) {
     page = annotation.page;
   }
 
+  const id = randomUUID();
   await db.insert(comments).values({
-    id: randomUUID(),
+    id,
     documentId,
     parentId,
     annotationId,
@@ -70,5 +94,5 @@ export async function POST(request: Request) {
   });
 
   revalidatePath(`/documents/${documentId}`);
-  return NextResponse.json({ ok: true }, { status: 201 });
+  return NextResponse.json({ ok: true, id }, { status: 201 });
 }

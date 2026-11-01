@@ -61,6 +61,7 @@ export type PlanSeed = {
   priceMonthly: number;
   priceYearly: number | null;
   priceLifetime: number | null;
+  priceWeekly: number | null;
   features: FeatureKey[];
   seatLimit: number | null;
   lifetime: boolean;
@@ -85,6 +86,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     priceMonthly: 0,
     priceYearly: null,
     priceLifetime: null,
+    priceWeekly: null,
     features: FREE_FEATURES,
     seatLimit: null,
     lifetime: false,
@@ -92,6 +94,31 @@ export const PLAN_SEEDS: PlanSeed[] = [
     badge: null,
     active: true,
     sortOrder: 0,
+  },
+  {
+    slug: "trial",
+    name: "Недельный билет",
+    tagline: "Попробовать инструменты",
+    description:
+      "Семь дней инструментов читательского билета. Оформляется один раз на почту, без автопродления. Скачать можно одну книгу в сутки.",
+    priceMonthly: 0,
+    priceYearly: null,
+    priceLifetime: null,
+    priceWeekly: 4900,
+    features: [
+      ...FREE_FEATURES,
+      "opds",
+      "shelves",
+      "notes.export",
+      "search.fulltext",
+      "send.to_reader",
+    ],
+    seatLimit: null,
+    lifetime: false,
+    accent: "rust",
+    badge: "Неделя",
+    active: true,
+    sortOrder: 1,
   },
   {
     slug: "reader",
@@ -102,6 +129,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     priceMonthly: 19900,
     priceYearly: 149000,
     priceLifetime: null,
+    priceWeekly: null,
     features: [
       ...FREE_FEATURES,
       "opds",
@@ -116,7 +144,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     accent: "rust",
     badge: "Билет",
     active: true,
-    sortOrder: 1,
+    sortOrder: 2,
   },
   {
     slug: "regular",
@@ -127,6 +155,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     priceMonthly: 39900,
     priceYearly: 349000,
     priceLifetime: null,
+    priceWeekly: null,
     features: [
       ...FREE_FEATURES,
       "opds",
@@ -146,7 +175,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     accent: "rust",
     badge: "Завсегдатай",
     active: true,
-    sortOrder: 2,
+    sortOrder: 3,
   },
   {
     slug: "patron",
@@ -157,6 +186,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     priceMonthly: 99000,
     priceYearly: 899000,
     priceLifetime: null,
+    priceWeekly: null,
     features: [
       ...FREE_FEATURES,
       "opds",
@@ -178,7 +208,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     accent: "gold",
     badge: "Попечитель",
     active: true,
-    sortOrder: 3,
+    sortOrder: 4,
   },
   {
     slug: "founder",
@@ -189,6 +219,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     priceMonthly: 0,
     priceYearly: null,
     priceLifetime: 1500000,
+    priceWeekly: null,
     features: [...(Object.keys(FEATURES) as FeatureKey[])],
     seatLimit: 15,
     lifetime: true,
@@ -196,7 +227,7 @@ export const PLAN_SEEDS: PlanSeed[] = [
     active: false,
     accent: "gold",
     badge: "Основатель",
-    sortOrder: 4,
+    sortOrder: 5,
   },
 ];
 
@@ -216,7 +247,7 @@ export type Entitlements = {
   source: "role" | "subscription" | "free";
   autoRenew: boolean;
   hasSavedMethod: boolean;
-  period: "month" | "year" | "lifetime" | null;
+  period: "week" | "month" | "year" | "lifetime" | null;
 };
 
 /** Что в этом тарифе нового относительно предыдущего по sortOrder.

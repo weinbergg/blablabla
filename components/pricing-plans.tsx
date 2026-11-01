@@ -15,6 +15,7 @@ export type PricingPlan = ChargePlan & {
   seatLimit: number | null;
   seatsTaken: number;
   badge: string | null;
+  priceWeekly?: number | null;
 };
 
 type Period = "month" | "year";
@@ -24,11 +25,13 @@ export function PricingPlans({
   currentPlanSlug,
   paymentsEnabled,
   signedIn,
+  trialUsed,
 }: {
   plans: PricingPlan[];
   currentPlanSlug: string | null;
   paymentsEnabled: boolean;
   signedIn: boolean;
+  trialUsed: boolean;
 }) {
   const router = useRouter();
   const [period, setPeriod] = useState<Period>("year");
@@ -37,16 +40,26 @@ export function PricingPlans({
   const [ask, setAsk] = useState<PricingPlan | null>(null);
 
   const anyYearly = plans.some((plan) => plan.priceYearly);
-  const ladder = featureLadder(plans);
+  const ladder = featureLadder(plans.filter((plan) => plan.slug !== "trial"));
   const current = plans.find((plan) => plan.slug === currentPlanSlug) ?? null;
+  const trial = plans.find((plan) => plan.slug === "trial") ?? null;
+  const rest = plans.filter((plan) => plan.slug !== "trial");
+
+  function periodFor(plan: PricingPlan) {
+    if (plan.lifetime) return "lifetime" as const;
+    if (plan.slug === "trial") return "week" as const;
+    return period;
+  }
 
   function priceFor(plan: PricingPlan) {
     if (plan.lifetime) return plan.priceLifetime ?? 0;
+    if (plan.slug === "trial") return plan.priceWeekly ?? 0;
     return period === "year" ? (plan.priceYearly ?? plan.priceMonthly * 12) : plan.priceMonthly;
   }
 
   function priceNote(plan: PricingPlan) {
     if (plan.lifetime) return "один раз, навсегда";
+    if (plan.slug === "trial") return "семь дней · один раз на почту";
     if (period === "year") {
       const monthly = Math.round((plan.priceYearly ?? plan.priceMonthly * 12) / 12);
       return plan.priceMonthly > 0 ? `в год · ${formatMoney(monthly)} в месяц` : "в год";
@@ -55,7 +68,7 @@ export function PricingPlans({
   }
 
   function chargeFor(plan: PricingPlan) {
-    return checkoutCharge(plan, plan.lifetime ? "lifetime" : period, current);
+    return checkoutCharge(plan, periodFor(plan), current);
   }
 
   async function subscribe(plan: PricingPlan, autoRenew: boolean) {
@@ -71,8 +84,8 @@ export function PricingPlans({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         planSlug: plan.slug,
-        period: plan.lifetime ? "lifetime" : period,
-        autoRenew: plan.lifetime ? false : autoRenew,
+        period: periodFor(plan),
+        autoRenew: plan.slug === "trial" || plan.lifetime ? false : autoRenew,
       }),
     });
     const data = (await response.json().catch(() => ({}))) as {
@@ -91,7 +104,7 @@ export function PricingPlans({
     <div>
       {anyYearly && (
         <div className="mb-8 flex justify-center">
-          <div className="inline-flex rounded-full border border-ink/12 p-0.5 text-sm">
+          <div className="inline-flex rounded-xl border border-ink/12 p-0.5 text-sm">
             {(
               [
                 ["month", "Помесячно"],
@@ -102,7 +115,7 @@ export function PricingPlans({
                 key={key}
                 type="button"
                 onClick={() => setPeriod(key)}
-                className={`rounded-full px-4 py-1.5 transition-colors ${
+                className={`rounded-lg px-4 py-1.5 transition-colors ${
                   period === key ? "bg-ink text-paper" : "text-muted hover:text-ink"
                 }`}
               >
@@ -113,8 +126,44 @@ export function PricingPlans({
         </div>
       )}
 
+      {trial && (
+        <div className="mb-8 flex flex-col gap-3 border border-ink/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-serif text-xl tracking-tight">{trial.name}</p>
+            <p className="mt-1 text-sm leading-6 text-muted">
+              {formatMoney(trial.priceWeekly ?? 0)} за семь дней. Один раз на почту, без продления.
+              Скачать можно одну книгу в сутки. Инструменты билета — на неделю.
+            </p>
+          </div>
+          {currentPlanSlug === "trial" ? (
+            <p className="text-sm text-muted">Сейчас активен</p>
+          ) : current && current.slug !== "free" ? (
+            <p className="text-sm text-muted">Неделя только если ещё нет оплаченного тарифа</p>
+          ) : trialUsed ? (
+            <p className="text-sm text-muted">Уже оформляли на эту почту</p>
+          ) : !paymentsEnabled ? (
+            <p className="text-sm text-muted">Оплата скоро</p>
+          ) : (
+            <button
+              type="button"
+              className="button-secondary shrink-0 justify-center"
+              disabled={busySlug === trial.slug}
+              onClick={() => {
+                if (!signedIn) {
+                  router.push(`/login?next=${encodeURIComponent("/pricing")}`);
+                  return;
+                }
+                void subscribe(trial, false);
+              }}
+            >
+              {busySlug === trial.slug ? "Открываю оплату…" : "Попробовать неделю"}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {plans.map((plan) => {
+        {rest.map((plan) => {
           const free = plan.priceMonthly === 0 && !plan.lifetime;
           const isCurrent = currentPlanSlug === plan.slug;
           const soldOut = plan.seatLimit != null && plan.seatsTaken >= plan.seatLimit;

@@ -26,12 +26,10 @@ export default async function RegisterPage({
           <ArrowLeft size={15} />
           Вернуться в библиотеку
         </Link>
-        <section className="rounded-3xl border border-ink/10 bg-white/50 p-8 shadow-[0_24px_80px_rgba(25,31,40,0.08)] backdrop-blur dark:bg-white/5 dark:shadow-none md:p-10">
-          <span className="grid size-11 place-items-center rounded-full bg-ink font-serif text-2xl italic text-paper">
-            b.
-          </span>
+        <section className="border border-ink/10 p-8 md:p-10">
+          <p className="font-serif text-2xl italic tracking-tight">blablablarden</p>
           <p className="eyebrow mb-3 mt-8">Регистрация</p>
-          <h1 className="font-serif text-4xl tracking-tight">Присоединиться</h1>
+          <h1 className="display">Присоединиться</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
             Создайте аккаунт, чтобы читать с полки, писать в обсуждениях и
             добавлять друзей. Роль бустера выдаёт только администратор.

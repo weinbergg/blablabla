@@ -28,7 +28,7 @@ export default async function FriendsPage() {
           Вернуться в библиотеку
         </Link>
         <p className="eyebrow mb-3">Личное</p>
-        <h1 className="mb-2 font-serif text-4xl tracking-tight">Друзья</h1>
+        <h1 className="display mb-2">Друзья</h1>
         <p className="mb-10 max-w-xl text-sm leading-6 text-muted">
           Добавляйте других читателей библиотеки в друзья, чтобы сравнивать книжные полки и
           находить общий интерес.

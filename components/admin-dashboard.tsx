@@ -41,6 +41,8 @@ import { LANGUAGES, languageLabel } from "@/lib/languages";
 import { BulkImportTab } from "@/components/admin-bulk-import-tab";
 import { BillingTab } from "@/components/admin-billing-tab";
 import { EventsTab } from "@/components/admin-events-tab";
+import { ActivityTab } from "@/components/admin-activity-tab";
+import { AdminMusicPanel } from "@/components/admin-music-panel";
 import { CreateCategoryInline } from "@/components/create-category-inline";
 import { stageLargeField, uploadErrorMessage } from "@/lib/upload-client";
 
@@ -97,6 +99,7 @@ type Props = {
   currentUserId: string;
   currentUserName: string;
   currentUserEmail: string;
+  musicEnabled: boolean;
 };
 
 const TABS = [
@@ -105,7 +108,9 @@ const TABS = [
   "Разделы",
   "Приглашения",
   "Модерация",
+  "Музыка",
   "Монетизация",
+  "Активность",
   "Встречи",
   "Рефералы",
   "Обратная связь",
@@ -124,6 +129,7 @@ export function AdminDashboard({
   currentUserId,
   currentUserName,
   currentUserEmail,
+  musicEnabled,
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Материалы");
@@ -137,12 +143,13 @@ export function AdminDashboard({
   return (
     <main className="min-h-screen overflow-x-hidden bg-paper">
       <header className="border-b border-ink/10 bg-paper">
-        <div className="shell flex h-20 items-center justify-between">
+        <div className="shell flex min-h-20 flex-wrap gap-4 py-4 items-center justify-between">
           <div>
             <p className="eyebrow">blablablarden</p>
             <h1 className="mt-1 font-serif text-2xl">Управление библиотекой</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/admin/features" className="button-secondary">Доступность разделов</Link>
             <Link href="/" className="button-secondary">
               <Home size={15} />
               На сайт
@@ -159,6 +166,7 @@ export function AdminDashboard({
       </header>
 
       <div className="shell py-8">
+        <MusicSwitch initialEnabled={musicEnabled} />
         <div className="mb-8 flex flex-wrap gap-2 border-b border-ink/10">
           {TABS.map((item) => (
             <button
@@ -195,7 +203,9 @@ export function AdminDashboard({
             catalogQueue={documents.filter((d) => d.confidence === "low")}
           />
         )}
+        {tab === "Музыка" && <AdminMusicPanel />}
         {tab === "Монетизация" && <BillingTab />}
+        {tab === "Активность" && <ActivityTab />}
         {tab === "Встречи" && <EventsTab />}
         {tab === "Рефералы" && (
           <ReferralsTab
@@ -209,6 +219,57 @@ export function AdminDashboard({
         {tab === "Обратная связь" && <FeedbackTab items={feedbackList} />}
       </div>
     </main>
+  );
+}
+
+function MusicSwitch({ initialEnabled }: { initialEnabled: boolean }) {
+  const [on, setOn] = useState(initialEnabled);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggle() {
+    const next = !on;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/billing/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ musicEnabled: next }),
+      });
+      if (!response.ok) {
+        setError("Не удалось сохранить");
+        return;
+      }
+      setOn(next);
+    } catch {
+      setError("Не удалось сохранить");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-ink/10 px-4 py-3">
+      <div>
+        <p className="text-sm font-medium text-ink">Музыка на сайте</p>
+        <p className="mt-0.5 text-xs text-muted">
+          Кнопка в читалке. Играют только одобренные записи, тихо. Выключение прячет кнопку. Загрузка — на вкладке «Музыка».
+        </p>
+        {error && <p className="mt-1 text-xs text-rust">{error}</p>}
+      </div>
+      <button
+        type="button"
+        onClick={() => void toggle()}
+        disabled={busy}
+        aria-pressed={on}
+        className={`rounded-full border px-3 py-1.5 text-xs ${
+          on ? "border-rust bg-rust/10 text-rust" : "border-ink/15 text-muted"
+        }`}
+      >
+        {on ? "Включена" : "Выключена"}
+      </button>
+    </div>
   );
 }
 

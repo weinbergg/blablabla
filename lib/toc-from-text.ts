@@ -19,10 +19,10 @@ export type TextTocOffsetMatch = {
 };
 
 const CONTENTS_HEADING =
-  /^(?:table\s+of\s+contents|contents|оглавление|содержание|sommaire|inhaltsverzeichnis|indice|index)\b/i;
+  /^(?:table\s+of\s+contents|contents|оглавление|содержание|sommaire|inhaltsverzeichnis|indice|index)(?=$|[\s.:—–-])/i;
 
 const ENTRY =
-  /^(?:book|chapter|canto|part|section|песнь|песня|книга|глава|часть|рапсодия|ῥαψωδ[ίι]α|booklet|prologue|epilogue|appendix|preface|introduction)\b/i;
+  /^(?:book|chapter|canto|part|section|песнь|песня|книга|глава|часть|рапсодия|ῥαψωδ[ίι]α|booklet|prologue|epilogue|appendix|preface|introduction)(?=$|[\s.:—–-])/i;
 
 export function isContentsHeading(line: string) {
   return CONTENTS_HEADING.test(normalizeLine(line));

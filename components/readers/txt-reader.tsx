@@ -1,9 +1,11 @@
 /**
- * Paginated plain-text reader with dictionary, stickers, hide-marks, and bookmarks.
- * Long TXT files are split into stable "листы" so annotations and discussion
- * can bind to a page the same way as PDF/EPUB.
+ * Plain-text reader. The file is still cut into stable "листы" so annotations
+ * keep a page number, but the reader itself scrolls downward through them
+ * instead of pretending each slice is a turned page.
  */
 "use client";
+
+import { commentRequest } from "@/lib/comment-request";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -27,11 +29,12 @@ import {
 import { PageJumpInput } from "./page-jump-input";
 import { ReaderSearchPanel } from "./reader-search-panel";
 import { ReaderToc } from "./reader-toc";
+import { AnchorNavigator } from "./anchor-navigator";
 import { SelectionLookup } from "./selection-lookup";
 import { ZoomControls } from "./zoom-controls";
 import { buildSearchExcerpt, normalizeSearchText } from "@/lib/reader-search";
 import { addBookmark } from "@/lib/bookmarks";
-import { isTypingTarget } from "@/lib/reader-keys";
+import { readerPageDirection } from "@/lib/reader-keys";
 import { decodeTxtBytes } from "@/lib/txt-encoding";
 import { splitTxtPages, txtTableOfContents } from "@/lib/txt-structure";
 
@@ -89,7 +92,7 @@ export function TxtReader({
   compact?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const pageFromParent = useRef<number | null>(null);
   const numPagesNotified = useRef(0);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -130,6 +133,7 @@ export function TxtReader({
 
   useEffect(() => {
     let cancelled = false;
+    pageFromParent.current = null;
     setText(null);
     setError(false);
     (async () => {
@@ -153,7 +157,6 @@ export function TxtReader({
   const toc = useMemo(() => txtTableOfContents(pages), [pages]);
   const total = pages.length;
   const safePage = total > 0 ? Math.min(Math.max(1, page), total) : 1;
-  const pageText = pages[safePage - 1] ?? "";
   const onPageChangeRef = useRef(onPageChange);
   onPageChangeRef.current = onPageChange;
 
@@ -180,13 +183,12 @@ export function TxtReader({
 
   async function createAnnotation(draft: AnnotationDraft) {
     if (!documentId) return;
-    const response = await fetch("/api/annotations", {
+    const { id, mirror } = await commentRequest<{ id: string; mirror?: AnnotationItem }>("/api/annotations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ documentId, ...draft }),
     });
-    if (!response.ok) return;
-    const { id, mirror } = (await response.json()) as { id: string; mirror?: AnnotationItem };
+    if (!id) throw new Error("Сервер не подтвердил сохранение пометки.");
     const createdAt = new Date().toISOString();
     setAnnotations((current) => [
       ...current,
@@ -202,6 +204,7 @@ export function TxtReader({
         body: draft.body,
         visibility: draft.visibility,
         allowDiscussion: draft.allowDiscussion,
+        textAnchor: draft.textAnchor,
         anchorText: draft.anchorText,
         anchorRects: draft.anchorRects,
         companionDocumentId: draft.companionDocumentId ?? null,
@@ -214,11 +217,16 @@ export function TxtReader({
   }
 
   async function deleteAnnotation(id: string) {
+    await commentRequest(`/api/annotations/${id}`, { method: "DELETE" });
     setAnnotations((current) => current.filter((item) => item.id !== id));
-    await fetch(`/api/annotations/${id}`, { method: "DELETE" });
   }
 
   async function updateAnnotation(id: string, patch: AnnotationUpdate) {
+    await commentRequest(`/api/annotations/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
     setAnnotations((current) =>
       current.map((item) =>
         item.id === id
@@ -233,25 +241,31 @@ export function TxtReader({
           : item,
       ),
     );
-    await fetch(`/api/annotations/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
+  }
+
+  function scrollToSheet(target: number) {
+    const node = scrollRef.current;
+    const sheet = node?.querySelector(`[data-txt-page="${target}"]`);
+    if (!node || !(sheet instanceof HTMLElement)) return;
+    node.scrollTo({ top: sheet.offsetTop, behavior: "auto" });
+  }
+
+  function scrollByView(delta: -1 | 1) {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollBy({ top: delta * Math.round(node.clientHeight * 0.86), behavior: "smooth" });
   }
 
   function go(delta: -1 | 1) {
-    if (!total || !onPageChange) return;
-    onPageChange(Math.min(total, Math.max(1, safePage + delta)), total);
-    scrollRef.current?.scrollTo({ top: 0 });
+    scrollByView(delta);
   }
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      if (isTypingTarget(event.target)) return;
+      const direction = readerPageDirection(event);
+      if (!direction) return;
       event.preventDefault();
-      go(event.key === "ArrowRight" ? 1 : -1);
+      go(direction);
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -260,9 +274,46 @@ export function TxtReader({
 
   function jumpToPage(target: number) {
     if (!total || !onPageChange) return;
-    onPageChange(Math.min(total, Math.max(1, target)), total);
-    scrollRef.current?.scrollTo({ top: 0 });
+    const next = Math.min(total, Math.max(1, target));
+    pageFromParent.current = next;
+    onPageChange(next, total);
+    scrollToSheet(next);
   }
+
+  useEffect(() => {
+    if (total <= 0) return;
+    if (page === pageFromParent.current) return;
+    pageFromParent.current = page;
+    scrollToSheet(page);
+  }, [page, total]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node || total <= 0) return;
+    const sheets = Array.from(node.querySelectorAll<HTMLElement>("[data-txt-page]"));
+    let frame = 0;
+    function update() {
+      frame = 0;
+      // A long sheet can never reach an intersection ratio of 0.35. Track
+      // the reading line instead of jumping to a sheet just entering below.
+      const line = node!.scrollTop + Math.min(120, node!.clientHeight * 0.2);
+      let low = 0, high = sheets.length - 1;
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if (sheets[mid].offsetTop <= line) low = mid; else high = mid - 1;
+      }
+      const next = Number(sheets[low]?.dataset.txtPage);
+      if (!next || next === pageFromParent.current) return;
+      pageFromParent.current = next;
+      onPageChangeRef.current?.(next, total);
+    }
+    function schedule() { if (!frame) frame = requestAnimationFrame(update); }
+    const observer = new ResizeObserver(schedule);
+    observer.observe(node);
+    node.addEventListener("scroll", schedule, { passive: true });
+    schedule();
+    return () => { observer.disconnect(); node.removeEventListener("scroll", schedule); cancelAnimationFrame(frame); };
+  }, [total, text]);
 
   function bookmarkHere() {
     if (!documentId || !total) return;
@@ -328,14 +379,15 @@ export function TxtReader({
     <div
       className={
         fullscreen
-          ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-2 md:p-3"
+          ? "relative flex h-full min-h-0 flex-col bg-paper"
           : compact
             ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-3 md:p-4"
             : "rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-6"
       }
     >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1">
+      <AnchorNavigator documentId={documentId} fileUrl={url} containerRef={scrollRef} ready={text !== null} page={safePage} onNavigate={jumpToPage} />
+      <div className={fullscreen ? "reader-toolbar flex flex-wrap items-center justify-between gap-3" : "mb-3 flex flex-wrap items-center justify-between gap-3"}>
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           <button
             type="button"
             onClick={() => go(-1)}
@@ -400,11 +452,13 @@ export function TxtReader({
           <button
             type="button"
             onClick={() => setShowAnnotations((v) => !v)}
-            className={`icon-button ${!showAnnotations ? "border-rust text-rust" : ""}`}
-            aria-label={showAnnotations ? "Скрыть пометки" : "Показать пометки"}
-            title={showAnnotations ? "Скрыть пометки" : "Показать пометки"}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs ${
+              showAnnotations ? "border-ink/20 text-ink" : "border-rust bg-rust/10 text-rust"
+            }`}
+            aria-pressed={showAnnotations}
           >
             {showAnnotations ? <Eye size={14} /> : <EyeOff size={14} />}
+            {showAnnotations ? "Пометки" : "Пометки скрыты"}
           </button>
           {documentId && (
             <button
@@ -420,6 +474,7 @@ export function TxtReader({
           {documentId && currentUserId && canAnnotate && (
             <button
               type="button"
+              onPointerDown={(event) => event.preventDefault()}
               onClick={() => setPlacing((p) => !p)}
               className={`icon-button ${placing ? "border-rust bg-rust text-white" : ""}`}
               aria-label={placing ? "Отменить добавление пометки" : "Добавить пометку"}
@@ -467,7 +522,7 @@ export function TxtReader({
         </p>
       )}
 
-      <div className="relative">
+      <div className={fullscreen ? "relative min-h-0 flex-1" : "relative"}>
         <ReaderToc
           open={Boolean(tocOpen && text != null)}
           items={toc.map((item, i) => ({
@@ -487,9 +542,9 @@ export function TxtReader({
             }
           }}
         />
-        <div className="min-w-0 flex-1">
+        <div className={fullscreen ? "h-full min-h-0 min-w-0" : "min-w-0 flex-1"}>
           {total > 0 && (
-            <div className={`${fullscreen ? "mb-2" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
+            <div className={`${fullscreen ? "hidden" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
               <div
                 className="h-full rounded-full bg-rust transition-[width] duration-300 ease-out"
                 style={{ width: `${(safePage / total) * 100}%` }}
@@ -497,37 +552,27 @@ export function TxtReader({
             </div>
           )}
 
-          <div className="relative">
-            <div
-              ref={scrollRef}
-              className="overflow-hidden rounded-xl bg-paper"
-              style={{ height: fullscreen ? "calc(100vh - 8rem)" : "70vh", minHeight: 320 }}
-            >
-              <div
-                ref={contentRef}
-                className={`relative px-5 py-6 md:px-10 md:py-8 ${placing ? "cursor-crosshair" : ""}`}
-              >
-                {text == null ? (
-                  <div className="grid place-items-center py-20">
-                    <Loader2 className="animate-spin text-muted" />
-                  </div>
-                ) : (
-                  <div className="mx-auto max-w-[92ch]">
-                    <pre
-                      className="whitespace-pre-wrap break-words font-serif text-ink"
-                      style={{ fontSize: `${15 * zoom}px`, lineHeight: 1.85 }}
-                    >
-                      {pageText}
-                    </pre>
-                  </div>
-                )}
-                {text != null && documentId && (
-                  <AnnotationLayer
-                    pageNumber={safePage}
-                    items={annotations}
-                    containerRef={contentRef}
+          <div
+            ref={scrollRef}
+            className={`overflow-y-auto rounded-xl bg-paper ${placing ? "cursor-crosshair" : ""}`}
+            style={{ height: fullscreen ? "100%" : "70vh", minHeight: fullscreen ? 0 : 320 }}
+          >
+            {text == null ? (
+              <div className="grid place-items-center py-20">
+                <Loader2 className="animate-spin text-muted" />
+              </div>
+            ) : (
+              <div className="relative">
+                {pages.map((chunk, index) => (
+                  <TxtSheet
+                    key={index}
+                    pageNumber={index + 1}
+                    text={chunk}
+                    zoom={zoom}
+                    annotations={annotations}
+                    documentId={documentId}
                     currentUserId={currentUserId ?? null}
-                    placing={placing}
+                    placing={placing && index + 1 === safePage}
                     comments={comments}
                     onCreate={createAnnotation}
                     onDelete={deleteAnnotation}
@@ -539,35 +584,93 @@ export function TxtReader({
                     onOpenLinkedCompanion={onOpenLinkedCompanion}
                     hidden={!showAnnotations}
                   />
-                )}
-                <SelectionLookup containerRef={contentRef} language={language} suppressed={placing} />
+                ))}
+                <SelectionLookup onAnnotate={canAnnotate ? () => setPlacing(true) : undefined} containerRef={scrollRef} language={language} suppressed={placing} documentId={documentId} fileUrl={url} page={safePage} />
               </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => go(-1)}
-              disabled={safePage <= 1 || placing}
-              aria-label="Предыдущий лист"
-              className="group absolute left-2 top-1/2 z-10 hidden -translate-y-1/2 disabled:cursor-default md:flex"
-            >
-              <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
-                <ChevronLeft size={20} />
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => go(1)}
-              disabled={safePage >= total || placing}
-              aria-label="Следующий лист"
-              className="group absolute right-2 top-1/2 z-10 hidden -translate-y-1/2 disabled:cursor-default md:flex"
-            >
-              <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
-                <ChevronRight size={20} />
-              </span>
-            </button>
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TxtSheet({
+  pageNumber,
+  text,
+  zoom,
+  annotations,
+  documentId,
+  currentUserId,
+  placing,
+  comments,
+  onCreate,
+  onDelete,
+  onUpdate,
+  onReply,
+  onReport,
+  onPlaced,
+  companionTarget,
+  onOpenLinkedCompanion,
+  hidden,
+}: {
+  pageNumber: number;
+  text: string;
+  zoom: number;
+  annotations: AnnotationItem[];
+  documentId?: string;
+  currentUserId: string | null;
+  placing: boolean;
+  comments: AnnotationCommentItem[];
+  onCreate: (draft: AnnotationDraft) => Promise<void> | void;
+  onDelete: (id: string) => Promise<void> | void;
+  onUpdate: (id: string, patch: AnnotationUpdate) => Promise<void> | void;
+  onReply: (annotationId: string, body: string) => Promise<void> | void;
+  onReport: ((targetType: "annotation" | "comment", targetId: string) => void) | undefined;
+  onPlaced: () => void;
+  companionTarget?: {
+    documentId: string;
+    page: number | null;
+    pageLabel?: string | null;
+    title?: string | null;
+  } | null;
+  onOpenLinkedCompanion?: (item: AnnotationItem) => void;
+  hidden: boolean;
+}) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      ref={sheetRef}
+      data-txt-page={pageNumber}
+      className="relative border-b border-ink/10 px-5 py-8 md:px-10"
+    >
+      <p className="mb-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">лист {pageNumber}</p>
+      <pre data-reader-text
+        className="mx-auto max-w-[92ch] select-text whitespace-pre-wrap break-words font-serif text-ink"
+        style={{ fontSize: `${15 * zoom}px`, lineHeight: 1.85 }}
+      >
+        {text}
+      </pre>
+      {documentId && (
+        <AnnotationLayer
+          documentId={documentId}
+          pageNumber={pageNumber}
+          items={annotations}
+          containerRef={sheetRef}
+          currentUserId={currentUserId}
+          placing={placing}
+          comments={comments}
+          onCreate={onCreate}
+          onDelete={onDelete}
+          onUpdate={onUpdate}
+          onReply={onReply}
+          onReport={onReport ?? (() => {})}
+          onPlaced={onPlaced}
+          companionTarget={companionTarget}
+          onOpenLinkedCompanion={onOpenLinkedCompanion}
+          hidden={hidden}
+        />
+      )}
     </div>
   );
 }

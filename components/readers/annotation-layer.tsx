@@ -1,9 +1,15 @@
 "use client";
 
-import { useRef, useEffect, useState, type RefObject } from "react";
+import { useRef, useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import katex from "katex";
 import { MathText } from "@/components/math-text";
 import { ShareWithFriends } from "@/components/share-with-friends";
+import { captureTextAnchor } from "@/lib/text-anchor";
+import type { TextAnchor } from "@/lib/publication-content";
+import { captureSelectionAnchor, readerDocumentOffset } from "@/lib/reader-selection";
+import { commentError } from "@/lib/comment-request";
+import { useFeature } from "../feature-provider";
+import { useCommentDraft } from "@/lib/use-comment-draft";
 import {
   Check,
   Eraser,
@@ -47,6 +53,7 @@ export type AnnotationItem = {
   body: string;
   visibility: AnnotationVisibility;
   allowDiscussion: boolean;
+  textAnchor?: TextAnchor | null;
   anchorText: string | null;
   anchorRects: AnchorRect[] | null;
   companionDocumentId?: string | null;
@@ -64,6 +71,7 @@ export type AnnotationDraft = {
   body: string;
   visibility: AnnotationVisibility;
   allowDiscussion: boolean;
+  textAnchor?: TextAnchor | null;
   anchorText: string | null;
   anchorRects: AnchorRect[] | null;
   companionDocumentId?: string | null;
@@ -208,36 +216,11 @@ export type PageDrawSession = {
   onStrokeWidthPresetChange: (preset: StrokeWidthPreset) => void;
   onVisibilityChange: (visibility: AnnotationVisibility) => void;
   onCancel: () => void;
-  onSave: () => void;
+  onSave: () => Promise<void> | void;
 };
 
 function clampInt(value: number) {
   return Math.min(1000, Math.max(0, value));
-}
-
-/** Reads the current text selection, if any, as a set of page-normalized (0..1000) rects — used to anchor a sticker to a specific passage. */
-function captureSelectionAnchor(container: HTMLElement): { text: string; rects: AnchorRect[] } | null {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
-  const range = selection.getRangeAt(0);
-  if (!container.contains(range.commonAncestorContainer)) return null;
-
-  const text = selection.toString().trim();
-  if (!text) return null;
-
-  const containerRect = container.getBoundingClientRect();
-  if (!containerRect.width || !containerRect.height) return null;
-
-  const rects: AnchorRect[] = Array.from(range.getClientRects())
-    .map((r) => ({
-      x: clampInt(((r.left - containerRect.left) / containerRect.width) * 1000),
-      y: clampInt(((r.top - containerRect.top) / containerRect.height) * 1000),
-      w: clampInt((r.width / containerRect.width) * 1000),
-      h: clampInt((r.height / containerRect.height) * 1000),
-    }))
-    .filter((r) => r.w > 0 && r.h > 0);
-
-  return rects.length ? { text: text.slice(0, 600), rects } : null;
 }
 
 function FormulaBody({ source, color }: { source: string; color?: string }) {
@@ -345,6 +328,7 @@ function DrawingBody({ source, color }: { source: string; color: string }) {
  * is the primary way to draw on a book — the small pad inside a pin's popup
  * (`DrawingPad`) still exists as a quick, page-independent alternative. */
 function PageDrawingLayer({ containerRef, session }: { containerRef: React.RefObject<HTMLDivElement | null>; session: PageDrawSession }) {
+  const [saveError, setSaveError] = useState("");
   const [liveStroke, setLiveStroke] = useState<string | null>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -496,13 +480,18 @@ function PageDrawingLayer({ containerRef, session }: { containerRef: React.RefOb
               Лично
             </button>
           </div>
+          {saveError && <p role="alert" className="w-full text-xs text-rust">{saveError}</p>}
           <div className="ml-auto flex items-center gap-1.5">
             <button type="button" onClick={session.onCancel} className="icon-button" aria-label="Отменить рисунок" title="Отмена">
               <X size={14} />
             </button>
             <button
               type="button"
-              onClick={session.onSave}
+              onClick={async () => {
+                setSaveError("");
+                try { await session.onSave(); }
+                catch (failure) { setSaveError(commentError(failure)); }
+              }}
               disabled={session.saving || !session.paths.length}
               className="button-primary px-3 py-1.5 text-xs"
               title="Сохранить рисунок на странице"
@@ -673,11 +662,14 @@ function DrawingPad({
 }
 
 export function AnnotationLayer({
+  documentId,
   pageNumber,
   items,
   currentUserId,
   placing,
   containerRef,
+  selectionDocs,
+  cfiForRange,
   comments,
   onCreate,
   onDelete,
@@ -691,14 +683,17 @@ export function AnnotationLayer({
   companionTarget = null,
   onOpenLinkedCompanion,
 }: {
+  documentId?: string;
   pageNumber: number | null;
   items: AnnotationItem[];
   currentUserId: string | null;
   placing: boolean;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  selectionDocs?: Document[];
+  cfiForRange?: (range: Range) => string | undefined;
   comments: AnnotationCommentItem[];
   onCreate: (draft: AnnotationDraft) => Promise<void> | void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<void> | void;
   onUpdate?: (id: string, patch: AnnotationUpdate) => Promise<void> | void;
   onReply: (annotationId: string, body: string) => Promise<void> | void;
   onReport: (targetType: "annotation" | "comment", targetId: string) => void;
@@ -726,7 +721,8 @@ export function AnnotationLayer({
   const [editText, setEditText] = useState("");
   const [editVisibility, setEditVisibility] = useState<AnnotationVisibility>("public");
   const [editAllowDiscussion, setEditAllowDiscussion] = useState(false);
-  const [draft, setDraft] = useState<{ x: number; y: number; anchorText: string | null; anchorRects: AnchorRect[] | null } | null>(null);
+  const cfiRef = useRef(cfiForRange); cfiRef.current = cfiForRange;
+  const [draft, setDraft] = useState<{ textAnchor?: TextAnchor | null; x: number; y: number; anchorText: string | null; anchorRects: AnchorRect[] | null } | null>(null);
   const [shape, setShape] = useState<AnnotationShape>("note");
   const [color, setColor] = useState(COLOR_PRESETS[0]);
   const [text, setText] = useState("");
@@ -736,8 +732,61 @@ export function AnnotationLayer({
   const [allowDiscussion, setAllowDiscussion] = useState(false);
   const [linkCompanion, setLinkCompanion] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [mutationError, setMutationError] = useState("");
+  const [pageWidth, setPageWidth] = useState(0);
+  const hasPanel = Boolean(openId || draft);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!hasPanel || !container) return;
+    const measure = () => setPageWidth(container.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [containerRef, hasPanel]);
+  const panelWidth = pageWidth ? Math.max(0, Math.min(288, pageWidth - 16)) : 288;
+  function panelLeft(anchorX: number) {
+    return Math.max(8, Math.min(anchorX, pageWidth - panelWidth - 8));
+  }
+  async function mutate(action: () => Promise<void> | void) {
+    setMutationError("");
+    try { await action(); return true; }
+    catch (failure) { setMutationError(commentError(failure)); return false; }
+  }
   const formulaTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const draftStorageKey = `blabla:annotation-draft:p${pageNumber ?? "x"}`;
+  const draftStorageKey = `blabla:annotation-draft:${currentUserId ?? "guest"}:${documentId ?? "unknown"}:p${pageNumber ?? "x"}`;
+  const handledHashRef = useRef("");
+
+  useEffect(() => {
+    function openLinkedAnnotation() {
+      const hash = window.location.hash.slice(1);
+      if (!hash) { handledHashRef.current = ""; return; }
+      const id = hash.startsWith("annotation-") ? hash.slice(11)
+        : hash.startsWith("comment-") ? comments.find((item) => item.id === hash.slice(8))?.annotationId : null;
+      const annotation = items.find((item) => item.id === id && item.page === pageNumber);
+      const target = `${hash}:${pageNumber}:${screenKey ?? ""}`;
+      if (!annotation || handledHashRef.current === target) return;
+      handledHashRef.current = target;
+      setOpenId(annotation.id);
+      setEditingId(null);
+    }
+    openLinkedAnnotation();
+    window.addEventListener("hashchange", openLinkedAnnotation);
+    return () => {
+      window.removeEventListener("hashchange", openLinkedAnnotation);
+    };
+  }, [comments, items, pageNumber, screenKey]);
+
+  useLayoutEffect(() => {
+    if (!openId || !pageWidth || !window.location.hash) return;
+    const hash = window.location.hash.slice(1);
+    const targetsOpenNote = hash === `annotation-${openId}` || comments.some((item) =>
+      item.annotationId === openId && hash === `comment-${item.id}`);
+    if (!targetsOpenNote) return;
+    const pin = document.getElementById(`annotation-${openId}`);
+    const node = hash.startsWith("comment-") ? document.getElementById(hash) : pin?.querySelector("[data-annotation-ui]");
+    node?.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }, [comments, openId, pageWidth]);
 
   function selectShape(next: AnnotationShape) {
     setShape(next);
@@ -762,6 +811,18 @@ export function AnnotationLayer({
     if (!placing || pageDraw?.active) return;
     const container = containerRef.current;
     if (!container) return;
+    const docs = selectionDocs?.length ? selectionDocs : [container.ownerDocument];
+    // Capture before the placement click's default action collapses the range.
+    const capture = () => {
+      const legacy = captureSelectionAnchor(container!, docs);
+      const textAnchor = documentId && pageNumber ? docs.map(doc => captureTextAnchor(container!, documentId, pageNumber, doc, range => cfiRef.current?.(range))).find(Boolean) ?? null : null;
+      return legacy ? { ...legacy, textAnchor } : null;
+    };
+    let pendingAnchor = capture();
+    function handlePointerDown(event: PointerEvent) {
+      if ((event.target as Element | null)?.closest("[data-annotation-ui], [data-reader-selection-ui]")) return;
+      pendingAnchor = capture();
+    }
 
     function handleContainerClick(event: MouseEvent) {
       // This is a plain DOM listener on the page container, so it fires during
@@ -771,14 +832,19 @@ export function AnnotationLayer({
       // guard, clicking anything inside the draft form or an open sticker
       // popup (shape icon, checkbox, reply box...) would also be treated as
       // "place a new sticker here" and wipe out whatever was being edited.
-      if ((event.target as Element | null)?.closest("[data-annotation-ui]")) return;
+      if ((event.target as Element | null)?.closest("[data-annotation-ui], [data-reader-selection-ui]")) return;
       const rect = container!.getBoundingClientRect();
-      const x = Math.round(((event.clientX - rect.left) / rect.width) * 1000);
-      const y = Math.round(((event.clientY - rect.top) / rect.height) * 1000);
-      const anchor = captureSelectionAnchor(container!);
+      const targetDoc = (event.target as Node | null)?.ownerDocument ?? container!.ownerDocument;
+      const offset = readerDocumentOffset(container!, targetDoc);
+      if (!offset || !rect.width || !rect.height) return;
+      const x = Math.round(((event.clientX + offset.left - rect.left) / rect.width) * 1000);
+      const y = Math.round(((event.clientY + offset.top - rect.top) / rect.height) * 1000);
+      const anchor = capture() ?? pendingAnchor;
+      pendingAnchor = null;
       setDraft({
         x: clampInt(x),
         y: clampInt(y),
+        textAnchor: anchor?.textAnchor ?? null,
         anchorText: anchor?.text ?? null,
         anchorRects: anchor?.rects ?? null,
       });
@@ -811,9 +877,18 @@ export function AnnotationLayer({
       setOpenId(null);
     }
 
-    container.addEventListener("click", handleContainerClick);
-    return () => container.removeEventListener("click", handleContainerClick);
-  }, [companionTarget?.documentId, companionTarget?.page, placing, containerRef, pageDraw?.active, draftStorageKey]);
+    const targets: Array<HTMLElement | Document> = [container, ...docs.filter((doc) => doc !== container.ownerDocument)];
+    for (const target of targets) {
+      target.addEventListener("pointerdown", handlePointerDown as EventListener);
+      target.addEventListener("click", handleContainerClick as EventListener);
+    }
+    return () => {
+      for (const target of targets) {
+        target.removeEventListener("pointerdown", handlePointerDown as EventListener);
+        target.removeEventListener("click", handleContainerClick as EventListener);
+      }
+    };
+  }, [companionTarget?.documentId, companionTarget?.page, placing, containerRef, selectionDocs, pageDraw?.active, draftStorageKey, screenKey, documentId, pageNumber]);
 
   if (pageNumber === null) return null;
   const pageItems = hidden
@@ -859,7 +934,7 @@ export function AnnotationLayer({
             strokeWidth: SMALL_STROKE_PRESETS[drawingStrokeWidth],
           })
         : text.trim();
-    await onCreate({
+    const saved = await mutate(() => onCreate({
       page: pageNumber,
       x: draft.x,
       y: draft.y,
@@ -868,6 +943,7 @@ export function AnnotationLayer({
       body,
       visibility,
       allowDiscussion: visibility === "public" && allowDiscussion,
+      textAnchor: draft.textAnchor,
       anchorText: draft.anchorText,
       anchorRects: draft.anchorRects,
       companionDocumentId:
@@ -882,8 +958,9 @@ export function AnnotationLayer({
         linkCompanion && companionTarget?.documentId && companionTarget.page
           ? companionTarget.title ?? null
           : null,
-    });
+    }));
     setSaving(false);
+    if (!saved) return;
     setDraft(null);
     try {
       sessionStorage.removeItem(draftStorageKey);
@@ -894,11 +971,11 @@ export function AnnotationLayer({
   }
 
   return (
-    <div className="pointer-events-none absolute inset-0">
+    <div className="pointer-events-none absolute inset-0 z-[2]">
       {pageItems.map((item) => {
         const Icon = SHAPE_ICONS[item.shape];
         const isOwn = item.authorId === currentUserId;
-        const flip = item.x > 600;
+        const pinLeft = pageWidth * item.x / 1000 + (pinOffsetById.get(item.id)?.dx ?? 0) - 16;
         const isOpen = openId === item.id;
         const thread = comments.filter((c) => c.annotationId === item.id);
         const drawingData = item.shape === "drawing" ? parseDrawing(item.body) : null;
@@ -949,6 +1026,7 @@ export function AnnotationLayer({
               </div>
             )}
             <div
+              id={`annotation-${item.id}`}
               className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2"
               style={{
                 left: `calc(${item.x / 10}% + ${pinOffsetById.get(item.id)?.dx ?? 0}px)`,
@@ -962,15 +1040,13 @@ export function AnnotationLayer({
                   event.stopPropagation();
                   setDraft(null);
                   setEditingId(null);
-                  setOpenId((current) => {
-                    const next = current === item.id ? null : item.id;
-                    if (next && item.companionDocumentId && item.companionPage) {
-                      onOpenLinkedCompanion?.(item);
-                    }
-                    return next;
-                  });
+                  const next = openId === item.id ? null : item.id;
+                  setOpenId(next);
+                  if (next && item.companionDocumentId && item.companionPage) {
+                    onOpenLinkedCompanion?.(item);
+                  }
                 }}
-                className="sticker-pop grid size-8 place-items-center rounded-full border-2 border-white shadow-md transition-transform hover:scale-110"
+                className="annotation-pin sticker-pop grid size-8 place-items-center rounded-full border-2 border-white shadow-md hover:scale-110"
                 style={{ backgroundColor: item.color }}
                 aria-label="Пометка"
               >
@@ -981,14 +1057,16 @@ export function AnnotationLayer({
                 <div
                   data-annotation-ui
                   onClick={(event) => event.stopPropagation()}
-                  className={`sticker-panel absolute z-50 w-72 max-w-[calc(100vw-2rem)] max-h-[min(22rem,60vh)] overflow-y-auto rounded-xl border border-ink/10 bg-white p-3.5 text-left shadow-xl ${
-                    flip ? "right-0" : "left-0"
-                  } ${item.y > 620 ? "bottom-full mb-2" : "top-full mt-2"}`}
+                  className={`sticker-panel absolute z-50 w-72 max-w-[calc(100vw-2rem)] max-h-[min(22rem,60vh)] overflow-y-auto rounded-xl border border-ink/10 bg-paper p-3.5 text-left text-sm leading-6 text-ink shadow-xl ${
+                    item.y > 620 ? "bottom-full mb-2" : "top-full mt-2"
+                  }`}
+                  style={{ width: panelWidth, left: panelLeft(pinLeft) - pinLeft }}
                 >
                   <div className="mb-2 flex items-center justify-between text-xs text-muted">
                     <span className="font-medium text-ink">{item.authorName}</span>
                     <span>{item.visibility === "private" ? "лично" : "публично"}</span>
                   </div>
+                  {mutationError && <p role="alert" className="mb-2 text-xs text-rust">{mutationError}</p>}
                   {item.anchorText && (
                     <p className="mb-2 border-l-2 border-ink/15 pl-2 text-xs italic text-muted">
                       «{item.anchorText}»
@@ -1095,15 +1173,15 @@ export function AnnotationLayer({
                           onClick={async () => {
                             if (!onUpdate) return;
                             setEditSaving(true);
-                            await onUpdate(item.id, {
+                            const saved = await mutate(() => onUpdate(item.id, {
                               shape: item.shape === "drawing" ? undefined : editShape,
                               color: editColor,
                               body: item.shape === "drawing" ? undefined : editText,
                               visibility: editVisibility,
                               allowDiscussion: editAllowDiscussion,
-                            });
+                            }));
                             setEditSaving(false);
-                            setEditingId(null);
+                            if (saved) setEditingId(null);
                           }}
                           className="button-primary flex-1 !min-h-9 !text-xs"
                         >
@@ -1150,11 +1228,11 @@ export function AnnotationLayer({
                     </>
                   )}
 
-                  <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-ink/10 pt-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-ink/10 pt-2 text-xs leading-5 text-muted">
                     <ShareWithFriends
                       compact
                       buttonLabel="Поделиться"
-                      buttonClassName="!min-h-0 !gap-1 !border-0 !px-0 !text-[11px] !font-normal shadow-none"
+                      buttonClassName="!inline-flex !h-auto !min-h-0 !items-center !gap-1 !border-0 !bg-transparent !px-0 !py-0 !text-xs !font-normal !leading-5 !text-muted !shadow-none hover:!text-ink"
                       payload={{
                         kind: "annotation",
                         title: `Пометка · стр. ${item.page}`,
@@ -1166,7 +1244,7 @@ export function AnnotationLayer({
                       <button
                         type="button"
                         onClick={() => onReport("annotation", item.id)}
-                        className="flex items-center gap-1 text-[11px] text-muted hover:text-rust"
+                        className="inline-flex items-center gap-1 text-xs leading-5 text-muted hover:text-rust"
                       >
                         <TriangleAlert size={11} />
                         Пожаловаться
@@ -1184,19 +1262,19 @@ export function AnnotationLayer({
                             setEditVisibility(item.visibility);
                             setEditAllowDiscussion(item.allowDiscussion);
                           }}
-                          className="flex items-center gap-1 text-xs text-muted hover:text-ink"
+                          className="inline-flex items-center gap-1 text-xs leading-5 text-muted hover:text-ink"
                         >
                           <Pencil size={12} />
                           Изменить
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            onDelete(item.id);
+                          onClick={async () => {
+                            if (!await mutate(() => onDelete(item.id))) return;
                             setOpenId(null);
                             setEditingId(null);
                           }}
-                          className="flex items-center gap-1 text-xs text-muted hover:text-rust"
+                          className="inline-flex items-center gap-1 text-xs leading-5 text-muted hover:text-rust"
                         >
                           <Trash2 size={12} />
                           Удалить
@@ -1224,7 +1302,7 @@ export function AnnotationLayer({
                       <button
                         type="button"
                         onClick={async () => {
-                          await onUpdate(item.id, { allowDiscussion: true });
+                          await mutate(() => onUpdate(item.id, { allowDiscussion: true }));
                         }}
                         className="mt-2 flex items-center gap-1 text-[11px] text-muted hover:text-ink"
                       >
@@ -1245,7 +1323,8 @@ export function AnnotationLayer({
           onClick={(event) => event.stopPropagation()}
           className="sticker-panel sticker-pop pointer-events-auto absolute z-30 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-ink/10 bg-white p-4 text-left shadow-xl"
           style={{
-            left: `${Math.min(draft.x / 10, 72)}%`,
+            width: panelWidth,
+            left: panelLeft(pageWidth * draft.x / 1000),
             top: `${Math.min(draft.y / 10, 65)}%`,
           }}
         >
@@ -1425,6 +1504,7 @@ export function AnnotationLayer({
             </p>
           ) : null}
 
+          {mutationError && <p role="alert" className="mb-2 text-xs text-rust">{mutationError}</p>}
           <button type="button" onClick={submitDraft} disabled={saving} className="button-primary w-full">
             {saving ? "Сохраняем…" : "Сохранить"}
           </button>
@@ -1453,9 +1533,13 @@ function AnnotationDiscussion({
   onReply: (annotationId: string, body: string) => Promise<void> | void;
   onReport: (targetType: "annotation" | "comment", targetId: string) => void;
 }) {
-  const [body, setBody] = useState("");
+  const commentsEnabled = useFeature("comments");
+  const [body, setBody] = useCommentDraft(currentUserId ? `${currentUserId}:annotation:${annotationId}` : null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submitting = useRef(false);
 
+  if (!commentsEnabled) return null;
   return (
     <div className="mt-3 border-t border-ink/10 pt-3">
       <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted">
@@ -1465,13 +1549,13 @@ function AnnotationDiscussion({
       {thread.length > 0 && (
         <div className="mb-2 space-y-2.5">
           {thread.map((comment) => (
-            <div key={comment.id} className="group text-xs">
+            <div key={comment.id} id={`comment-${comment.id}`} className="group text-xs">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium text-ink">{comment.authorName}</span>
                 <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
                   <ShareWithFriends
                     compact
-                    buttonClassName="!size-6 !border-0 shadow-none"
+                    buttonClassName="!inline-flex !size-6 !min-h-0 !items-center !justify-center !border-0 !bg-transparent !p-0 !text-muted !shadow-none hover:!text-ink"
                     payload={{
                       kind: "quote",
                       title: `Обсуждение пометки · стр. ${page}`,
@@ -1496,20 +1580,31 @@ function AnnotationDiscussion({
           ))}
         </div>
       )}
+      {error && <p role="alert" className="mb-2 text-xs text-rust">{error}</p>}
       {canReply ? (
         <form
           onSubmit={async (event) => {
             event.preventDefault();
-            if (!body.trim()) return;
+            if (!body.trim() || submitting.current) return;
+            submitting.current = true;
             setBusy(true);
-            await onReply(annotationId, body.trim());
-            setBusy(false);
-            setBody("");
+            setError("");
+            try {
+              await onReply(annotationId, body.trim());
+              setBody("");
+            } catch (failure) {
+              setError(commentError(failure));
+            } finally {
+              submitting.current = false;
+              setBusy(false);
+            }
           }}
           className="flex items-center gap-1.5"
         >
           <input
             value={body}
+            disabled={busy}
+            maxLength={8000}
             onChange={(event) => setBody(event.target.value)}
             placeholder="Ответить… $формула$"
             className="flex-1 rounded-full border border-ink/15 px-3 py-1.5 text-xs outline-none focus:border-ink/40"

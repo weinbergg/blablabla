@@ -61,7 +61,7 @@ export function RateReviewPanel({
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="text-xs text-muted underline underline-offset-2 hover:text-ink">
+      <button type="button" onClick={() => setOpen(true)} className="button-secondary">
         {rating || review ? "Изменить вашу оценку" : "Оценить и написать отзыв"}
       </button>
     );

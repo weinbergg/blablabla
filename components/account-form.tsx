@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Mail, ShieldCheck } from "lucide-react";
 import { AvatarColorPicker, AvatarPicker } from "@/components/user-avatar";
@@ -24,10 +24,13 @@ export function AccountForm({
   const [mounted, setMounted] = useState(false);
   const [mark, setMark] = useState<string | null>(avatarKey);
   const [tone, setTone] = useState<string | null>(avatarColor);
+  const saveSeq = useRef(0);
+  const refreshTimer = useRef<number | null>(null);
 
   useEffect(() => setMounted(true), []);
 
   async function saveMark(next: { avatarKey?: AvatarKey; avatarColor?: AvatarColor }) {
+    const seq = ++saveSeq.current;
     if (next.avatarKey) setMark(next.avatarKey);
     if (next.avatarColor) setTone(next.avatarColor);
     setError("");
@@ -36,13 +39,15 @@ export function AccountForm({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(next),
     });
+    if (seq !== saveSeq.current) return;
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
       setError(result.error || "Не получилось сохранить знак.");
       return;
     }
     setSuccess("Знак сохранён.");
-    router.refresh();
+    if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(() => router.refresh(), 700);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {

@@ -56,6 +56,6 @@ export const config = {
   // These routes check auth themselves, so skipping the maintenance gate here
   // costs nothing.
   matcher: [
-    "/((?!_next/static|_next/image|api/uploads/stage|api/admin/bulk-import|api/documents|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|api/uploads/stage|api/community/uploads|api/admin/bulk-import|api/documents|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

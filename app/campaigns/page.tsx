@@ -13,7 +13,7 @@ export default async function CampaignsPage() {
       <Header />
       <main className="shell py-12 md:py-16">
         <p className="eyebrow mb-3">Фонд</p>
-        <h1 className="font-serif text-4xl tracking-tight md:text-5xl">Сборы на оцифровку</h1>
+        <h1 className="display">Сборы на оцифровку</h1>
         <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
           Деньги идут на конкретную книгу или корпус. Когда цель закрыта, имена поддержавших
           остаются на странице сбора — без баннеров и без скрытых взносов.

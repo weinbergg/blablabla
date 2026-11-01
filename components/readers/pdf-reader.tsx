@@ -1,5 +1,7 @@
 "use client";
 
+import { commentRequest } from "@/lib/comment-request";
+
 import { useEffect, useRef, useState } from "react";
 import {
   Bookmark,
@@ -34,7 +36,9 @@ import {
 import { PageJumpInput } from "./page-jump-input";
 import { ReaderSearchPanel } from "./reader-search-panel";
 import { ReaderToc } from "./reader-toc";
+import { AnchorNavigator } from "./anchor-navigator";
 import { SelectionLookup } from "./selection-lookup";
+import { usePageSwipe } from "./use-page-swipe";
 import { ZoomControls } from "./zoom-controls";
 import {
   buildTextToc,
@@ -43,7 +47,7 @@ import {
   resolveTextTocPages,
 } from "@/lib/toc-from-text";
 import { buildSearchExcerpt, normalizeSearchText } from "@/lib/reader-search";
-import { isTypingTarget } from "@/lib/reader-keys";
+import { readerPageDirection } from "@/lib/reader-keys";
 import { addBookmark, loadBookmarks } from "@/lib/bookmarks";
 
 type PdfSearchResult = {
@@ -111,7 +115,34 @@ function highlightSharedQuote(layer: HTMLDivElement | null, quote: string | null
 type PageRenderHandle = {
   promise: Promise<void>;
   cancel: () => void;
+  hasText: () => boolean;
 };
+
+let textSelectionReleaseBound = false;
+
+function armTextLayer(container: HTMLDivElement) {
+  if (!textSelectionReleaseBound) {
+    textSelectionReleaseBound = true;
+    document.addEventListener("mouseup", () => {
+      for (const node of document.querySelectorAll(".textLayer.selecting")) {
+        node.classList.remove("selecting");
+      }
+    });
+  }
+  if (container.dataset.selectBound === "1") return;
+  container.dataset.selectBound = "1";
+  container.addEventListener("mousedown", () => {
+    container.classList.add("selecting");
+  });
+}
+
+function contentHasText(textContent: { items?: ReadonlyArray<unknown> }) {
+  return (textContent.items ?? []).some((item) => {
+    if (!item || typeof item !== "object" || !("str" in item)) return false;
+    const str = (item as { str?: unknown }).str;
+    return typeof str === "string" && str.trim().length > 0;
+  });
+}
 
 function renderPageSurface(
   canvas: HTMLCanvasElement,
@@ -133,6 +164,7 @@ function renderPageSurface(
   const viewport = pdfPage.getViewport({ scale });
 
   let cancelled = false;
+  let foundText = false;
   let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
 
   const promise = (async () => {
@@ -172,8 +204,14 @@ function renderPageSurface(
         const { TextLayer } = await import("pdfjs-dist");
         const textContent = await pdfPage.getTextContent();
         if (cancelled) return;
+        foundText = contentHasText(textContent);
+        armTextLayer(textLayerContainer);
         const layer = new TextLayer({ textContentSource: textContent, container: textLayerContainer, viewport });
         await layer.render();
+        if (cancelled) return;
+        const end = document.createElement("div");
+        end.className = "endOfContent";
+        textLayerContainer.append(end);
       } catch {
         // ignore — see comment above
       }
@@ -182,6 +220,7 @@ function renderPageSurface(
 
   return {
     promise,
+    hasText: () => foundText,
     cancel: () => {
       cancelled = true;
       try {
@@ -235,10 +274,13 @@ async function findPdfTocTitlePage(
     if (safeTo >= safeFrom) ranges.push([safeFrom, safeTo]);
   };
 
+  // Раньше поиск заголовка шёл до конца файла. На скане в сотни мегабайт
+  // это выкачивало книгу целиком после первой страницы.
   if (printedPage && printedPage >= 1) {
-    pushRange(printedPage - 24, printedPage + 40);
+    pushRange(printedPage - 8, printedPage + 16);
+  } else {
+    pushRange(startFrom, startFrom + 12);
   }
-  pushRange(startFrom, totalPages);
 
   for (const [from, to] of ranges) {
     for (let page = from; page <= to; page += 1) {
@@ -314,10 +356,12 @@ export function PdfReader({
 
   const [numPages, setNumPages] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [anchorReadyPage, setAnchorReadyPage] = useState(0);
   const [error, setError] = useState(false);
   const [containerWidth, setContainerWidth] = useState(900);
   const [maxPageHeight, setMaxPageHeight] = useState<number | undefined>(undefined);
   const [mode, setMode] = useState<SpreadMode>(compact ? "single" : "double");
+  const [fullscreenSpread, setFullscreenSpread] = useState(false);
   const [animate, setAnimate] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [flipNonce, setFlipNonce] = useState(0);
@@ -335,6 +379,7 @@ export function PdfReader({
   const [toc, setToc] = useState<{ title: string; page: number; kind?: "contents" }[]>([]);
   const [tocOpen, setTocOpen] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(true);
+  const [pageHasText, setPageHasText] = useState<boolean | null>(null);
   const [bookmarkFlash, setBookmarkFlash] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -357,6 +402,10 @@ export function PdfReader({
   useEffect(() => {
     onAnnotationsChange?.(annotations);
   }, [annotations, onAnnotationsChange]);
+
+  useEffect(() => {
+    if (!fullscreen) setFullscreenSpread(false);
+  }, [fullscreen]);
 
   useEffect(() => {
     if (compact) {
@@ -404,7 +453,14 @@ export function PdfReader({
       try {
         const pdfjsLib = await import("pdfjs-dist");
         pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-        const loadingTask = pdfjsLib.getDocument(url);
+        // Большой скан (сотни мегабайт) нельзя качать целиком ради первой
+        // страницы. Только куски, которые нужны текущему листу.
+        const loadingTask = pdfjsLib.getDocument({
+          url,
+          disableAutoFetch: true,
+          disableStream: true,
+          rangeChunkSize: 262144,
+        });
         const doc = await loadingTask.promise;
         if (cancelled) return;
         docRef.current = doc;
@@ -414,6 +470,14 @@ export function PdfReader({
         // wipe reading progress / ?page= deep links.
         const resume = Math.min(Math.max(pageRef.current || 1, 1), doc.numPages);
         onPageChange(resume, doc.numPages);
+        if (!cancelled) setLoading(false);
+        // Оглавление не должно отбирать куски файла у первой страницы.
+        await new Promise<void>((resolve) => {
+          const idle = window.requestIdleCallback?.bind(window);
+          if (idle) idle(() => resolve(), { timeout: 2500 });
+          else window.setTimeout(resolve, 800);
+        });
+        if (cancelled) return;
 
         try {
           const outline = await doc.getOutline();
@@ -534,9 +598,7 @@ export function PdfReader({
         setMaxPageHeight(undefined);
         return;
       }
-      const top = el!.getBoundingClientRect().top;
-      const bottomBreathingRoom = 12;
-      const nextHeight = Math.max(240, Math.round(window.innerHeight - top - bottomBreathingRoom));
+      const nextHeight = Math.max(80, Math.round(el!.clientHeight - 12));
       setMaxPageHeight((prev) => (prev !== undefined && Math.abs(prev - nextHeight) < 2 ? prev : nextHeight));
     }
 
@@ -560,6 +622,10 @@ export function PdfReader({
     setFlipDir(page > prevPageRef.current ? "forward" : "backward");
     setFlipNonce((n) => n + 1);
     prevPageRef.current = page;
+    const scroller = containerRef.current?.querySelector("[data-page-scroll]");
+    if (scroller instanceof HTMLElement) scroller.scrollTop = 0;
+    // Окно браузера здесь не трогаем: прокрутка по прямоугольнику листа
+    // оставляла пустую полосу над шапкой.
   }, [page]);
 
   // Restart the CSS flip animation on the *same* DOM node (never remount the
@@ -573,9 +639,17 @@ export function PdfReader({
     // Force reflow so the browser registers the class removal before it's re-added.
     void el.offsetWidth;
     el.classList.add(className);
+    const clear = () => {
+      el.classList.remove("page-flip-forward", "page-flip-backward");
+    };
+    el.addEventListener("animationend", clear);
+    return () => {
+      el.removeEventListener("animationend", clear);
+      clear();
+    };
   }, [flipNonce, flipDir, animate]);
 
-  const isDouble = mode === "double" && numPages > 1;
+  const isDouble = (fullscreen ? fullscreenSpread : mode === "double") && numPages > 1;
   const spreadStart = isDouble ? (page % 2 === 0 ? page - 1 : page) : page;
   const leftPageNumber = clamp(spreadStart, 1, Math.max(numPages, 1));
   const rightPageNumber = isDouble && leftPageNumber + 1 <= numPages ? leftPageNumber + 1 : null;
@@ -596,6 +670,7 @@ export function PdfReader({
     if (!docRef.current || !numPages || loading || !preferencesReady) return;
     if (containerWidth < 80) return;
 
+    setAnchorReadyPage(0);
     let cancelled = false;
     const handles: PageRenderHandle[] = [];
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -638,6 +713,7 @@ export function PdfReader({
         handles.push(left);
         await left.promise;
         if (cancelled) return;
+        setPageHasText(left.hasText());
         highlightSharedQuote(leftTextLayerRef.current, sharedQuote ?? null);
 
         if (rightPageNumber && rightCanvasRef.current) {
@@ -655,6 +731,7 @@ export function PdfReader({
           await right.promise;
           highlightSharedQuote(rightTextLayerRef.current, sharedQuote ?? null);
         }
+        if (!cancelled) setAnchorReadyPage(leftPageNumber);
       } catch {
         if (!cancelled && attempt < 3) {
           retryTimer = setTimeout(() => void paint(attempt + 1), 80);
@@ -687,12 +764,14 @@ export function PdfReader({
     highlightSharedQuote(rightTextLayerRef.current, sharedQuote ?? null);
   }, [leftPageNumber, rightPageNumber, sharedQuote]);
 
+  usePageSwipe(containerRef, direction => direction === 1 ? goNext() : goPrev(), !loading && !placing && !drawMode && zoom <= 1);
+
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      if (isTypingTarget(event.target)) return;
-      if (event.key === "ArrowRight") goNext();
-      if (event.key === "ArrowLeft") goPrev();
+      const direction = readerPageDirection(event);
+      if (!direction) return;
+      event.preventDefault();
+      if (direction === 1) goNext(); else goPrev();
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -723,13 +802,12 @@ export function PdfReader({
 
   async function createAnnotation(draft: AnnotationDraft) {
     if (!documentId) return;
-    const response = await fetch("/api/annotations", {
+    const { id, mirror } = await commentRequest<{ id: string; mirror?: AnnotationItem }>("/api/annotations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ documentId, ...draft }),
     });
-    if (!response.ok) return;
-    const { id, mirror } = (await response.json()) as { id: string; mirror?: AnnotationItem };
+    if (!id) throw new Error("Сервер не подтвердил сохранение пометки.");
     const createdAt = new Date().toISOString();
     setAnnotations((current) => [
       ...current,
@@ -745,6 +823,7 @@ export function PdfReader({
         body: draft.body,
         visibility: draft.visibility,
         allowDiscussion: draft.allowDiscussion,
+        textAnchor: draft.textAnchor,
         anchorText: draft.anchorText,
         anchorRects: draft.anchorRects,
         companionDocumentId: draft.companionDocumentId ?? null,
@@ -757,11 +836,16 @@ export function PdfReader({
   }
 
   async function deleteAnnotation(id: string) {
+    await commentRequest(`/api/annotations/${id}`, { method: "DELETE" });
     setAnnotations((current) => current.filter((item) => item.id !== id));
-    await fetch(`/api/annotations/${id}`, { method: "DELETE" });
   }
 
   async function updateAnnotation(id: string, patch: AnnotationUpdate) {
+    await commentRequest(`/api/annotations/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
     setAnnotations((current) =>
       current.map((item) =>
         item.id === id
@@ -777,11 +861,6 @@ export function PdfReader({
           : item,
       ),
     );
-    await fetch(`/api/annotations/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
   }
 
   function toggleDrawMode() {
@@ -800,27 +879,30 @@ export function PdfReader({
   async function savePageDrawing() {
     if (drawTargetPage == null || !drawPaths.length) return;
     setDrawSaving(true);
-    await createAnnotation({
-      page: drawTargetPage,
-      x: PAGE_DRAWING_PIN.x,
-      y: PAGE_DRAWING_PIN.y,
-      shape: "drawing",
-      color: drawColor,
-      body: JSON.stringify({
-        paths: drawPaths,
-        viewBox: PAGE_DRAWING_VIEWBOX,
-        fullPage: true,
-        strokeWidth: PAGE_STROKE_PRESETS[drawStrokeWidth],
-      }),
-      visibility: drawVisibility,
-      allowDiscussion: false,
-      anchorText: null,
-      anchorRects: null,
-    });
-    setDrawSaving(false);
-    setDrawTargetPage(null);
-    setDrawPaths([]);
-    setDrawMode(false);
+    try {
+      await createAnnotation({
+        page: drawTargetPage,
+        x: PAGE_DRAWING_PIN.x,
+        y: PAGE_DRAWING_PIN.y,
+        shape: "drawing",
+        color: drawColor,
+        body: JSON.stringify({
+          paths: drawPaths,
+          viewBox: PAGE_DRAWING_VIEWBOX,
+          fullPage: true,
+          strokeWidth: PAGE_STROKE_PRESETS[drawStrokeWidth],
+        }),
+        visibility: drawVisibility,
+        allowDiscussion: false,
+        anchorText: null,
+        anchorRects: null,
+      });
+      setDrawTargetPage(null);
+      setDrawPaths([]);
+      setDrawMode(false);
+    } finally {
+      setDrawSaving(false);
+    }
   }
 
   /** Builds the shared drawing-session prop for one of the (up to two) pages
@@ -848,6 +930,7 @@ export function PdfReader({
   }
 
   const annotationHandlers = {
+    documentId,
     currentUserId: currentUserId ?? null,
     placing,
     comments,
@@ -959,13 +1042,14 @@ export function PdfReader({
       ref={rootRef}
       className={
         fullscreen
-          ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-2 md:p-2.5"
+          ? "relative flex h-full min-h-0 flex-col"
           : compact
             ? "rounded-2xl border border-ink/10 bg-ink/[0.02] p-3 md:p-4"
             : "rounded-2xl border border-ink/10 bg-ink/[0.02] p-4 md:p-7"
       }
     >
-      <div className={fullscreen ? "mb-2 flex flex-wrap items-start justify-between gap-3" : "mb-4 flex flex-wrap items-start justify-between gap-3"}>
+      <AnchorNavigator documentId={documentId} fileUrl={url} containerRef={spreadRef} ready={!loading && numPages > 0 && anchorReadyPage === leftPageNumber} page={leftPageNumber} pageCount={numPages} onNavigate={next => onPageChange(next, numPages)} />
+      <div className={fullscreen ? "reader-toolbar flex items-center gap-2 overflow-x-auto" : "mb-3 flex items-center gap-2 overflow-x-auto pb-1"}>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -999,6 +1083,17 @@ export function PdfReader({
             aria-label="Следующая страница"
           >
             <ChevronRight size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAnnotations((v) => !v)}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs ${
+              showAnnotations ? "border-ink/20 text-ink" : "border-rust bg-rust/10 text-rust"
+            }`}
+            aria-pressed={showAnnotations}
+          >
+            {showAnnotations ? <Eye size={14} /> : <EyeOff size={14} />}
+            {showAnnotations ? "Пометки" : "Пометки скрыты"}
           </button>
           {!loading && (
             <button
@@ -1034,9 +1129,9 @@ export function PdfReader({
           <div className="flex items-center rounded-full border border-ink/10 p-0.5 text-xs">
             <button
               type="button"
-              onClick={() => setMode("single")}
+              onClick={() => (fullscreen ? setFullscreenSpread(false) : setMode("single"))}
               className={`flex items-center gap-1.5 rounded-full ${compact ? "px-2.5 py-1.5" : "px-3 py-1.5"} transition-colors ${
-                mode === "single" ? "bg-ink text-paper" : "text-muted hover:text-ink"
+                (fullscreen ? !fullscreenSpread : mode === "single") ? "bg-ink text-paper" : "text-muted hover:text-ink"
               }`}
               title="Одна страница"
             >
@@ -1045,9 +1140,9 @@ export function PdfReader({
             </button>
             <button
               type="button"
-              onClick={() => setMode("double")}
+              onClick={() => (fullscreen ? setFullscreenSpread(true) : setMode("double"))}
               className={`flex items-center gap-1.5 rounded-full ${compact ? "px-2.5 py-1.5" : "px-3 py-1.5"} transition-colors ${
-                mode === "double" ? "bg-ink text-paper" : "text-muted hover:text-ink"
+                (fullscreen ? fullscreenSpread : mode === "double") ? "bg-ink text-paper" : "text-muted hover:text-ink"
               }`}
               title="Разворот"
             >
@@ -1065,15 +1160,6 @@ export function PdfReader({
           >
             <Sparkles size={14} />
           </button>
-          <button
-            type="button"
-            onClick={() => setShowAnnotations((v) => !v)}
-            className={`icon-button ${!showAnnotations ? "border-rust text-rust" : ""}`}
-            aria-label={showAnnotations ? "Скрыть пометки" : "Показать пометки"}
-            title={showAnnotations ? "Скрыть пометки и рисунки" : "Показать пометки и рисунки"}
-          >
-            {showAnnotations ? <Eye size={14} /> : <EyeOff size={14} />}
-          </button>
           {documentId && (
             <button
               type="button"
@@ -1089,6 +1175,7 @@ export function PdfReader({
             <>
               <button
                 type="button"
+                onPointerDown={(event) => event.preventDefault()}
                 onClick={() => {
                   setPlacing((p) => !p);
                   setDrawMode(false);
@@ -1151,7 +1238,7 @@ export function PdfReader({
         </p>
       )}
 
-      <div className="relative">
+      <div className={fullscreen ? "relative flex min-h-0 flex-1 flex-col" : "relative"}>
         <ReaderToc
           open={tocOpen && !loading}
           items={toc.map((item, i) => ({
@@ -1171,9 +1258,14 @@ export function PdfReader({
             }
           }}
         />
-        <div className="min-w-0 flex-1">
+        <div className={fullscreen ? "flex min-h-0 min-w-0 flex-1 flex-col" : "min-w-0 flex-1"}>
+          {pageHasText === false && !fullscreen && (
+            <p className="mb-3 text-center text-xs leading-5 text-muted">
+              В этом скане нет слоя текста, выделить фразу нельзя.
+            </p>
+          )}
           {numPages > 0 && (
-            <div className={`${fullscreen ? "mb-2" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
+            <div className={`${fullscreen ? "hidden" : "mb-4"} h-1 w-full overflow-hidden rounded-full bg-ink/10`}>
               <div
                 className="h-full rounded-full bg-rust transition-[width] duration-300 ease-out"
                 style={{ width: `${(Math.min(rightPageNumber ?? leftPageNumber, numPages) / numPages) * 100}%` }}
@@ -1183,7 +1275,7 @@ export function PdfReader({
 
           <div
             ref={containerRef}
-            className={fullscreen ? "relative" : "relative min-h-[65vh]"}
+            className={fullscreen ? "relative flex min-h-0 flex-1 items-center justify-center" : "relative min-h-[65vh]"}
             style={{ perspective: "2200px" }}
           >
             {loading ? (
@@ -1197,9 +1289,9 @@ export function PdfReader({
                   onClick={goPrev}
                   disabled={leftPageNumber <= 1}
                   aria-label="Предыдущая страница"
-                  className="group absolute inset-y-0 left-0 z-10 hidden w-16 items-center justify-start disabled:cursor-default md:flex"
+                  className="page-edge absolute inset-y-0 left-0 z-20 flex w-[22%] max-w-[5.5rem] items-center justify-start disabled:pointer-events-none"
                 >
-                  <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
+                  <span className="ml-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted shadow-sm transition-opacity">
                     <ChevronLeft size={20} />
                   </span>
                 </button>
@@ -1208,18 +1300,18 @@ export function PdfReader({
                   onClick={goNext}
                   disabled={rightPageNumber ? rightPageNumber >= numPages : leftPageNumber >= numPages}
                   aria-label="Следующая страница"
-                  className="group absolute inset-y-0 right-0 z-10 hidden w-16 items-center justify-end disabled:cursor-default md:flex"
+                  className="page-edge absolute inset-y-0 right-0 z-20 flex w-[22%] max-w-[5.5rem] items-center justify-end disabled:pointer-events-none"
                 >
-                  <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted opacity-0 shadow-sm transition-all group-hover:opacity-100 group-disabled:!opacity-0 group-hover:border-ink/20 group-hover:text-ink">
+                  <span className="mr-1 grid size-11 place-items-center rounded-full border border-ink/10 bg-paper/90 text-muted shadow-sm transition-opacity">
                     <ChevronRight size={20} />
                   </span>
                 </button>
 
-                <div className="overflow-auto px-1 pb-2">
+                <div data-page-scroll className="overflow-auto px-1 pb-2">
                   <div ref={spreadRef} className="mx-auto flex min-w-fit justify-center gap-7">
-                    <div ref={leftPageWrapRef} className="relative">
-                      <canvas ref={leftCanvasRef} className="block rounded-lg bg-white shadow-sm" />
-                      <div ref={leftTextLayerRef} className="textLayer" />
+                    <div ref={leftPageWrapRef} data-anchor-page={leftPageNumber} className="relative">
+                      <canvas ref={leftCanvasRef} className="pointer-events-none block rounded-lg bg-white shadow-sm" />
+                      <div ref={leftTextLayerRef} data-reader-text className="textLayer" />
                       <AnnotationLayer
                         pageNumber={leftPageNumber}
                         items={annotations}
@@ -1227,16 +1319,16 @@ export function PdfReader({
                         pageDraw={pageDrawSessionFor(leftPageNumber)}
                         {...annotationHandlers}
                       />
-                      <SelectionLookup
+                      <SelectionLookup onAnnotate={canAnnotate ? () => setPlacing(true) : undefined} documentId={documentId} fileUrl={url} page={leftPageNumber}
                         containerRef={leftPageWrapRef}
                         suppressed={placing || drawMode}
                         language={language}
                       />
                     </div>
                     {isDouble && (
-                      <div ref={rightPageWrapRef} className="relative">
-                        <canvas ref={rightCanvasRef} className="block rounded-lg bg-white shadow-sm" />
-                        <div ref={rightTextLayerRef} className="textLayer" />
+                      <div ref={rightPageWrapRef} data-anchor-page={rightPageNumber} className="relative">
+                        <canvas ref={rightCanvasRef} className="pointer-events-none block rounded-lg bg-white shadow-sm" />
+                        <div ref={rightTextLayerRef} data-reader-text className="textLayer" />
                         <AnnotationLayer
                           pageNumber={rightPageNumber}
                           items={annotations}
@@ -1244,7 +1336,7 @@ export function PdfReader({
                           pageDraw={rightPageNumber ? pageDrawSessionFor(rightPageNumber) : undefined}
                           {...annotationHandlers}
                         />
-                        <SelectionLookup
+                        <SelectionLookup onAnnotate={canAnnotate ? () => setPlacing(true) : undefined} documentId={documentId} fileUrl={url} page={rightPageNumber ?? leftPageNumber}
                           containerRef={rightPageWrapRef}
                           suppressed={placing || drawMode}
                           language={language}

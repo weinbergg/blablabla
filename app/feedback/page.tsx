@@ -15,7 +15,7 @@ export default async function FeedbackPage() {
       <main className="shell py-12 md:py-16">
         <div className="mx-auto max-w-xl">
           <p className="eyebrow mb-3">Обратная связь</p>
-          <h1 className="font-serif text-4xl tracking-tight md:text-5xl">Вопросы и предложения</h1>
+          <h1 className="display">Вопросы и предложения</h1>
           <p className="mt-4 mb-8 text-sm leading-6 text-muted">
             Замечания по каталогу, находкам, идеи новых разделов или просто отзыв о том, как всё
             устроено, — пишите сюда напрямую.

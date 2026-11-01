@@ -162,6 +162,11 @@ export function MarksDock({
                 onClick={() => {
                   if (!canJump) return;
                   onJumpToPage(item.page);
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("page", String(item.page));
+                  url.hash = `annotation-${item.id}`;
+                  window.history.replaceState(window.history.state, "", url);
+                  window.dispatchEvent(new HashChangeEvent("hashchange"));
                   if (item.companionDocumentId && item.companionPage) {
                     onOpenLinkedCompanion?.(item);
                   }

@@ -31,7 +31,7 @@ export function LegalShell({
       <Header />
       <main className="shell py-12 md:py-16">
         <p className="eyebrow mb-3">{kicker}</p>
-        <h1 className="max-w-3xl font-serif text-4xl tracking-tight md:text-5xl">{title}</h1>
+        <h1 className="display max-w-3xl">{title}</h1>
         {subtitle ? <p className="mt-4 max-w-2xl text-base leading-7 text-muted">{subtitle}</p> : null}
         <p className="mt-3 text-sm text-muted">Редакция от {revisedAt}</p>
 

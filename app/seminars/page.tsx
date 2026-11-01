@@ -1,61 +1,24 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Header } from "@/components/header";
+import { SeminarCard } from "@/components/seminar-card";
+import { getCurrentUser } from "@/lib/auth";
 import { listPublicSeminars } from "@/lib/db/events";
-import { formatWhen } from "@/lib/db/channels";
-import { formatMoney } from "@/lib/money";
-
+import { ROOM_FORMATS } from "@/lib/room-types";
+import { featureEnabled } from "@/lib/features";
 export const dynamic = "force-dynamic";
-
-export default async function SeminarsPage() {
-  const seminars = await listPublicSeminars();
-
-  return (
-    <>
-      <Header />
-      <main className="shell py-12 md:py-16">
-        <p className="eyebrow mb-3">Встречи</p>
-        <h1 className="font-serif text-4xl tracking-tight md:text-5xl">Семинары</h1>
-        <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
-          Платная запись на встречи площадки. Цена и число мест задаёт админ; у Завсегдатая и
-          выше — скидка, если она включена для этой встречи.
-        </p>
-        <p className="mt-3 text-sm text-muted">
-          Сборы на оцифровку книг —{" "}
-          <Link href="/campaigns" className="underline underline-offset-2 hover:text-ink">
-            отдельным списком
-          </Link>
-          .
-        </p>
-
-        <ul className="mt-12 space-y-3">
-          {seminars.length === 0 ? (
-            <li className="rounded-2xl border border-dashed border-ink/15 px-5 py-10 text-sm text-muted">
-              Сейчас нет открытой записи. Когда появится встреча, она окажется здесь — без рекламных полос.
-            </li>
-          ) : (
-            seminars.map((seminar) => (
-              <li key={seminar.id}>
-                <Link href={`/seminars/${seminar.slug}`} className="topic-card group hover:text-ink">
-                  <span className="block font-serif text-xl leading-snug tracking-tight group-hover:text-rust">
-                    {seminar.title}
-                  </span>
-                  {seminar.summary ? (
-                    <span className="mt-2 block text-sm leading-6 text-muted">{seminar.summary}</span>
-                  ) : null}
-                  <span className="mt-3 block text-xs text-muted">
-                    {seminar.startsAt ? formatWhen(seminar.startsAt) : "дата уточняется"}
-                    {seminar.location ? ` · ${seminar.location}` : ""}
-                    {` · ${formatMoney(seminar.priceKopeks)}`}
-                    {seminar.seatLimit != null
-                      ? ` · ${seminar.seatsTaken} из ${seminar.seatLimit} мест`
-                      : ""}
-                  </span>
-                </Link>
-              </li>
-            ))
-          )}
-        </ul>
-      </main>
-    </>
-  );
+export default async function SeminarsPage({ searchParams }: { searchParams: Promise<{ q?: string; kind?: string; when?: string; mine?: string }> }) {
+  const params = await searchParams; const user = await getCurrentUser(); if (!await featureEnabled("rooms", user)) notFound();
+  const mine = params.mine === "1" && !!user;
+  const rooms = await listPublicSeminars({ q: params.q, kind: params.kind, when: mine ? undefined : params.when || "upcoming", userId: mine ? user.id : undefined });
+  const hostsEnabled = await featureEnabled("host_programs", user);
+  const canCreate = user && await featureEnabled("room_creation", user);
+  const tab = (href: string, label: string, active: boolean) => <Link href={href} className={`border-b-2 pb-4 text-sm ${active ? "border-rust text-ink" : "border-transparent text-muted hover:text-ink"}`}>{label}</Link>;
+  return <><Header /><main className="shell py-10 md:py-16">
+    <div className="flex flex-wrap items-end justify-between gap-6"><div><p className="eyebrow">Общая библиотека · общий разговор</p><h1 className="mt-4 font-serif text-4xl tracking-tight md:text-6xl">Читательские комнаты</h1><p className="mt-5 max-w-xl text-base leading-8 text-muted">Книги становятся объёмнее, когда читаешь вместе. Найдите своих собеседников, присоединитесь к семинару или соберите собственный круг.</p></div>{canCreate && <Link href="/seminars/new" className="button-primary">Открыть комнату</Link>}</div>
+    {hostsEnabled && <Link href={user ? "/hosts/dashboard" : "/hosts"} className="mt-5 inline-block text-sm text-rust">{user ? "Кабинет ведущего →" : "Как стать ведущим →"}</Link>}
+    <nav className="mt-10 flex flex-wrap gap-6 border-b border-ink/15">{tab("/seminars", "Открытые комнаты", !mine && params.when !== "past")}{user && tab("/seminars?mine=1", "Мои комнаты", mine)}{tab("/seminars?when=past", "Прошедшие встречи", !mine && params.when === "past")}</nav>
+    <form className="mt-5 flex flex-wrap gap-3" action="/seminars">{mine && <input type="hidden" name="mine" value="1" />}{params.when && <input type="hidden" name="when" value={params.when} />}<input className="room-input min-w-0 flex-1 basis-56" aria-label="Поиск комнат" placeholder="Название или тема чтения" name="q" defaultValue={params.q ?? ""} maxLength={80} /><select name="kind" aria-label="Формат комнаты" className="room-input !w-auto max-w-full" defaultValue={params.kind ?? ""}><option value="">Все форматы</option>{ROOM_FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select><button className="button-secondary">Найти</button></form>
+    {rooms.length ? <div className="mt-8 grid gap-x-12 md:grid-cols-2">{rooms.map(room => <SeminarCard key={room.id} seminar={room} />)}</div> : <div className="max-w-xl py-16"><p className="font-serif text-3xl">{mine ? "Ваш круг чтения начинается здесь" : "Пока нет подходящих встреч"}</p><p className="mt-4 text-base leading-8 text-muted">{mine ? "Присоединитесь к открытой комнате. Приглашения от ведущих тоже появятся в этом разделе." : "Попробуйте другой формат или предложите книгу, которую хочется обсудить вместе."}</p>{(mine || canCreate) && <Link href={mine ? "/seminars" : "/seminars/new"} className="mt-5 inline-block text-sm text-rust underline underline-offset-4">{mine ? "Найти комнату" : "Предложить совместное чтение"}</Link>}</div>}
+  </main></>;
 }

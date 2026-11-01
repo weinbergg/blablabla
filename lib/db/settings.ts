@@ -38,6 +38,9 @@ export type SiteConfig = {
 
   /** Текст над тарифами на странице подписки. */
   pricingIntro: string;
+
+  /** Рубильник эмбиента в читалке. false — кнопки музыки на сайте нет. */
+  musicEnabled: boolean;
 };
 
 export const DEFAULT_SETTINGS: SiteConfig = {
@@ -58,6 +61,8 @@ export const DEFAULT_SETTINGS: SiteConfig = {
 
   pricingIntro:
     "Библиотека остаётся открытой: читать и обсуждать можно бесплатно. Подписка оплачивает сервер, оцифровку и инструменты для тех, кому библиотека нужна каждый день.",
+
+  musicEnabled: false,
 };
 
 const CONFIG_KEY = "config";

@@ -10,7 +10,7 @@ const APPROX_CHARS_PER_LINE = 76;
 const MAX_FALLBACK_TOC_ITEMS = 24;
 
 const HEADING =
-  /^(?:book|chapter|canto|part|section|песнь|песня|книга|глава|часть|рапсодия|ῥαψωδ[ίι]α|ραψωδια)\s*[.\-—:]?\s*[\divxlcdmα-ωа-я0-9]+\b/i;
+  /^(?:book|chapter|canto|part|section|песнь|песня|книга|глава|часть|рапсодия|ῥαψωδ[ίι]α|ραψωδια)\s*[.\-—:]?\s*[\divxlcdmα-ωа-яё0-9]+(?=$|[\s.:—–-])/i;
 
 const BARE_NUMERAL = /^(?:[ivxlcdm]{1,8}|\d{1,2}|[α-ω]{1,3})$/i;
 

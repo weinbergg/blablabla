@@ -218,18 +218,22 @@ export function AvatarPicker({
                 />
               </button>
               {expanded && (
-                <div className="grid grid-cols-8 gap-1.5 px-2.5 pb-2.5 sm:grid-cols-10">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(2.75rem,1fr))] gap-1.5 px-2.5 pb-2.5">
                   {avatarsInSection(section.id).map((item) => (
                     <button
                       key={item.key}
                       type="button"
-                      onClick={() => onChange(item.key as AvatarKey)}
-                      className="avatar-pick"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onChange(item.key as AvatarKey);
+                      }}
+                      className="avatar-pick mx-auto"
                       aria-label={item.label}
                       aria-pressed={selected === item.key}
                       title={item.label}
                     >
-                      <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={38} />
+                      <UserAvatar userId={userId} avatarKey={item.key} avatarColor={color} size={34} />
                     </button>
                   ))}
                 </div>

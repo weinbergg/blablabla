@@ -646,7 +646,7 @@ function SubscriptionsSection({
 }) {
   const [user, setUser] = useState("");
   const [planSlug, setPlanSlug] = useState(state.plans[1]?.slug ?? "reader");
-  const [period, setPeriod] = useState<"month" | "year" | "lifetime">("month");
+  const [period, setPeriod] = useState<"week" | "month" | "year" | "lifetime">("month");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -702,8 +702,9 @@ function SubscriptionsSection({
             <span>Срок</span>
             <select
               value={period}
-              onChange={(event) => setPeriod(event.target.value as "month" | "year" | "lifetime")}
+              onChange={(event) => setPeriod(event.target.value as "week" | "month" | "year" | "lifetime")}
             >
+              <option value="week">неделя</option>
               <option value="month">месяц</option>
               <option value="year">год</option>
               <option value="lifetime">навсегда</option>

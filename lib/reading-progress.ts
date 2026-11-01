@@ -12,6 +12,9 @@ export type ReadingProgress = {
   total?: number;
   /** 0–1 scroll ratio for TXT. */
   scrollRatio?: number;
+  /** Exact EPUB screen, used only when the current file checksum matches. */
+  epubCfi?: string;
+  textVersion?: string;
   updatedAt: number;
 };
 
@@ -33,6 +36,8 @@ export function loadReadingProgress(documentId: string): ReadingProgress | null 
       kind: data.kind,
       page: Math.floor(data.page),
       total: typeof data.total === "number" ? data.total : undefined,
+      epubCfi: typeof data.epubCfi === "string" && data.epubCfi.startsWith("epubcfi(") && data.epubCfi.length < 4096 ? data.epubCfi : undefined,
+      textVersion: typeof data.textVersion === "string" ? data.textVersion : undefined,
       scrollRatio:
         typeof data.scrollRatio === "number"
           ? Math.min(1, Math.max(0, data.scrollRatio))
@@ -47,7 +52,12 @@ export function loadReadingProgress(documentId: string): ReadingProgress | null 
 export function saveReadingProgress(documentId: string, progress: Omit<ReadingProgress, "updatedAt">) {
   if (typeof window === "undefined") return;
   try {
-    const payload: ReadingProgress = { ...progress, updatedAt: Date.now() };
+    // Workspace page/visibility saves must retain the rendition's precise
+    // position within this chapter. A different chapter drops that position.
+    const previous = loadReadingProgress(documentId);
+    const retained = progress.kind === "epub" && previous?.kind === "epub" && previous.page === progress.page
+      ? { epubCfi: previous.epubCfi, textVersion: previous.textVersion } : {};
+    const payload: ReadingProgress = { ...retained, ...progress, updatedAt: Date.now() };
     window.localStorage.setItem(key(documentId), JSON.stringify(payload));
   } catch {
     /* quota / private mode */

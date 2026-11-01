@@ -1,3 +1,4 @@
+import { featureDenied } from "@/lib/features";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { createSucceededManualPayment } from "@/lib/db/billing";
@@ -41,6 +42,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   try {
     if (body?.kind === "seminar") {
+      const disabled = await featureDenied("rooms", user); if (disabled) return disabled;
       if (!(await getSeminarById(id))) return NextResponse.json({ error: "Встреча не найдена" }, { status: 404 });
       await updateSeminar(id, {
         title: body.title,
@@ -92,6 +94,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (body?.action === "ticket") {
     const seminar = await getSeminarById(id);
     if (!seminar) return NextResponse.json({ error: "Встреча не найдена" }, { status: 404 });
+    const disabled = await featureDenied(seminar.priceKopeks > 0 || seminar.accessMode === "paid" ? ["rooms", "paid_events"] : ["rooms"], admin); if (disabled) return disabled;
     if (!body.userId) return NextResponse.json({ error: "Нужен id читателя" }, { status: 400 });
     await grantSeminarTicket({ seminarId: seminar.id, userId: body.userId, source: "manual" });
     return NextResponse.json({ ok: true });

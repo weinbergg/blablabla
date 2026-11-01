@@ -1,91 +1,23 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Header } from "@/components/header";
-import { ForumTopicForm } from "@/components/forum-topic-form";
 import { UserAvatar } from "@/components/user-avatar";
 import { getCurrentUser } from "@/lib/auth";
 import { listForumTopics } from "@/lib/db/forum";
-import { countLabel } from "@/lib/pluralize";
-
+import { FORUM_CATEGORIES, forumCategoryLabel } from "@/lib/forum-meta";
+import { readableMessage } from "@/lib/share-message";
 export const dynamic = "force-dynamic";
-
-export default async function DiscussPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ documentId?: string; title?: string }>;
-}) {
-  const user = await getCurrentUser();
-  const params = await searchParams;
-  const topics = await listForumTopics(50);
-
-  return (
-    <>
-      <Header />
-      <main className="shell py-12 md:py-16">
-        <p className="eyebrow mb-3">Разговоры</p>
-        <h1 className="font-serif text-4xl tracking-tight md:text-5xl">Обсуждения</h1>
-        <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
-          Общий стол для тем, которые не умещаются в комментарии к одной странице:
-          сравнения изданий, сквозные мотивы, вопросы между разделами каталога.
-          Комментарии под книгой остаются для точных мест в тексте.
-        </p>
-
-        <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <div>
-            {topics.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-ink/15 px-5 py-10 text-sm text-muted">
-                <p className="font-medium text-ink">Пока нет открытых тем.</p>
-                <p className="mt-2 leading-6">
-                  Первая может быть вашей — без тестовых заглушек, только живой разговор.
-                </p>
-              </div>
-            ) : (
-              <ul className="space-y-3">
-                {topics.map((topic) => (
-                  <li key={topic.id}>
-                    <Link href={`/discuss/${topic.id}`} className="topic-card group hover:text-ink">
-                      <span className="block font-serif text-xl leading-snug tracking-tight group-hover:text-rust">
-                        {topic.title}
-                      </span>
-                      <span className="mt-2 flex items-center gap-2.5 text-xs text-muted">
-                        <UserAvatar
-                          userId={topic.authorId}
-                          avatarKey={topic.authorAvatarKey}
-                          avatarColor={topic.authorAvatarColor}
-                          name={topic.authorName}
-                          size={28}
-                        />
-                        {topic.authorName}
-                        {" · "}
-                        {new Date(topic.createdAt).toLocaleDateString("ru-RU")}
-                        {" · "}
-                        {countLabel(Number(topic.replyCount) || 0, ["ответ", "ответа", "ответов"])}
-                        {topic.documentTitle ? ` · ${topic.documentTitle}` : ""}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <aside>
-            {user ? (
-              <ForumTopicForm
-                documentId={params.documentId ?? null}
-                documentTitle={params.title ?? null}
-              />
-            ) : (
-              <div className="rounded-2xl border border-ink/10 p-5 text-sm text-muted">
-                Чтобы открыть тему,{" "}
-                <Link href="/login" className="font-medium text-ink underline">
-                  войдите
-                </Link>
-                .
-              </div>
-            )}
-          </aside>
-        </div>
-      </main>
-    </>
-  );
+export default async function DiscussPage({ searchParams }: { searchParams: Promise<{ documentId?: string; q?: string; category?: string; sort?: string; page?: string; mode?: string }> }) {
+  const user = await getCurrentUser(); const params = await searchParams;
+  if (params.documentId) redirect(`/discuss/new?documentId=${encodeURIComponent(params.documentId)}`);
+  const q = params.q?.trim() ?? "", category = params.category ?? "", sort = params.sort === "new" ? "new" : "active", watching = params.mode === "watching" && !!user;
+  const page = Math.max(1, Math.min(10000, Number.parseInt(params.page || "1", 10) || 1));
+  const topics = await listForumTopics({ limit: 21, offset: (page - 1) * 20, q, category, sort, watchingUserId: watching ? user?.id : undefined, viewerId: user?.id });
+  const href = (values: Record<string, string>) => { const query = new URLSearchParams({ ...(q ? { q } : {}), ...(category ? { category } : {}), sort, ...(watching ? { mode: "watching" } : {}), ...values }); return `/discuss?${query}`; };
+  return <><Header /><main className="shell py-10 sm:py-16"><div className="flex flex-wrap items-end justify-between gap-6 border-b border-ink/20 pb-9"><div><p className="eyebrow">Разговор о прочитанном</p><h1 className="mt-3 font-serif text-4xl tracking-tight sm:text-6xl">Обсуждения</h1><p className="mt-5 max-w-xl text-base leading-8 text-muted">Вопросы к текстам, споры о переводе, мысли после встречи. Здесь есть время внимательно прочитать друг друга.</p></div><Link href={user ? "/discuss/new" : "/login?next=/discuss/new"} className="button-primary">Начать разговор</Link></div>
+    <div className="mt-8 grid gap-8 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-12"><aside><nav aria-label="Разделы обсуждений" className="flex flex-wrap gap-2 lg:flex-col"><Link href={href({ category: "", page: "1", mode: "" })} className={`px-3 py-2 text-sm ${!category && !watching ? "bg-ink/5 text-ink" : "text-muted hover:text-rust"}`}>Все разговоры</Link>{user && <Link href={href({ category: "", page: "1", mode: "watching" })} className={`px-3 py-2 text-sm ${watching ? "bg-rust/5 text-rust" : "text-muted hover:text-rust"}`}>Мои подписки</Link>}{FORUM_CATEGORIES.map(item => <Link key={item.slug} href={href({ category: item.slug, page: "1", mode: "" })} className={`px-3 py-2 text-sm ${category === item.slug ? "bg-ink/5 text-ink" : "text-muted hover:text-rust"}`}>{item.label}</Link>)}</nav><p className="mt-6 hidden border-t border-ink/10 pt-5 text-xs leading-6 text-muted lg:block">Обсуждаем идеи, бережём собеседников. Книги и точные цитаты делают разговор содержательнее.</p></aside>
+    <section className="min-w-0"><form className="mb-5 flex flex-wrap gap-2" action="/discuss"><input type="hidden" name="category" value={category} />{watching && <input type="hidden" name="mode" value="watching" />}<input aria-label="Поиск обсуждений" name="q" defaultValue={q} placeholder="Найти тему или вопрос" className="min-w-0 flex-1 basis-48 border border-ink/15 bg-transparent px-3 py-2 text-sm" /><select aria-label="Порядок обсуждений" name="sort" defaultValue={sort} className="border border-ink/15 bg-paper px-3 py-2 text-sm"><option value="active">Последние ответы</option><option value="new">Новые темы</option></select><button className="button-secondary">Найти</button></form>
+      {!topics.length ? <div className="border-y border-ink/15 py-14"><h2 className="font-serif text-2xl">{watching ? "Вы ещё не следите за темами" : "Здесь может начаться хороший разговор"}</h2><p className="mt-3 text-sm leading-7 text-muted">{watching ? "Откройте интересную тему и нажмите «Следить за ответами». Новые сообщения будут отмечены здесь." : "Начните свою тему или измените условия поиска."}</p></div> : <ol>{topics.slice(0, 20).map(topic => <li key={topic.id} className="border-b border-ink/15 py-6 first:border-t"><Link href={`/discuss/${topic.id}`} className="group grid gap-4 sm:grid-cols-[1fr_5rem]"><div className="min-w-0"><p className="mb-2 flex flex-wrap gap-3 text-xs text-muted">{forumCategoryLabel(topic.category)}{topic.pinned ? <span className="text-rust">Закреплено</span> : null}{topic.locked ? <span>Ответы закрыты</span> : null}{topic.unread > 0 && <span className="font-semibold text-rust">Новых: {topic.unread}</span>}</p><h2 className="font-serif text-2xl leading-snug tracking-tight group-hover:text-rust">{topic.title}</h2><p className="mt-3 line-clamp-2 text-sm leading-7 text-muted [overflow-wrap:anywhere]">{readableMessage(topic.lastExcerpt || topic.body).slice(0, 220)}</p>{topic.documentTitle && <p className="mt-3 truncate text-xs text-rust">Книга · {topic.documentTitle}</p>}<div className="mt-4 flex items-center gap-2 text-xs text-muted"><UserAvatar userId={topic.authorId} name={topic.authorName} avatarKey={topic.authorAvatarKey} avatarColor={topic.authorAvatarColor} size={22} /><span>{topic.authorName}</span><span>· {new Date(topic.lastAt || topic.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}</span></div></div><div className="flex items-baseline gap-2 text-muted sm:block sm:text-right"><span className="font-serif text-2xl text-ink">{Number(topic.replyCount) || 0}</span><span className="text-xs sm:mt-1 sm:block">ответов</span></div></Link></li>)}</ol>}
+      {(page > 1 || topics.length > 20) && <nav aria-label="Страницы обсуждений" className="mt-7 flex items-center justify-between gap-4 text-sm">{page > 1 ? <Link href={href({ page: String(page - 1) })}>← Предыдущая</Link> : <span />}<span className="text-muted">Страница {page}</span>{topics.length > 20 ? <Link href={href({ page: String(page + 1) })}>Следующая →</Link> : <span />}</nav>}
+    </section></div></main></>;
 }

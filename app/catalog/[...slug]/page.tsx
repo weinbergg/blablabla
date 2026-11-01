@@ -6,7 +6,6 @@ import { CategoryDocumentList } from "@/components/category-document-list";
 import { Header } from "@/components/header";
 import { SectionArchiveButton } from "@/components/section-archive-button";
 import { getCurrentUser } from "@/lib/auth";
-import { categoryAccent, isWideGridTail } from "@/lib/category-style";
 import { getEntitlements } from "@/lib/db/billing";
 import { hasFeature } from "@/lib/entitlements";
 import {
@@ -38,7 +37,6 @@ export default async function CategoryPage({
   ]);
 
   const visibleChildren = children.filter(isPubliclyVisibleCategory);
-  const accent = categoryAccent(category.id);
   const trailHrefs = trail.map(
     (item, index) => `/catalog/${trail.slice(0, index + 1).map((t) => t.slug).join("/")}`,
   );
@@ -68,17 +66,7 @@ export default async function CategoryPage({
               ))}
             </nav>
 
-            <div className="flex items-center gap-4">
-              <span
-                className="grid size-14 shrink-0 place-items-center rounded-full font-serif text-2xl"
-                style={{ backgroundColor: `${accent}18`, color: accent }}
-              >
-                {category.name.charAt(0).toUpperCase()}
-              </span>
-              <h1 className="font-serif text-[clamp(2.5rem,6vw,4.5rem)] leading-none tracking-[-0.04em]">
-                {category.name}
-              </h1>
-            </div>
+            <h1 className="display">{category.name}</h1>
             {category.description && (
               <p className="mt-6 max-w-xl text-lg leading-7 text-muted">
                 {category.description}
@@ -100,14 +88,13 @@ export default async function CategoryPage({
           {visibleChildren.length > 0 && (
             <div className="mb-16">
               <p className="eyebrow mb-5">Подразделы</p>
-              <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-px overflow-hidden border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-3">
                 {visibleChildren.map((child, index) => (
                   <CategoryCard
                     key={child.id}
                     category={{ ...child, children: [] }}
                     href={`${trailHrefs[trailHrefs.length - 1]}/${child.slug}`}
-                    index={index}
-                    wide={isWideGridTail(index, visibleChildren.length)}
+                    wide={visibleChildren.length % 3 === 1 && index === visibleChildren.length - 1}
                   />
                 ))}
               </div>

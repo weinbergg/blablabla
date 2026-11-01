@@ -26,7 +26,7 @@ export default async function MessagesPage() {
           Вернуться в библиотеку
         </Link>
         <p className="eyebrow mb-3">Личное</p>
-        <h1 className="mb-8 font-serif text-4xl tracking-tight">Сообщения</h1>
+        <h1 className="display mb-8">Сообщения</h1>
         <MessagesInbox conversations={conversations} currentUserId={user.id} />
       </main>
     </>

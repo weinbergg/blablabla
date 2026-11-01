@@ -3,8 +3,9 @@ import { AntoineMark } from "@/components/antoine-mark";
 
 const LINKS = [
   { href: "/#catalog", label: "Каталог" },
+  { href: "/seminars", label: "Чтения" },
   { href: "/discuss", label: "Обсуждения" },
-  { href: "/graph", label: "Связи" },
+  { href: "/news", label: "Новости" },
   { href: "/pricing", label: "Читательский билет" },
   { href: "/privacy", label: "Политика данных" },
   { href: "/offer", label: "Оферта" },

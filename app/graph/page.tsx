@@ -22,7 +22,7 @@ export default async function GraphPage() {
         </Link>
 
         <p className="eyebrow mb-3">Карта библиотеки</p>
-        <h1 className="max-w-2xl font-serif text-4xl tracking-tight md:text-5xl">
+        <h1 className="display max-w-2xl">
           Как разделы и авторы связаны между собой
         </h1>
         <p className="mt-4 max-w-xl text-sm leading-6 text-muted">

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -338,6 +339,7 @@ export const annotations = sqliteTable("annotations", {
   allowDiscussion: integer("allow_discussion").notNull().default(0),
   /** Selected paragraph text captured when the annotation was placed, so the source passage can be looked up even if rects go stale. */
   anchorText: text("anchor_text"),
+  textAnchor: text("text_anchor"),
   /** JSON array of normalized (0..1000) rects for the selected text, used to briefly highlight the passage when the sticker is opened. */
   anchorRects: text("anchor_rects"),
   /** Optional parallel-reading link: open the corresponding page in the second text. */
@@ -548,6 +550,7 @@ export const glossaryEntries = sqliteTable("glossary_entries", {
 /** Public discussion rooms — separate from private DMs and per-document comments.
  * Empty by design until readers start threads; no seeded fake forums. */
 export const forumTopics = sqliteTable("forum_topics", {
+  anchorJson: text("anchor_json"),
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   body: text("body").notNull(),
@@ -558,6 +561,10 @@ export const forumTopics = sqliteTable("forum_topics", {
   documentId: text("document_id").references(() => documents.id, {
     onDelete: "set null",
   }),
+  /** Optional link to a live reading or tutoring session. */
+  seminarId: text("seminar_id"),
+  category: text("category").notNull().default("general"),
+  pinned: integer("pinned").notNull().default(0),
   locked: integer("locked").notNull().default(0),
   ...timestamps,
 }, (table) => ({
@@ -566,6 +573,10 @@ export const forumTopics = sqliteTable("forum_topics", {
 }));
 
 export const forumPosts = sqliteTable("forum_posts", {
+  documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+  anchorJson: text("anchor_json"),
+  messageKind: text("message_kind").notNull().default("message"),
+  deletedAt: text("deleted_at"),
   id: text("id").primaryKey(),
   topicId: text("topic_id")
     .notNull()
@@ -601,6 +612,20 @@ export const siteSettings = sqliteTable("site_settings", {
     .default(sql`(current_timestamp)`),
 });
 
+/** Запись для читалки. Слышна только после статуса approved. */
+export const musicTracks = sqliteTable("music_tracks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  composer: text("composer"),
+  storedName: text("stored_name").notNull(),
+  mime: text("mime").notNull(),
+  status: text("status", { enum: ["pending", "approved", "rejected"] })
+    .notNull()
+    .default("pending"),
+  uploadedBy: text("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  ...timestamps,
+});
+
 /** Тариф. Строки заводит и редактирует админ; код опирается только на `slug`
  * и на список фич, а цены/названия/описания — данные, не константы. */
 export const plans = sqliteTable("plans", {
@@ -615,6 +640,8 @@ export const plans = sqliteTable("plans", {
   priceYearly: integer("price_yearly"),
   /** Разовый платёж за пожизненный доступ (уровень «Основатель»). */
   priceLifetime: integer("price_lifetime"),
+  /** Неделя (тестовый билет). null — такого периода нет. */
+  priceWeekly: integer("price_weekly"),
   /** JSON-массив ключей фич из lib/entitlements.ts. */
   features: text("features").notNull().default("[]"),
   /** Ограниченный тираж: сколько всего мест. null — без ограничений. */
@@ -642,7 +669,7 @@ export const subscriptions = sqliteTable("subscriptions", {
   status: text("status", { enum: ["pending", "active", "canceled", "expired"] })
     .notNull()
     .default("pending"),
-  period: text("period", { enum: ["month", "year", "lifetime"] })
+  period: text("period", { enum: ["week", "month", "year", "lifetime"] })
     .notNull()
     .default("month"),
   startedAt: text("started_at"),
@@ -748,6 +775,8 @@ export const channels = sqliteTable("channels", {
   slug: text("slug").notNull(),
   title: text("title").notNull(),
   description: text("description"),
+  avatarAttachmentId: text("avatar_attachment_id"),
+  coverAttachmentId: text("cover_attachment_id"),
   ownerId: text("owner_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -770,9 +799,14 @@ export const channelPosts = sqliteTable("channel_posts", {
   slug: text("slug").notNull(),
   title: text("title").notNull(),
   body: text("body").notNull(),
+  contentJson: text("content_json"),
+  revision: integer("revision").notNull().default(1),
+  clientKey: text("client_key"),
+  deletedAt: text("deleted_at"),
   documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
   published: integer("published").notNull().default(1),
   pinned: integer("pinned").notNull().default(0),
+  commentsOpen: integer("comments_open").notNull().default(1),
   updatedAt: text("updated_at"),
   ...timestamps,
 }, (table) => ({
@@ -780,6 +814,47 @@ export const channelPosts = sqliteTable("channel_posts", {
   slugIdx: uniqueIndex("channel_posts_slug_idx").on(table.channelId, table.slug),
   createdIdx: index("channel_posts_created_idx").on(table.createdAt),
 }));
+
+export const channelComments = sqliteTable("channel_comments", {
+  id: text("id").primaryKey(),
+  postId: text("post_id")
+    .notNull()
+    .references(() => channelPosts.id, { onDelete: "cascade" }),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  parentId: text("parent_id"),
+  createdAt: text("created_at").notNull().default(sql`current_timestamp`),
+}, (table) => ({
+  postIdx: index("channel_comments_post_idx").on(table.postId),
+}));
+
+export const channelModerators = sqliteTable("channel_moderators", {
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  role: text("role", { enum: ["admin", "editor", "moderator"] }).notNull().default("editor"),
+  legacyModeration: integer("legacy_moderation").notNull().default(1),
+  createdAt: text("created_at").notNull().default(sql`current_timestamp`),
+}, (table) => ({
+  pk: uniqueIndex("channel_moderators_pk").on(table.channelId, table.userId),
+}));
+
+export const channelPostReactions = sqliteTable("channel_post_reactions", {
+  postId: text("post_id").notNull().references(() => channelPosts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  emoji: text("emoji").notNull(),
+  ...timestamps,
+}, t => ({ pk: primaryKey({ columns: [t.postId, t.userId, t.emoji] }) }));
+export const channelPostSaves = sqliteTable("channel_post_saves", {
+  postId: text("post_id").notNull().references(() => channelPosts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ...timestamps,
+}, t => ({ pk: primaryKey({ columns: [t.postId, t.userId] }) }));
 
 /**
  * Платные встречи вроде «Пробела». Цена в копейках, места и статус правит
@@ -793,6 +868,15 @@ export const seminars = sqliteTable("seminars", {
   summary: text("summary"),
   body: text("body").notNull().default(""),
   location: text("location"),
+  kind: text("kind", { enum: ["seminar", "rehearsal", "reading", "club", "group", "discussion"] }).notNull().default("seminar"),
+  accessMode: text("access_mode", { enum: ["legacy", "open", "invite", "closed", "paid"] }).notNull().default("legacy"),
+  roomEnabled: integer("room_enabled").notNull().default(0),
+  readingState: text("reading_state"),
+  inviteHash: text("invite_hash"),
+  discussionLocked: integer("discussion_locked").notNull().default(0),
+  meetUrl: text("meet_url"),
+  documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+  hostUserId: text("host_user_id").references(() => users.id, { onDelete: "set null" }),
   startsAt: text("starts_at"),
   /** В копейках. Стартовое значение вроде 2000 ₽ задаёт админ. */
   priceKopeks: integer("price_kopeks").notNull().default(200000),
@@ -824,6 +908,23 @@ export const seminarTickets = sqliteTable("seminar_tickets", {
   userIdx: index("seminar_tickets_user_idx").on(table.userId),
 }));
 
+export const seminarMembers = sqliteTable("seminar_members", {
+  seminarId: text("seminar_id").notNull().references(() => seminars.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member"),
+  status: text("status").notNull().default("invited"),
+  invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+  joinedAt: text("joined_at"),
+  ...timestamps,
+}, t => ({ pk: primaryKey({ columns: [t.seminarId, t.userId] }) }));
+export const seminarMeetings = sqliteTable("seminar_meetings", {
+  id: text("id").primaryKey(),
+  seminarId: text("seminar_id").notNull().references(() => seminars.id, { onDelete: "cascade" }),
+  title: text("title").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at"),
+  notes: text("notes").notNull().default(""), status: text("status").notNull().default("scheduled"),
+  ...timestamps,
+}, t => ({ roomIdx: index("seminar_meetings_room_idx").on(t.seminarId, t.startsAt) }));
+
 /**
  * Сбор на оцифровку. Прогресс считается суммой успешных платежей kind=campaign.
  * Когда цель закрыта, имена поддержавших остаются на странице навсегда.
@@ -845,3 +946,105 @@ export const campaigns = sqliteTable("campaigns", {
   slugIdx: uniqueIndex("campaigns_slug_idx").on(table.slug),
   documentIdx: index("campaigns_document_idx").on(table.documentId),
 }));
+
+/** Недельный тестовый билет: одна почта — один раз, даже если аккаунт пересоздали. */
+export const trialClaims = sqliteTable("trial_claims", {
+  email: text("email").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  claimedAt: text("claimed_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+  paymentId: text("payment_id"),
+});
+
+/** Действия читателей для админского мониторинга и сегментов. */
+export const activityEvents = sqliteTable("activity_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email"),
+  action: text("action").notNull(),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
+  meta: text("meta"),
+  ip: text("ip"),
+  ...timestamps,
+}, (table) => ({
+  createdIdx: index("activity_events_created_idx").on(table.createdAt),
+  userIdx: index("activity_events_user_idx").on(table.userId),
+  actionIdx: index("activity_events_action_idx").on(table.action),
+}));
+
+/** Вложения к темам, ответам, каналам и встречам. Лежат вне public/. */
+export const communityAttachments = sqliteTable("community_attachments", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  parentType: text("parent_type"),
+  parentId: text("parent_id"),
+  kind: text("kind").notNull(),
+  mime: text("mime").notNull(),
+  originalName: text("original_name").notNull(),
+  diskName: text("disk_name").notNull(),
+  size: integer("size").notNull(),
+  ...timestamps,
+}, (table) => ({
+  parentIdx: index("community_attachments_parent_idx").on(table.parentType, table.parentId),
+  ownerIdx: index("community_attachments_owner_idx").on(table.ownerId),
+}));
+
+export const forumWatches = sqliteTable("forum_watches", {
+  lastReadSeq: integer("last_read_seq").notNull().default(0),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  topicId: text("topic_id")
+    .notNull()
+    .references(() => forumTopics.id, { onDelete: "cascade" }),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+}, (table) => ({
+  pk: uniqueIndex("forum_watches_pk").on(table.userId, table.topicId),
+}));
+
+export const channelFollows = sqliteTable("channel_follows", {
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+}, (table) => ({
+  pk: uniqueIndex("channel_follows_pk").on(table.userId, table.channelId),
+}));
+
+export const forumReactions = sqliteTable("forum_reactions", {
+  postId: text("post_id")
+    .notNull()
+    .references(() => forumPosts.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  emoji: text("emoji").notNull(),
+  ...timestamps,
+}, (table) => ({
+  pk: uniqueIndex("forum_reactions_pk").on(table.postId, table.userId, table.emoji),
+  postIdx: index("forum_reactions_post_idx").on(table.postId),
+}));
+
+export const communityMarks = sqliteTable("community_marks", {
+  attachmentId: text("attachment_id")
+    .notNull()
+    .primaryKey()
+    .references(() => communityAttachments.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  payload: text("payload").notNull(),
+  updatedAt: text("updated_at"),
+  ...timestamps,
+});

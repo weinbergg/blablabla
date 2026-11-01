@@ -52,7 +52,7 @@ export default async function AccountPage() {
         <p className="eyebrow mb-3">
           {ROLE_LABELS[user.role as UserRole] ?? user.role} · {user.name}
         </p>
-        <h1 className="font-serif text-4xl tracking-tight md:text-5xl">Кабинет</h1>
+        <h1 className="display">Кабинет</h1>
 
         <div className="mt-8 grid gap-6 lg:grid-cols-2">
           <AccountSubscription
@@ -64,7 +64,7 @@ export default async function AccountPage() {
             period={entitlements.period}
           />
 
-          <section className="rounded-3xl border border-ink/10 bg-white/50 p-8 shadow-[0_24px_80px_rgba(25,31,40,0.08)] backdrop-blur dark:bg-white/5 dark:shadow-none md:p-10">
+          <section className="border border-ink/10 p-8 md:p-10">
             <p className="eyebrow mb-3">Профиль</p>
             <h2 className="font-serif text-2xl tracking-tight">Знак, почта, пароль</h2>
             <p className="mt-3 text-sm leading-6 text-muted">
@@ -86,7 +86,7 @@ export default async function AccountPage() {
         </div>
 
         {(payments.length > 0 || tickets.length > 0 || ownChannel || hasFeature(entitlements, "channels.publish")) && (
-          <section className="mt-6 rounded-3xl border border-ink/10 p-8 md:p-10">
+          <section className="mt-6 border border-ink/10 p-8 md:p-10">
             {payments.length > 0 && (
               <div>
                 <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">Платежи</p>
@@ -108,16 +108,22 @@ export default async function AccountPage() {
 
             {tickets.length > 0 && (
               <div className={payments.length > 0 ? "mt-6 border-t border-ink/10 pt-5" : ""}>
-                <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">Встречи</p>
-                <ul className="space-y-1 text-sm">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">Мои чтения</p>
+                <ul className="space-y-3 text-sm">
                   {tickets.map((ticket) => (
                     <li key={ticket.id}>
-                      <Link href={`/seminars/${ticket.slug}`} className="underline-offset-2 hover:underline">
+                      <Link href={`/seminars/${ticket.slug}`} className="font-medium underline-offset-2 hover:underline">
                         {ticket.title}
                       </Link>
-                      <span className="text-xs text-muted">
+                      <p className="text-xs text-muted">
+                        {ticket.kind === "rehearsal" ? "репетиторство" : "семинар"}
                         {ticket.startsAt ? ` · ${formatWhen(ticket.startsAt)}` : ""}
-                      </span>
+                      </p>
+                      {ticket.meetUrl ? (
+                        <a href={ticket.meetUrl} className="mt-1 block break-all text-xs text-rust hover:underline">
+                          {ticket.meetUrl}
+                        </a>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+
+export type ReportTarget = "annotation" | "comment" | "channel_post" | "forum_post";
 
 const PRESETS = [
   "Оскорбление или травля",
@@ -12,7 +14,7 @@ const PRESETS = [
 ] as const;
 
 export async function submitReportWithReason(
-  targetType: "annotation" | "comment",
+  targetType: ReportTarget,
   targetId: string,
   reason: string,
 ) {
@@ -32,17 +34,20 @@ export function ReportDialog({
   onClose,
 }: {
   open: boolean;
-  targetType: "annotation" | "comment" | null;
+  targetType: ReportTarget | null;
   targetId: string | null;
   onClose: () => void;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [sent, setSent] = useState(false);
   const [preset, setPreset] = useState<(typeof PRESETS)[number]>("Оскорбление или травля");
   const [details, setDetails] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { dialog.current?.close(); return; }
+    dialog.current?.showModal(); setSent(false);
     setPreset("Оскорбление или травля");
     setDetails("");
     setError("");
@@ -53,7 +58,6 @@ export function ReportDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open || !targetType || !targetId) return null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -70,22 +74,19 @@ export function ReportDialog({
     }
     setBusy(true);
     setError("");
-    const ok = await submitReportWithReason(targetType, targetId, reason.slice(0, 500));
-    setBusy(false);
-    if (!ok) {
-      setError("Не получилось отправить жалобу.");
-      return;
-    }
-    window.alert("Спасибо, жалоба отправлена модератору.");
-    onClose();
+    try {
+      const ok = await submitReportWithReason(targetType, targetId, reason.slice(0, 500));
+      if (!ok) throw new Error("Не получилось отправить жалобу. Попробуйте ещё раз.");
+      setSent(true);
+    } catch (e) { setError(e instanceof Error ? e.message : "Нет связи. Причина жалобы сохранена в этом окне."); } finally { setBusy(false); }
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-ink/40 p-4 sm:items-center" role="dialog" aria-modal="true">
-      <button type="button" className="absolute inset-0 cursor-default" aria-label="Закрыть" onClick={onClose} />
+    <dialog ref={dialog} className="publication-dialog" aria-label="Жалоба на материал" onCancel={onClose} onClose={onClose}>
+      {sent ? <div><h2 className="font-serif text-2xl">Жалоба отправлена</h2><p role="status" className="mt-4 text-sm leading-7 text-muted">Модератор рассмотрит причину и материал. Спасибо, что помогаете беречь пространство разговора.</p><button type="button" className="button-primary mt-6" onClick={onClose}>Закрыть</button></div> :
       <form
         onSubmit={submit}
-        className="relative z-10 w-full max-w-md rounded-2xl border border-ink/10 bg-paper p-5 shadow-2xl"
+        className="w-full"
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
@@ -100,7 +101,7 @@ export function ReportDialog({
         </div>
         <label className="field mb-3">
           <span>Причина</span>
-          <select value={preset} onChange={(event) => setPreset(event.target.value as (typeof PRESETS)[number])}>
+          <select aria-label="Причина" value={preset} onChange={(event) => setPreset(event.target.value as (typeof PRESETS)[number])}>
             {PRESETS.map((item) => (
               <option key={item} value={item}>
                 {item}
@@ -127,7 +128,7 @@ export function ReportDialog({
             {busy ? "Отправляю…" : "Отправить"}
           </button>
         </div>
-      </form>
-    </div>
+      </form>}
+    </dialog>
   );
 }

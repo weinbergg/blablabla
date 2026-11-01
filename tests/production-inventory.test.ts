@@ -1,0 +1,35 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { tmpdir } from "node:os";
+import { fixture } from "./support/isolated-db";
+const require = createRequire(import.meta.url);
+
+test("production inventory reads a copy without exposing env values, user records or settings secrets", async t => {
+  const folder = mkdtempSync(path.join(tmpdir(), "blabla-inventory-"));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  mkdirSync(path.join(folder, "data")); symlinkSync(path.resolve("node_modules"), path.join(folder, "node_modules"));
+  const secret = "must-not-appear-in-inventory";
+  writeFileSync(path.join(folder, ".env.local"), `SMTP_PASS=${secret}\nDATABASE_PATH=data/app.db\n`);
+  const f = fixture(); t.after(() => f.sqlite.close());
+  f.sqlite.prepare("UPDATE users SET email=? WHERE id='owner'").run(secret + "@example.invalid");
+  f.sqlite.prepare("INSERT INTO site_settings(key,value) VALUES('billing-secret',?)").run(secret);
+  f.sqlite.exec(`INSERT INTO site_settings(key,value) VALUES('feature_flags','{"modes":{"rooms":"off"},"testerIds":["private-user-id"]}')`);
+  await f.sqlite.backup(path.join(folder, "data/app.db"));
+  const { inspect } = require("../scripts/inspect-production.cjs");
+  const result = inspect(folder, { system: false });
+  assert.equal(JSON.stringify(result).includes(secret), false);
+  assert.equal(JSON.stringify(result).includes("private-user-id"), false);
+  assert.equal(result.readOnly, true); assert.equal(result.releaseReady, false);
+  assert.equal(result.database.tables.find((table: { name: string }) => table.name === "users").count, 2);
+  assert.equal(result.database.quickCheck, "ok"); assert.equal(result.featureFlags.modes.rooms, "off");
+  assert.deepEqual(result.environmentFiles[0].names, ["SMTP_PASS", "DATABASE_PATH"]);
+  const copy = path.join(folder, "data/app.db"), before = readFileSync(copy);
+  const forbidden = spawnSync(process.execPath, ["--import", "tsx", "scripts/setup-test-accounts.ts"], { encoding: "utf8", env: { ...process.env, NODE_ENV: "production", ALLOW_TEST_ACCOUNTS: "1", TEST_ACCOUNT_PASSWORD: secret, DATABASE_PATH: copy } });
+  assert.equal(forbidden.status, 1); assert.match(forbidden.stderr, /production is forbidden/);
+  assert.equal((forbidden.stdout + forbidden.stderr).includes(secret), false);
+  assert.deepEqual(readFileSync(copy), before, "QA helper must not import the DB client or change production data");
+});

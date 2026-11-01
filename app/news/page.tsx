@@ -1,89 +1,23 @@
 import Link from "next/link";
+import { BookOpen, Search, ArrowUpRight, PenLine } from "lucide-react";
 import { Header } from "@/components/header";
-import { ChannelComposer } from "@/components/channel-composer";
-import { ChannelPostBody } from "@/components/channel-post-body";
+import { ChannelFeed } from "@/components/channel-feed";
 import { getCurrentUser } from "@/lib/auth";
-import { ensureNewsChannelForSite, formatWhen, listChannelPosts } from "@/lib/db/channels";
-
+import { getChannelByOwner, listAuthorChannels, ensureNewsChannelForSite } from "@/lib/db/channels";
+import { publicationFeed } from "@/lib/db/feed";
 export const dynamic = "force-dynamic";
-
-export default async function NewsPage() {
-  const user = await getCurrentUser();
-  const channel = await ensureNewsChannelForSite();
-  const posts = channel ? await listChannelPosts(channel.id) : [];
-  const canWrite = user?.role === "admin" && Boolean(channel);
-
-  return (
-    <>
-      <Header />
-      <main className="shell py-12 md:py-16">
-        <p className="eyebrow mb-3">Библиотека</p>
-        <h1 className="font-serif text-4xl tracking-tight md:text-5xl">Новости</h1>
-        <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
-          Хроника фонда, встреч и оцифровки. Это колонка, не лента статусов: у каждой
-          записи есть заголовок и текст, который читают целиком.
-        </p>
-        <p className="mt-3 text-sm text-muted">
-          Авторские каналы читателей —{" "}
-          <Link href="/channels" className="underline underline-offset-2 hover:text-ink">
-            отдельным списком
-          </Link>
-          .
-        </p>
-
-        <div className="mt-12 grid gap-12 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div>
-            {posts.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-ink/15 px-5 py-10 text-sm text-muted">
-                <p className="font-medium text-ink">Пока тишина.</p>
-                <p className="mt-2 leading-6">Первая запись появится, когда будет что сказать по делу.</p>
-              </div>
-            ) : (
-              <ol className="space-y-10">
-                {posts.map((post) => (
-                  <li key={post.id} className={post.pinned ? "border-l-2 border-rust pl-5" : ""}>
-                    {post.pinned ? <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-rust">Закреплено</p> : null}
-                    <Link href={`/news/${post.slug}`} className="group block">
-                      <h2 className="font-serif text-2xl tracking-tight group-hover:text-rust">{post.title}</h2>
-                      <p className="mt-1 text-xs text-muted">
-                        {formatWhen(post.createdAt)}
-                        {post.documentTitle ? ` · ${post.documentTitle}` : ""}
-                      </p>
-                    </Link>
-                    <div className="mt-4 max-w-2xl">
-                      <ChannelPostBody text={excerpt(post.body)} />
-                    </div>
-                    {post.body.trim().length > 480 ? (
-                      <Link href={`/news/${post.slug}`} className="mt-3 inline-block text-sm text-muted underline underline-offset-2 hover:text-ink">
-                        Читать целиком
-                      </Link>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-          <aside>
-            {canWrite && channel ? (
-              <ChannelComposer
-                channelId={channel.id}
-                isNews
-                postHref={(slug) => `/news/${slug}`}
-              />
-            ) : (
-              <p className="text-sm leading-6 text-muted">
-                Пишут только те, кто ведёт библиотеку. Читать можно без билета.
-              </p>
-            )}
-          </aside>
-        </div>
-      </main>
-    </>
-  );
-}
-
-function excerpt(text: string) {
-  const trimmed = text.trim();
-  if (trimmed.length <= 480) return trimmed;
-  return `${trimmed.slice(0, 480).trimEnd()}…`;
+export default async function NewsPage({ searchParams }: { searchParams: Promise<{ q?: string; mode?: string; page?: string }> }) {
+  const user = await getCurrentUser(); const query = await searchParams;
+  const mode = ["following", "popular", "saved"].includes(query.mode ?? "") ? query.mode! : "new";
+  const [feed, channels, mine, news] = await Promise.all([publicationFeed(user, { mode, q: query.q, page: Number(query.page) || 1 }), listAuthorChannels(), user ? getChannelByOwner(user.id) : null, ensureNewsChannelForSite()]);
+  const writeChannel = mine ?? (user?.role === "admin" ? news : null);
+  const modes = [{ id: "new", label: "Новые" }, { id: "following", label: "Подписки" }, { id: "popular", label: "Популярное" }, { id: "saved", label: "Сохранённое" }];
+  return <><Header /><main className="shell py-8 md:py-12"><header className="mb-8 flex flex-wrap items-end justify-between gap-6"><div><p className="eyebrow">Из читательского круга</p><h1 className="mt-3 font-serif text-4xl tracking-tight md:text-6xl">Мысли на полях</h1><p className="mt-4 max-w-xl text-base leading-7 text-muted">Книги, которые хочется обсудить. Цитаты, к которым возвращаются. Голоса читателей и хроника библиотеки.</p></div><Link href={writeChannel ? `/channels/${writeChannel.slug}/write` : "/channels"} className="button-secondary"><PenLine size={16} />{writeChannel ? "Написать" : "Найти свой канал"}</Link></header>
+    <div className="grid gap-12 lg:grid-cols-[minmax(0,44rem)_minmax(12rem,1fr)]"><div className="min-w-0"><nav aria-label="Режим ленты" className="mb-7 flex gap-5 overflow-x-auto border-b border-ink/20">{modes.map(m => <Link key={m.id} href={`/news?mode=${m.id}`} aria-current={mode === m.id ? "page" : undefined} className={`shrink-0 border-b-2 py-4 text-sm ${mode === m.id ? "border-rust text-ink" : "border-transparent text-muted hover:text-ink"}`}>{m.label}</Link>)}</nav>
+    <form action="/news" className="mb-8 flex items-center gap-3 border-b border-ink/15 pb-3"><input name="mode" value={mode} type="hidden" /><Search size={17} className="shrink-0 text-muted" /><input aria-label="Поиск в ленте" name="q" defaultValue={query.q} placeholder="Найти мысль, книгу или автора" className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none" /><button type="submit" className="text-sm text-rust">Найти</button></form>
+    {mode === "popular" && <p className="mb-6 text-xs text-muted">За последние 30 дней · по числу реакций и комментариев</p>}
+    {!user && ["following", "saved"].includes(mode) ? <div className="border-y border-ink/15 py-12"><h2 className="font-serif text-2xl">Ваша личная лента</h2><p className="my-4 text-sm leading-7 text-muted">Войдите, чтобы читать выбранные каналы и возвращаться к сохранённым публикациям.</p><Link href="/login" className="button-primary">Войти</Link></div> : <ChannelFeed posts={feed.posts} currentUserId={user?.id ?? null} />}
+    <div className="mt-8 flex justify-between text-sm">{feed.page > 1 ? <Link href={`/news?${new URLSearchParams({ mode, q: query.q ?? "", page: String(feed.page - 1) })}`}>← Предыдущие</Link> : <span />}{feed.hasMore && <Link href={`/news?${new URLSearchParams({ mode, q: query.q ?? "", page: String(feed.page + 1) })}`}>Следующие →</Link>}</div></div>
+    <aside className="min-w-0 lg:border-l lg:border-ink/10 lg:pl-8"><div className="flex items-center justify-between border-b border-ink/15 pb-4"><h2 className="eyebrow">Каналы читателей</h2><Link href="/channels" aria-label="Все каналы" className="text-rust"><ArrowUpRight size={17} /></Link></div>{channels.slice(0, 6).map(c => <Link key={c.id} href={`/channels/${c.slug}`} className="block border-b border-ink/10 py-5 group"><span className="block font-serif text-xl leading-snug group-hover:text-rust">{c.title}</span><span className="mt-2 block text-xs text-muted">{c.ownerName} · {c.postCount} публикаций</span></Link>)}<div className="mt-10 border-t-2 border-rust pt-5"><BookOpen size={23} strokeWidth={1.2} className="text-rust" /><h2 className="mt-4 font-serif text-2xl">Сначала — книга</h2><p className="mt-3 text-sm leading-7 text-muted">Каждая цитата может стать началом разговора. Найдите произведение и поделитесь тем, что вас зацепило.</p><Link href="/library" className="mt-5 inline-flex items-center gap-2 text-sm text-rust">Открыть библиотеку <ArrowUpRight size={14} /></Link></div></aside></div>
+  </main></>;
 }

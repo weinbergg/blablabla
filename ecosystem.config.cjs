@@ -4,12 +4,8 @@
  * Next.js and leaves orphan `next-server` processes holding port 3000 after
  * restarts, which then makes every subsequent start fail with EADDRINUSE.
  *
- * Usage on the VPS:
- *   pm2 delete blabla 2>/dev/null
- *   pkill -f 'next-server' 2>/dev/null
- *   fuser -k 3000/tcp 2>/dev/null
- *   pm2 start ecosystem.config.cjs
- *   pm2 save
+ * Release procedure: docs/release-preparation.md. Inspect the actual process
+ * before any separately approved switch; never kill unrelated Next processes.
  *
  * Maintenance flags are read from data/maintenance.json so
  * `bash scripts/maintenance.sh on|off|warn` can flip them via pm2 restart.
@@ -41,7 +37,8 @@ module.exports = {
   apps: [
     {
       name: "blabla",
-      cwd: "/var/www/blabla",
+      // Each reviewed release owns its code; data/uploads are shared symlinks.
+      cwd: __dirname,
       script: "node_modules/next/dist/bin/next",
       args: "start",
       instances: 1,

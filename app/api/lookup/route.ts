@@ -21,6 +21,21 @@ export async function GET(request: Request) {
 
   try {
     const user = await getCurrentUser();
+    const part = searchParams.get("part");
+    if (part === "glossaries") {
+      const glossaryHits = await lookupInGlossaries(q, user?.id ?? null);
+      return NextResponse.json(
+        { glossaryHits },
+        { headers: { "Cache-Control": "private, max-age=30" } },
+      );
+    }
+    if (part === "word") {
+      const result = await lookupWord(q, lang);
+      return NextResponse.json(
+        { ...result, glossaryHits: [] },
+        { headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=600" } },
+      );
+    }
     const [result, glossaryHits] = await Promise.all([
       lookupWord(q, lang),
       lookupInGlossaries(q, user?.id ?? null),

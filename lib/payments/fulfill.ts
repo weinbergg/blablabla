@@ -39,7 +39,14 @@ export async function settleYooKassaPayment(local: PaymentRow, remote: YooKassaP
   await setPaymentStatus(local.id, "succeeded", remote);
 
   if (local.kind === "subscription" && local.userId && local.planSlug) {
-    const period = local.period === "year" ? "year" : local.period === "lifetime" ? "lifetime" : "month";
+    const period =
+      local.period === "year"
+        ? "year"
+        : local.period === "lifetime"
+          ? "lifetime"
+          : local.period === "week"
+            ? "week"
+            : "month";
     const wantsRenew = remote.metadata?.autoRenew === "1";
     const savedId = remote.payment_method?.saved ? remote.payment_method.id : null;
     await grantSubscription({

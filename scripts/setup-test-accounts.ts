@@ -1,17 +1,19 @@
 /**
  * Dev-only helper: (re)creates the three test accounts used for manually
  * checking role-based permissions (admin / booster / member), all with the
- * same known password so they're easy to log into during QA.
+ * explicit local password. Never run against production or the default database.
  *
- * Usage: npx tsx scripts/setup-test-accounts.ts
+ * Requires DATABASE_PATH, ALLOW_TEST_ACCOUNTS=1 and TEST_ACCOUNT_PASSWORD (16+ chars).
  */
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "../lib/password";
-import { db, sqlite } from "../lib/db/client";
 import { users } from "../lib/db/schema";
 
-const PASSWORD = "test1234";
+const password = process.env.TEST_ACCOUNT_PASSWORD;
+if (process.env.NODE_ENV === "production" || process.env.ALLOW_TEST_ACCOUNTS !== "1" || !process.env.DATABASE_PATH || !password || password.length < 16) {
+  throw new Error("Test account setup requires an explicit disposable DATABASE_PATH, ALLOW_TEST_ACCOUNTS=1 and TEST_ACCOUNT_PASSWORD (16+ characters); production is forbidden.");
+}
 
 const accounts: { email: string; name: string; role: "admin" | "booster" | "member" }[] = [
   { email: "admin@test.local", name: "Админ", role: "admin" },
@@ -20,7 +22,9 @@ const accounts: { email: string; name: string; role: "admin" | "booster" | "memb
 ];
 
 async function main() {
-  const passwordHash = await hashPassword(PASSWORD);
+  const { db, sqlite } = await import("../lib/db/client");
+  try {
+  const passwordHash = await hashPassword(password!);
   for (const acc of accounts) {
     const [existing] = await db.select().from(users).where(eq(users.email, acc.email)).limit(1);
     if (existing) {
@@ -34,12 +38,11 @@ async function main() {
       console.log(`Создан: ${acc.email} (${acc.role})`);
     }
   }
-  console.log(`\nПароль для всех трёх: ${PASSWORD}`);
+  } finally { sqlite.close(); }
 }
 
 main()
   .catch((e) => {
     console.error(e);
     process.exitCode = 1;
-  })
-  .finally(() => sqlite.close());
+  });

@@ -38,8 +38,16 @@ export function EventPayButton({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, targetId, amount }),
     });
-    const data = (await response.json().catch(() => ({}))) as { confirmationUrl?: string; error?: string };
+    const data = (await response.json().catch(() => ({}))) as {
+      confirmationUrl?: string;
+      error?: string;
+      free?: boolean;
+    };
     setBusy(false);
+    if (response.ok && data.free) {
+      router.refresh();
+      return;
+    }
     if (!response.ok || !data.confirmationUrl) {
       setError(data.error || "Не удалось начать оплату");
       return;
@@ -50,7 +58,7 @@ export function EventPayButton({
   if (disabledReason) {
     return <p className="text-sm leading-6 text-muted">{disabledReason}</p>;
   }
-  if (!paymentsEnabled) {
+  if (!paymentsEnabled && amount > 0) {
     return (
       <p className="text-sm leading-6 text-muted">
         Приём денег пока выключен. Когда откроется — кнопка появится здесь.
@@ -63,7 +71,7 @@ export function EventPayButton({
       <button type="button" className="button-primary" onClick={() => void pay()} disabled={busy}>
         {busy ? <Loader2 size={15} className="animate-spin" /> : null}
         {label}
-        {kind === "seminar" ? ` · ${formatMoney(amount)}` : ""}
+        {kind === "seminar" && amount > 0 ? ` · ${formatMoney(amount)}` : ""}
       </button>
       {error && <p className="mt-2 text-sm text-rust">{error}</p>}
     </div>

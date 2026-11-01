@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ArrowDownToLine, ArrowUpRight } from "lucide-react";
 import type { AuthorRow, DocumentRow as DocumentRowType } from "@/lib/db/queries";
 import { languageLabel } from "@/lib/languages";
 
@@ -13,12 +12,10 @@ export function DocumentRow({ document, category, showCategory = false }: Props)
   const authorNames = document.authors.map((author) => author.name).join(", ");
 
   return (
-    <article className="group grid grid-cols-[1fr_auto] items-center gap-5 border-t border-ink/10 py-5 md:grid-cols-[1.3fr_.8fr_auto]">
+    <article className="grid grid-cols-[1fr_auto] items-baseline gap-5 border-t border-ink/10 py-5 md:grid-cols-[1.3fr_.8fr_auto]">
       <Link href={`/documents/${document.id}`} className="min-w-0">
         {showCategory && category && (
-          <span className="mb-2 inline-flex rounded-full bg-ink/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-            {category.name}
-          </span>
+          <span className="mb-1 block text-xs text-rust">{category.name}</span>
         )}
         <h3 className="truncate font-serif text-xl tracking-tight md:text-[22px]">
           {document.title}
@@ -27,15 +24,13 @@ export function DocumentRow({ document, category, showCategory = false }: Props)
           {authorNames || "Автор не указан"}
           {document.year ? `, ${document.year}` : ""}
           {document.confidence === "low" && (
-            <span className="ml-2 text-[10px] uppercase tracking-wide text-rust">
-              уточняется
-            </span>
+            <span className="ml-2 text-xs text-rust">уточняется</span>
           )}
         </p>
       </Link>
 
       <div className="hidden text-sm text-muted md:block">
-        <p className="font-mono text-[10px] uppercase tracking-wider">
+        <p>
           {document.fileType}
           {document.pages ? ` · ${document.pages} стр.` : ""}
           {document.language ? ` · ${languageLabel(document.language)}` : ""}
@@ -43,23 +38,18 @@ export function DocumentRow({ document, category, showCategory = false }: Props)
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3 text-sm">
         {document.fileUrl && (
           <a
             href={`/api/files/${document.id}?mode=download`}
             download={document.fileName || undefined}
-            className="grid size-10 shrink-0 place-items-center rounded-full border border-ink/15 text-muted transition-all hover:border-ink hover:bg-ink hover:text-paper"
-            aria-label={`Скачать ${document.title}`}
+            className="text-muted hover:text-ink"
           >
-            <ArrowDownToLine size={17} />
+            скачать
           </a>
         )}
-        <Link
-          href={`/documents/${document.id}`}
-          className="grid size-10 shrink-0 place-items-center rounded-full border border-ink/15 text-muted transition-all group-hover:border-ink group-hover:bg-ink group-hover:text-paper"
-          aria-label={`Открыть ${document.title}`}
-        >
-          <ArrowUpRight size={17} />
+        <Link href={`/documents/${document.id}`} className="text-rust hover:underline">
+          открыть
         </Link>
       </div>
     </article>

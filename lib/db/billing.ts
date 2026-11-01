@@ -3,7 +3,8 @@ import "server-only";
 import { randomUUID } from "crypto";
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "./client";
-import { downloadEvents, payments, plans, subscriptions, users } from "./schema";
+import { downloadEvents, payments, plans, subscriptions, trialClaims, users } from "./schema";
+import type { BillingPeriod } from "@/lib/billing-period";
 import {
   FEATURE_KEYS,
   FREE_FEATURES,
@@ -23,6 +24,7 @@ export type Plan = {
   priceMonthly: number;
   priceYearly: number | null;
   priceLifetime: number | null;
+  priceWeekly: number | null;
   features: FeatureKey[];
   seatLimit: number | null;
   lifetime: boolean;
@@ -54,6 +56,7 @@ function rowToPlan(row: typeof plans.$inferSelect): Plan {
     priceMonthly: row.priceMonthly,
     priceYearly: row.priceYearly,
     priceLifetime: row.priceLifetime,
+    priceWeekly: row.priceWeekly,
     features: parseFeatures(row.features),
     seatLimit: row.seatLimit,
     lifetime: Boolean(row.lifetime),
@@ -83,14 +86,12 @@ async function syncSeedFeatures() {
   }
 }
 
-/** Первый запуск: заливаем стартовые тарифы, дальше истина — база. */
+/** Первый запуск: заливаем стартовые тарифы. Новые семена дописываем, цены живых не трогаем. */
 async function ensurePlansSeeded() {
-  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(plans);
-  if (count > 0) {
-    await syncSeedFeatures();
-    return;
-  }
+  const existing = await db.select({ slug: plans.slug }).from(plans);
+  const have = new Set(existing.map((row) => row.slug));
   for (const seed of PLAN_SEEDS) {
+    if (have.has(seed.slug)) continue;
     await db.insert(plans).values({
       id: randomUUID(),
       slug: seed.slug,
@@ -100,6 +101,7 @@ async function ensurePlansSeeded() {
       priceMonthly: seed.priceMonthly,
       priceYearly: seed.priceYearly,
       priceLifetime: seed.priceLifetime,
+      priceWeekly: seed.priceWeekly,
       features: JSON.stringify(seed.features),
       seatLimit: seed.seatLimit,
       lifetime: seed.lifetime ? 1 : 0,
@@ -109,6 +111,7 @@ async function ensurePlansSeeded() {
       sortOrder: seed.sortOrder,
     }).onConflictDoNothing();
   }
+  if (existing.length > 0) await syncSeedFeatures();
 }
 
 export async function getPlans({ onlyActive = false } = {}): Promise<Plan[]> {
@@ -148,6 +151,7 @@ export async function updatePlan(id: string, patch: PlanPatch) {
   if (patch.priceMonthly !== undefined) update.priceMonthly = patch.priceMonthly;
   if (patch.priceYearly !== undefined) update.priceYearly = patch.priceYearly;
   if (patch.priceLifetime !== undefined) update.priceLifetime = patch.priceLifetime;
+  if (patch.priceWeekly !== undefined) update.priceWeekly = patch.priceWeekly;
   if (patch.seatLimit !== undefined) update.seatLimit = patch.seatLimit;
   if (patch.lifetime !== undefined) update.lifetime = patch.lifetime ? 1 : 0;
   if (patch.accent !== undefined) update.accent = patch.accent;
@@ -280,10 +284,11 @@ export async function getEntitlements(
   };
 }
 
-export function addPeriod(from: Date, period: "month" | "year" | "lifetime"): string | null {
+export function addPeriod(from: Date, period: BillingPeriod): string | null {
   if (period === "lifetime") return null;
   const next = new Date(from);
   if (period === "year") next.setFullYear(next.getFullYear() + 1);
+  else if (period === "week") next.setDate(next.getDate() + 7);
   else next.setMonth(next.getMonth() + 1);
   return next.toISOString();
 }
@@ -296,7 +301,7 @@ export function addPeriod(from: Date, period: "month" | "year" | "lifetime"): st
 export async function grantSubscription(options: {
   userId: string;
   planSlug: string;
-  period: "month" | "year" | "lifetime";
+  period: BillingPeriod;
   source: "yookassa" | "manual" | "founder" | "promo";
   note?: string | null;
   autoRenew?: boolean;
@@ -353,11 +358,40 @@ export async function grantSubscription(options: {
     expiresAt: plan.lifetime ? null : addPeriod(now, period),
     source,
     note: options.note ?? null,
-    autoRenew: options.autoRenew ? 1 : 0,
-    paymentMethodId: options.paymentMethodId ?? null,
+    autoRenew: planSlug === "trial" || period === "week" ? 0 : options.autoRenew ? 1 : 0,
+    paymentMethodId: planSlug === "trial" ? null : options.paymentMethodId ?? null,
   });
   const [created] = await db.select().from(subscriptions).where(eq(subscriptions.id, id)).limit(1);
+  if (planSlug === "trial") {
+    const [owner] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId)).limit(1);
+    if (owner?.email) await recordTrialClaim(owner.email, userId);
+  }
   return created;
+}
+
+export function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+export async function hasUsedTrial(email: string, userId?: string | null) {
+  const key = normalizeEmail(email);
+  const [byMail] = await db.select().from(trialClaims).where(eq(trialClaims.email, key)).limit(1);
+  if (byMail) return true;
+  if (!userId) return false;
+  const [byUser] = await db
+    .select({ id: subscriptions.id })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.userId, userId), eq(subscriptions.planSlug, "trial")))
+    .limit(1);
+  return Boolean(byUser);
+}
+
+export async function recordTrialClaim(email: string, userId: string, paymentId?: string | null) {
+  const key = normalizeEmail(email);
+  await db
+    .insert(trialClaims)
+    .values({ email: key, userId, paymentId: paymentId ?? null })
+    .onConflictDoNothing();
 }
 
 export async function cancelSubscription(id: string) {

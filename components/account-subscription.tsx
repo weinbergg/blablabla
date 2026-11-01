@@ -46,7 +46,7 @@ export function AccountSubscription({
   }
 
   return (
-    <section className="rounded-3xl border border-ink/10 p-8 md:p-10">
+    <section className="border border-ink/10 p-8 md:p-10">
       <p className="eyebrow mb-3">Доступ</p>
       <h2 className="font-serif text-3xl tracking-tight">{planName}</h2>
       <p className="mt-3 text-sm leading-6 text-muted">

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Copy, MessageSquareText, PanelsTopLeft, Share2, Users } from "lucide-react";
+import { Check, Copy, Lock, MessageSquareText, PanelsTopLeft, Share2, Unlock, Users } from "lucide-react";
+import { useFeature } from "./feature-provider";
 import { serializeShareMessage, type SharePayload } from "@/lib/share-message";
 
 type Friend = { id: string; name: string };
@@ -17,6 +18,7 @@ export function ShareWithFriends({
   preferNativeShare = false,
   fallbackToCopy = false,
   buttonClassName = "",
+  privacy,
 }: {
   payload: SharePayload;
   compact?: boolean;
@@ -25,7 +27,10 @@ export function ShareWithFriends({
   preferNativeShare?: boolean;
   fallbackToCopy?: boolean;
   buttonClassName?: string;
+  privacy?: "open" | "closed" | "both";
 }) {
+  const forumEnabled = useFeature("forum");
+  const commentsEnabled = useFeature("comments");
   const [open, setOpen] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,7 +58,7 @@ export function ShareWithFriends({
       try {
         const [friendsRes, topicsRes] = await Promise.all([
           fetch("/api/friends").catch(() => null),
-          fetch("/api/forum/topics?limit=8").catch(() => null),
+          forumEnabled && commentsEnabled ? fetch("/api/forum/topics?limit=8").catch(() => null) : Promise.resolve(null),
         ]);
         if (cancelled) return;
 
@@ -84,7 +89,7 @@ export function ShareWithFriends({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, forumEnabled, commentsEnabled]);
 
   useEffect(() => {
     if (!open) return;
@@ -118,7 +123,7 @@ export function ShareWithFriends({
       const btn = buttonRef.current;
       if (!btn) return;
       const rect = btn.getBoundingClientRect();
-      const width = Math.min(320, window.innerWidth - 24);
+      const width = Math.min(360, window.innerWidth - 24);
       const gap = 8;
       const panelHeight = panelRef.current?.offsetHeight ?? 320;
       const spaceBelow = window.innerHeight - rect.bottom;
@@ -327,10 +332,15 @@ export function ShareWithFriends({
 
   const iconOnly = compact && !buttonLabel;
   const utilityButtonClass =
-    "inline-flex min-h-9 items-center justify-center gap-2 rounded-full border border-ink/12 px-3 text-[12px] font-medium text-ink transition-colors hover:border-ink/30 hover:bg-ink/[0.03]";
+    "inline-flex min-h-9 items-center justify-center gap-2 rounded-[10px] border border-ink/12 px-3 text-[12px] font-medium text-ink transition-colors hover:border-ink/30 hover:bg-ink/[0.03]";
   const rowButtonClass =
-    "flex w-full items-center justify-between rounded-2xl border border-transparent px-3 py-2 text-left text-sm text-ink transition-colors hover:border-ink/10 hover:bg-ink/[0.03]";
+    "flex w-full items-center justify-between rounded-[10px] border border-transparent px-3 py-2 text-left text-sm text-ink transition-colors hover:border-ink/10 hover:bg-ink/[0.03]";
   const canPrepareDiscussion = canQueueIntoCurrentDiscussion();
+  const path = typeof window === "undefined" ? "" : window.location.pathname;
+  const resolvedPrivacy =
+    privacy ?? (path.startsWith("/messages") ? "closed" : "both");
+  const showClosed = resolvedPrivacy !== "open";
+  const showOpen = resolvedPrivacy !== "closed" && forumEnabled && commentsEnabled;
   const relatedDocumentId = currentDocumentId();
   const sortedTopics = [...topics].sort((a, b) => {
     const aRelated = a.documentId === relatedDocumentId ? 1 : 0;
@@ -346,22 +356,22 @@ export function ShareWithFriends({
         onClick={() => void handleButtonClick()}
         className={`${iconOnly ? "icon-button" : "button-secondary"} ${buttonClassName}`.trim()}
         aria-expanded={open}
-        aria-label="Поделиться"
-        title="Поделиться"
+        aria-label={buttonLabel ?? "Поделиться"}
+        title={buttonLabel ?? "Поделиться"}
       >
-        <Share2 size={compact ? 14 : 15} />
+        <Share2 size={compact ? 14 : 15} className="shrink-0 text-current" />
         {(buttonLabel || !compact) && (quickCopied ? "Скопировано" : buttonLabel ?? "Поделиться")}
       </button>
 
       {open && panelPos && (
         <div
           ref={panelRef}
-          className="sticker-panel fixed z-[80] max-h-[min(30rem,calc(100vh-1.5rem))] overflow-y-auto rounded-[22px] border border-ink/10 bg-white p-4 shadow-[0_18px_45px_rgba(23,32,44,0.14)]"
+          className="sticker-panel fixed z-[80] max-h-[min(32rem,calc(100vh-1.5rem))] overflow-y-auto rounded-[12px] border border-ink/10 bg-paper p-4 shadow-[0_18px_45px_rgba(23,32,44,0.14)]"
           style={{ top: panelPos.top, left: panelPos.left, width: panelPos.width }}
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[11px] text-muted">Поделиться</p>
+              <p className="text-[11px] text-muted">Куда отправить</p>
               <p className="mt-1 line-clamp-2 font-serif text-sm leading-snug text-ink">{payload.title}</p>
             </div>
             <button
@@ -388,10 +398,18 @@ export function ShareWithFriends({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-ink/8 bg-ink/[0.02] p-2.5">
+            {showClosed ? (
+            <div className="rounded-[10px] border border-ink/10 bg-[var(--card)] p-2.5">
+              <p className="mb-1 flex items-center gap-1.5 text-[11px] text-muted">
+                <Lock size={12} />
+                Лично
+              </p>
+              <p className="mb-2 px-0.5 text-[11px] leading-4 text-muted">
+                Закрытый диалог. Видно только выбранному человеку.
+              </p>
               <p className="mb-2 flex items-center gap-1.5 text-[11px] text-muted">
                 <Users size={12} />
-                В чаты
+                Друзья
               </p>
               {loading && <p className="px-3 py-2 text-xs text-muted">загрузка…</p>}
               {!loading && friends.length === 0 && (
@@ -415,8 +433,17 @@ export function ShareWithFriends({
                 ))}
               </ul>
             </div>
+            ) : null}
 
-            <div className="rounded-2xl border border-ink/8 bg-ink/[0.02] p-2.5">
+            {showOpen ? (
+            <div className="rounded-[10px] border border-ink/10 bg-[var(--card)] p-2.5">
+              <p className="mb-1 flex items-center gap-1.5 text-[11px] text-muted">
+                <Unlock size={12} />
+                Открыто
+              </p>
+              <p className="mb-2 px-0.5 text-[11px] leading-4 text-muted">
+                Тема форума видна всем, у кого есть ссылка.
+              </p>
               <p className="mb-2 flex items-center gap-1.5 text-[11px] text-muted">
                 <MessageSquareText size={12} />
                 В обсуждение
@@ -428,12 +455,14 @@ export function ShareWithFriends({
                     <span className="shrink-0 text-[11px] text-rust">ниже</span>
                   </button>
                 )}
-                <a href={discussionUrl()} className={rowButtonClass}>
-                  <span>Открыть обсуждение книги</span>
-                  <span className="shrink-0 text-[11px] text-rust">перейти</span>
-                </a>
+                {currentDocumentId() ? (
+                  <a href={discussionUrl()} className={rowButtonClass}>
+                    <span>Открыть обсуждение книги</span>
+                    <span className="shrink-0 text-[11px] text-rust">перейти</span>
+                  </a>
+                ) : null}
               </div>
-              <div className="mt-2 rounded-2xl border border-ink/8 bg-white/80 p-2">
+              <div className="mt-2 rounded-[10px] border border-ink/10 bg-paper p-2">
                 <p className="mb-1 px-1 text-[11px] text-muted">Последние темы форума</p>
                 {topicsLoading && <p className="px-2 py-2 text-xs text-muted">загрузка тем…</p>}
                 {!topicsLoading && sortedTopics.length === 0 && (
@@ -441,7 +470,7 @@ export function ShareWithFriends({
                 )}
                 <ul className="max-h-44 space-y-1 overflow-y-auto">
                   {sortedTopics.map((topic) => (
-                    <li key={topic.id} className="rounded-2xl border border-transparent px-2 py-2 hover:border-ink/10 hover:bg-ink/[0.02]">
+                    <li key={topic.id} className="rounded-[10px] border border-transparent px-2 py-2 hover:border-ink/10 hover:bg-ink/[0.02]">
                       <div className="flex items-start gap-2">
                         <button
                           type="button"
@@ -476,6 +505,7 @@ export function ShareWithFriends({
                 Карточка откроет у получателя нужную книгу, страницу, цитату или пометку.
               </p>
             </div>
+            ) : null}
           </div>
           {message && <p className="mt-2 text-[11px] text-muted">{message}</p>}
         </div>

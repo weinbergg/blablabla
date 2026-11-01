@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AdminDashboard, type AdminDocument } from "@/components/admin-dashboard";
 import { getCurrentUser } from "@/lib/auth";
+import { getSiteConfig } from "@/lib/db/settings";
 import { db } from "@/lib/db/client";
 import { invites } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
@@ -33,6 +34,7 @@ export default async function AdminPage() {
     growthSummary,
     feedbackList,
     secondaryCategoryIdsByDoc,
+    siteConfig,
   ] = await Promise.all([
     getCategoryTree(),
     getAllDocumentsForSearch(),
@@ -43,6 +45,7 @@ export default async function AdminPage() {
     getGrowthSummary(),
     getFeedbackList(),
     getAllSecondaryCategoryIdsByDoc(),
+    getSiteConfig(),
   ]);
 
   const categoryById = new Map<string, string>();
@@ -97,6 +100,7 @@ export default async function AdminPage() {
       currentUserId={user.id}
       currentUserName={user.name}
       currentUserEmail={user.email}
+      musicEnabled={siteConfig.musicEnabled}
     />
   );
 }

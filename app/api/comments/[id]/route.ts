@@ -1,3 +1,4 @@
+import { featureDenied } from "@/lib/features";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
@@ -9,6 +10,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const featureBlock = await featureDenied(["comments"]); if (featureBlock) return featureBlock;
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
@@ -41,6 +43,7 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const featureBlock = await featureDenied(["comments"]); if (featureBlock) return featureBlock;
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
@@ -55,11 +58,18 @@ export async function DELETE(
     return NextResponse.json({ error: "Нет прав." }, { status: 403 });
   }
 
-  await db.delete(comments).where(eq(comments.id, id));
-  await db
-    .update(reports)
-    .set({ status: "resolved", resolvedBy: user.id, resolvedAt: new Date().toISOString() })
-    .where(and(eq(reports.targetType, "comment"), eq(reports.targetId, id), eq(reports.status, "open")));
+  db.transaction((tx) => {
+    // Preserve other people's replies when the original comment is removed.
+    tx.update(comments)
+      .set({ parentId: comment.parentId, page: comment.page })
+      .where(and(eq(comments.parentId, id), eq(comments.documentId, comment.documentId)))
+      .run();
+    tx.delete(comments).where(eq(comments.id, id)).run();
+    tx.update(reports)
+      .set({ status: "resolved", resolvedBy: user.id, resolvedAt: new Date().toISOString() })
+      .where(and(eq(reports.targetType, "comment"), eq(reports.targetId, id), eq(reports.status, "open")))
+      .run();
+  });
   revalidatePath(`/documents/${comment.documentId}`);
   revalidatePath("/admin");
   return NextResponse.json({ ok: true });

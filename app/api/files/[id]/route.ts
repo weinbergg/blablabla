@@ -7,6 +7,7 @@ import { getEntitlements, recordDownload } from "@/lib/db/billing";
 import { getSiteConfig } from "@/lib/db/settings";
 import { assertDownloadUnits } from "@/lib/download-quota";
 import { hasFeature } from "@/lib/entitlements";
+import { logActivity } from "@/lib/activity";
 import { clientIpFrom, verifyFileToken } from "@/lib/file-access";
 import { buildFileResponse } from "@/lib/file-serve";
 
@@ -44,7 +45,11 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     return NextResponse.json({ error: "Файл не найден" }, { status: 404 });
   }
 
-  const user = await getCurrentUser();
+  const rangeHeader = request.headers.get("range");
+  const continuesRange = Boolean(rangeHeader && !/^bytes=0-/.test(rangeHeader));
+  // Продолжение Range не трогает сессию: pdf.js берёт большой скан сотнями
+  // кусков, и каждый кусок ждал чтение сессии из базы.
+  const user = continuesRange && mode === "inline" ? null : await getCurrentUser();
 
   if (mode === "download") {
     if (!user) {
@@ -67,6 +72,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       config,
     });
     if (!quota.ok) return quota.response;
+    logActivity({
+      userId: user.id,
+      email: user.email,
+      action: "download",
+      targetType: "document",
+      targetId: doc.id,
+      ip: clientIpFrom(request.headers),
+    });
   } else {
     const payload = await verifyFileToken(url.searchParams.get("t"));
     if (!payload || payload.d !== id) {
@@ -74,13 +87,19 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     }
   }
 
-  await recordDownload({
-    userId: user?.id ?? null,
-    documentId: doc.id,
-    kind: mode === "download" ? "download" : "read",
-    ip: clientIpFrom(request.headers),
-    userAgent: request.headers.get("user-agent"),
-  });
+  // pdf.js берёт большой скан кусками. Писать событие на каждый Range
+  // заставляло каждый кусок ждать вставку в базу — первая страница ждала
+  // десятки таких пауз. Считаем только начало чтения.
+  if (!continuesRange) {
+    if (mode !== "download") logActivity({ userId: user?.id, action: "read", targetType: "document", targetId: doc.id });
+    await recordDownload({
+      userId: user?.id ?? null,
+      documentId: doc.id,
+      kind: mode === "download" ? "download" : "read",
+      ip: clientIpFrom(request.headers),
+      userAgent: request.headers.get("user-agent"),
+    });
+  }
 
   return buildFileResponse({
     fileUrl: doc.fileUrl,

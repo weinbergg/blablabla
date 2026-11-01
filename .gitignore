@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next-*/
 /out/
 
 # production
@@ -43,6 +44,23 @@ yarn-error.log*
 /data/*.db-journal
 /data/*.db-wal
 /data/*.db-shm
+/*.db
+/*.db-*
+/*.sqlite
+/*.sqlite-*
+/*.sqlite3
+/*.sqlite3-*
+/data/**/*.db
+/data/**/*.db-*
+/data/**/*.sqlite
+/data/**/*.sqlite-*
+/data/**/*.sqlite3
+/data/**/*.sqlite3-*
+/data/backups/
+/data/maintenance.json
+/backups/
+/static-assets/
+/releases/
 /drizzle/meta
 
 # scratch conversion workspace
@@ -66,11 +84,17 @@ next-env.d.ts
 # local design experiments — not for production until approved
 /app/design-preview/
 
+# local playbooks and seed data — never GitHub
+/local-demo/
+/app/local-demo/
+
 # local book staging for imports
 /import-staging/
 
 # in-flight browser uploads streamed to disk before they're committed
 /data/tmp-uploads/
+/data/community-uploads/
+/data/music-uploads/
 
 # local dumps, legal source docs, scratch notes — never deploy
 /*.zip
@@ -80,3 +104,28 @@ next-env.d.ts
 /TODO.md
 /scratch.md
 
+
+# Local verification copies, credentials and browser artifacts
+/data/implementation-checks/
+
+# Browser output (keep tests/, test helpers and intentional fixtures versioned)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+/tests/.auth/
+/screenshots/
+/.epub-*.png
+/.epub-*-dom.html
+/logs/
+/*.log
+
+# Machine-specific editor/agent state; project AGENTS.md/CLAUDE.md remain tracked
+/.codex/
+/.cursor/
+/.idea/
+/.vscode/*.local.json
+*.swp
+*.swo
+Thumbs.db

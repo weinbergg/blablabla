@@ -193,45 +193,74 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
 
     const { angleOf, rootOf } = buildClusterAngles(nodes, edges);
 
-    const simulation = forceSimulation(simNodes)
+    // Authors are satellites of a section, not a second force-directed cloud.
+    // Simulating every author made the map stall and shoved the purple
+    // clusters out from under the cursor.
+    const layoutNodes = simNodes.filter((node) => node.type !== "author");
+    const layoutLinks = simLinks.filter((link) => {
+      const source = typeof link.source === "string" ? link.source : link.source.id;
+      const target = typeof link.target === "string" ? link.target : link.target.id;
+      return !source.startsWith("author:") && !target.startsWith("author:");
+    });
+
+    const simulation = forceSimulation(layoutNodes)
       .force(
         "link",
-        forceLink(simLinks as never[])
+        forceLink(layoutLinks as never[])
           .id((d) => (d as SimNode).id)
           .distance((d) => {
             const edge = d as unknown as GraphEdge & { source: SimNode | string; target: SimNode | string };
-            if (edge.kind === "relation") return 140;
-            if (edge.kind === "authorship") return 48;
             const src = typeof edge.source === "object" ? edge.source : index.get(edge.source);
+            const tgt = typeof edge.target === "object" ? edge.target : index.get(String(edge.target));
+            const gap = (src ? nodeRadius(src) : 12) + (tgt ? nodeRadius(tgt) : 8);
+            if (edge.kind === "relation") return gap + 168;
             const depth = src?.depth ?? 0;
-            // Parent→child: deeper levels sit closer to their parent, so
-            // subsections read as a tree rather than an equal mesh.
-            return 70 + depth * 36;
+            return gap + 108 + depth * 42;
           })
           .strength((d) => {
             const edge = d as unknown as GraphEdge;
-            if (edge.kind === "hierarchy") return 0.95;
-            if (edge.kind === "authorship") return 0.55;
-            return 0.25;
+            if (edge.kind === "hierarchy") return 0.42;
+            return 0.2;
           }),
       )
-      .force("charge", forceManyBody().strength((d) => ((d as SimNode).type === "author" ? -40 : -260)))
+      .force("charge", forceManyBody().strength(-260))
       .force("center", forceCenter(WIDTH / 2, HEIGHT / 2))
       .force("cluster", forceClusterSector(rootOf, angleOf, WIDTH / 2, HEIGHT / 2, Math.min(WIDTH, HEIGHT) * 0.44))
       .force(
         "collide",
-        forceCollide<SimNode>().radius((d) => nodeRadius(d) + (d.type === "author" ? 14 : 22)),
+        forceCollide<SimNode>().radius((d) => nodeRadius(d) + 22),
       )
-      .alphaDecay(0.028)
+      .alphaDecay(0.06)
       .stop();
 
     // Settle the layout silently before it ever hits the screen — running the
     // simulation live from a cold, clustered start makes everything visibly
     // burst apart and then collapse back together, which looks chaotic.
     let iterations = 0;
-    while (simulation.alpha() > simulation.alphaMin() && iterations < 400) {
+    while (simulation.alpha() > simulation.alphaMin() && iterations < 140) {
       simulation.tick();
       iterations++;
+    }
+    const authorsByCategory = new Map<string, SimNode[]>();
+    for (const edge of edges) {
+      if (edge.kind !== "authorship") continue;
+      const author = index.get(edge.source);
+      const category = index.get(edge.target);
+      if (!author || !category || author.type !== "author") continue;
+      const list = authorsByCategory.get(category.id) ?? [];
+      if (!list.includes(author)) list.push(author);
+      authorsByCategory.set(category.id, list);
+    }
+    for (const [categoryId, list] of authorsByCategory) {
+      const category = index.get(categoryId);
+      if (!category) continue;
+      list.forEach((author, i) => {
+        const turn = (i % 12) / 12;
+        const ring = nodeRadius(category) + 86 + Math.floor(i / 12) * 36;
+        const angle = turn * Math.PI * 2 - Math.PI / 2;
+        author.x = (category.x ?? WIDTH / 2) + Math.cos(angle) * ring;
+        author.y = (category.y ?? HEIGHT / 2) + Math.sin(angle) * ring;
+      });
     }
     fitView();
 
@@ -497,8 +526,14 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
       node.fy = node.y;
     }
     const point = toViewBoxPoint(svg, event);
-    node.fx = (point.x - view.x) / view.k;
-    node.fy = (point.y - view.y) / view.k;
+    const x = (point.x - view.x) / view.k;
+    const y = (point.y - view.y) / view.k;
+    node.fx = x;
+    node.fy = y;
+    if (node.type === "author") {
+      node.x = x;
+      node.y = y;
+    }
     forceRender((t) => t + 1);
   }
 
@@ -551,10 +586,37 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
     setView((v) => ({ ...v, x: drag.startPanX + dx, y: drag.startPanY + dy }));
   }
 
-  function handleBackgroundPointerUp() {
+  function nearestVisible(event: React.PointerEvent) {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const point = toViewBoxPoint(svg, event);
+    let best: SimNode | null = null;
+    let bestDist = Infinity;
+    for (const node of nodesRef.current) {
+      if (!visibleNodeIds.has(node.id)) continue;
+      const dx = point.x - toScreenX(node.x ?? 0, view);
+      const dy = point.y - toScreenY(node.y ?? 0, view);
+      const dist = Math.hypot(dx, dy);
+      const hit = Math.max(nodeRadius(node) * elementScale(view.k), node.type === "author" ? 16 : 12) + 8;
+      if (dist <= hit && dist < bestDist) {
+        best = node;
+        bestDist = dist;
+      }
+    }
+    return best;
+  }
+
+  function handleBackgroundPointerUp(event: React.PointerEvent<SVGSVGElement>) {
     const moved = dragPan.current?.moved;
     dragPan.current = null;
-    if (!moved) setPinnedId(null);
+    if (moved) return;
+    const nearest = nearestVisible(event);
+    if (nearest) {
+      setPinnedId(nearest.id);
+      if (nearest.type === "author") setShowAuthors(true);
+      return;
+    }
+    setPinnedId(null);
   }
 
   const relationEdges = links.filter((link) => link.kind === "relation");
@@ -597,8 +659,8 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти раздел…"
-              className="h-8 w-40 rounded-full border border-ink/15 bg-white/70 pl-8 pr-3 text-xs text-ink outline-none focus:border-ink/35 md:w-52"
+              placeholder="Найти раздел или автора…"
+              className="h-8 w-44 rounded-full border border-[#17202c]/30 bg-white pl-8 pr-3 text-xs text-[#17202c] outline-none placeholder:text-[#6e716f] focus:border-[#c85c35] md:w-60"
             />
             {searchHits.length > 0 && (
               <ul className="sticker-panel absolute left-0 top-full z-20 mt-1 max-h-56 w-56 overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-lg">
@@ -751,6 +813,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                 onPointerUp={(event) => handleNodePointerUp(event, node)}
                 className="cursor-pointer"
               >
+                <circle r={Math.max(radius, isAuthor ? 16 : 12)} fill="transparent" />
                 {isPinned && (
                   <circle
                     r={radius + 6}
@@ -795,7 +858,7 @@ export function GraphView({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEd
                   onPointerDown={(event) => handleNodePointerDown(event, node)}
                   onPointerMove={(event) => handleNodePointerMove(event, node)}
                   onPointerUp={(event) => handleNodePointerUp(event, node)}
-                  className="cursor-pointer"
+                  className="pointer-events-none"
                 >
                   <rect
                     x={

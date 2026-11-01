@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { featureEnabled } from "@/lib/features";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   annotations,
@@ -475,7 +476,9 @@ export function matchesSearch(query: string, ...fields: (string | null | undefin
   );
 }
 
-export async function getDocumentComments(documentId: string) {
+export async function getDocumentComments(documentId: string, viewerId: string | null = null) {
+  const [viewer] = viewerId ? await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, viewerId)).limit(1) : [];
+  if (!(await featureEnabled("comments", viewer ?? null))) return [];
   const rows = await db
     .select({
       id: comments.id,
@@ -494,7 +497,15 @@ export async function getDocumentComments(documentId: string) {
     })
     .from(comments)
     .innerJoin(users, eq(comments.authorId, users.id))
-    .where(eq(comments.documentId, documentId))
+    .leftJoin(annotations, eq(comments.annotationId, annotations.id))
+    .where(and(
+      eq(comments.documentId, documentId),
+      or(
+        isNull(comments.annotationId),
+        eq(annotations.visibility, "public"),
+        viewerId ? eq(annotations.authorId, viewerId) : undefined,
+      ),
+    ))
     .orderBy(asc(comments.createdAt));
 
   return rows;
@@ -544,11 +555,22 @@ export async function getMyAnnotations(userId: string): Promise<MyAnnotationRow[
   return rows;
 }
 
-/** Public annotations plus the current viewer's own private ones. */
-export async function getDocumentAnnotations(documentId: string, viewerId: string | null) {
+/** Public annotations plus the current viewer's own private ones.
+ * `pins` — пометки на этой книге. `linked` — те, что открывают другую книгу. */
+export async function getDocumentAnnotations(
+  documentId: string,
+  viewerId: string | null,
+  tier?: "pins" | "linked",
+) {
   const visibility = viewerId
     ? or(eq(annotations.visibility, "public"), eq(annotations.authorId, viewerId))
     : eq(annotations.visibility, "public");
+  const tierClause =
+    tier === "pins"
+      ? isNull(annotations.companionDocumentId)
+      : tier === "linked"
+        ? isNotNull(annotations.companionDocumentId)
+        : undefined;
 
   const rows = await db
     .select({
@@ -565,6 +587,7 @@ export async function getDocumentAnnotations(documentId: string, viewerId: strin
       visibility: annotations.visibility,
       allowDiscussion: annotations.allowDiscussion,
       anchorText: annotations.anchorText,
+      textAnchor: annotations.textAnchor,
       anchorRects: annotations.anchorRects,
       companionDocumentId: annotations.companionDocumentId,
       companionPage: annotations.companionPage,
@@ -573,14 +596,26 @@ export async function getDocumentAnnotations(documentId: string, viewerId: strin
     })
     .from(annotations)
     .innerJoin(users, eq(annotations.authorId, users.id))
-    .where(and(eq(annotations.documentId, documentId), visibility))
+    .where(and(eq(annotations.documentId, documentId), visibility, tierClause))
     .orderBy(asc(annotations.createdAt));
 
   return rows.map((row) => ({
     ...row,
     allowDiscussion: Boolean(row.allowDiscussion),
+    textAnchor: (() => { try { return row.textAnchor ? JSON.parse(row.textAnchor) : null; } catch { return null; } })(),
     anchorRects: parseAnchorRects(row.anchorRects),
   }));
+}
+
+export async function countVisibleAnnotations(documentId: string, viewerId: string | null) {
+  const visibility = viewerId
+    ? or(eq(annotations.visibility, "public"), eq(annotations.authorId, viewerId))
+    : eq(annotations.visibility, "public");
+  const [row] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(annotations)
+    .where(and(eq(annotations.documentId, documentId), visibility));
+  return Number(row?.total ?? 0);
 }
 
 function parseAnchorRects(raw: string | null): AnchorRect[] | null {

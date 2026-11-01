@@ -30,7 +30,7 @@ export default async function LibraryPage() {
           Вернуться в библиотеку
         </Link>
         <p className="eyebrow mb-3">Личное</p>
-        <h1 className="mb-2 font-serif text-4xl tracking-tight">Моя полка</h1>
+        <h1 className="display mb-2">Моя полка</h1>
         <p className="mb-10 max-w-xl text-sm leading-6 text-muted">
           Книги, которые вы отметили на страницах текстов — что хотите прочитать, что уже
           читаете и что закончили. Сравнить полку с другом можно на странице{" "}

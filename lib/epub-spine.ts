@@ -13,6 +13,16 @@ function normalizeEpubHref(raw: string) {
   return { path, file };
 }
 
+function normalizedPath(raw: string) {
+  const path = raw.split(/[?#]/)[0];
+  try {
+    // Collapse dot segments without depending on the host page's URL.
+    return decodeURI(new URL(path, "https://epub.invalid/").pathname).replace(/^\/+/, "");
+  } catch {
+    return path.replace(/^\/+/, "");
+  }
+}
+
 function isAuxiliaryEpubHref(href: string) {
   const { path, file } = normalizeEpubHref(href.trim().toLowerCase());
   const haystack = `${path} ${file}`;
@@ -32,9 +42,8 @@ export function resolveEpubSpineHref(spine: SpineLike | undefined, href: string)
   if (raw.startsWith("#")) return raw;
 
   const hashIndex = raw.indexOf("#");
-  const path = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+  const path = (hashIndex >= 0 ? raw.slice(0, hashIndex) : raw).split("?")[0];
   const hash = hashIndex >= 0 ? raw.slice(hashIndex) : "";
-  const file = path.split("/").filter(Boolean).pop() ?? "";
 
   try {
     const direct = spine.get(raw) || spine.get(path);
@@ -43,19 +52,28 @@ export function resolveEpubSpineHref(spine: SpineLike | undefined, href: string)
     /* continue */
   }
 
+  const targetPath = normalizedPath(path);
+  if (!targetPath) return null;
+  const sections: { href: string; path: string }[] = [];
   const length = spine.length ?? 0;
   for (let i = 0; i < length; i += 1) {
     const section = spine.get(i);
     if (!section?.href) continue;
-    if (
-      section.href === path ||
-      section.href.endsWith(`/${file}`) ||
-      (file && section.href.endsWith(file))
-    ) {
-      return `${section.href}${hash}`;
-    }
+    sections.push({ href: section.href, path: normalizedPath(section.href) });
   }
-  return null;
+  const exact = sections.find((section) => section.path === targetPath);
+  if (exact) return `${exact.href}${hash}`;
+
+  // Some EPUB links include the OPF directory. Match the complete path first;
+  // a basename fallback is safe only when it identifies exactly one chapter.
+  const suffixMatches = sections.filter((section) =>
+    targetPath.endsWith(`/${section.path}`) || section.path.endsWith(`/${targetPath}`),
+  );
+  if (suffixMatches.length === 1) return `${suffixMatches[0].href}${hash}`;
+  if (suffixMatches.length > 1) return null;
+  const file = targetPath.split("/").pop();
+  const fileMatches = sections.filter((section) => section.path.split("/").pop() === file);
+  return fileMatches.length === 1 ? `${fileMatches[0].href}${hash}` : null;
 }
 
 export function pickReadableEpubHref(

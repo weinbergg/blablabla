@@ -1,0 +1,624 @@
+{
+  "schema": [
+    {
+      "type": "index",
+      "name": "annotations_author_idx",
+      "tbl_name": "annotations",
+      "sql": "CREATE INDEX `annotations_author_idx` ON `annotations` (`author_id`)"
+    },
+    {
+      "type": "index",
+      "name": "annotations_document_idx",
+      "tbl_name": "annotations",
+      "sql": "CREATE INDEX `annotations_document_idx` ON `annotations` (`document_id`)"
+    },
+    {
+      "type": "index",
+      "name": "api_tokens_hash_idx",
+      "tbl_name": "api_tokens",
+      "sql": "CREATE UNIQUE INDEX api_tokens_hash_idx ON api_tokens(token_hash)"
+    },
+    {
+      "type": "index",
+      "name": "api_tokens_user_idx",
+      "tbl_name": "api_tokens",
+      "sql": "CREATE INDEX api_tokens_user_idx ON api_tokens(user_id)"
+    },
+    {
+      "type": "index",
+      "name": "authors_slug_idx",
+      "tbl_name": "authors",
+      "sql": "CREATE UNIQUE INDEX `authors_slug_idx` ON `authors` (`slug`)"
+    },
+    {
+      "type": "index",
+      "name": "campaigns_document_idx",
+      "tbl_name": "campaigns",
+      "sql": "CREATE INDEX campaigns_document_idx ON campaigns(document_id)"
+    },
+    {
+      "type": "index",
+      "name": "campaigns_slug_idx",
+      "tbl_name": "campaigns",
+      "sql": "CREATE UNIQUE INDEX campaigns_slug_idx ON campaigns(slug)"
+    },
+    {
+      "type": "index",
+      "name": "categories_parent_idx",
+      "tbl_name": "categories",
+      "sql": "CREATE INDEX `categories_parent_idx` ON `categories` (`parent_id`)"
+    },
+    {
+      "type": "index",
+      "name": "categories_slug_idx",
+      "tbl_name": "categories",
+      "sql": "CREATE UNIQUE INDEX `categories_slug_idx` ON `categories` (`parent_id`,`slug`)"
+    },
+    {
+      "type": "index",
+      "name": "channel_posts_channel_idx",
+      "tbl_name": "channel_posts",
+      "sql": "CREATE INDEX channel_posts_channel_idx ON channel_posts(channel_id)"
+    },
+    {
+      "type": "index",
+      "name": "channel_posts_created_idx",
+      "tbl_name": "channel_posts",
+      "sql": "CREATE INDEX channel_posts_created_idx ON channel_posts(created_at)"
+    },
+    {
+      "type": "index",
+      "name": "channel_posts_slug_idx",
+      "tbl_name": "channel_posts",
+      "sql": "CREATE UNIQUE INDEX channel_posts_slug_idx ON channel_posts(channel_id, slug)"
+    },
+    {
+      "type": "index",
+      "name": "channels_owner_idx",
+      "tbl_name": "channels",
+      "sql": "CREATE INDEX channels_owner_idx ON channels(owner_id)"
+    },
+    {
+      "type": "index",
+      "name": "channels_slug_idx",
+      "tbl_name": "channels",
+      "sql": "CREATE UNIQUE INDEX channels_slug_idx ON channels(slug)"
+    },
+    {
+      "type": "index",
+      "name": "comments_annotation_idx",
+      "tbl_name": "comments",
+      "sql": "CREATE INDEX `comments_annotation_idx` ON `comments` (`annotation_id`)"
+    },
+    {
+      "type": "index",
+      "name": "comments_document_idx",
+      "tbl_name": "comments",
+      "sql": "CREATE INDEX `comments_document_idx` ON `comments` (`document_id`)"
+    },
+    {
+      "type": "index",
+      "name": "conversation_participants_pair_idx",
+      "tbl_name": "conversation_participants",
+      "sql": "CREATE UNIQUE INDEX `conversation_participants_pair_idx` ON `conversation_participants` (`conversation_id`,`user_id`)"
+    },
+    {
+      "type": "index",
+      "name": "conversation_participants_user_idx",
+      "tbl_name": "conversation_participants",
+      "sql": "CREATE INDEX `conversation_participants_user_idx` ON `conversation_participants` (`user_id`)"
+    },
+    {
+      "type": "index",
+      "name": "direct_messages_conversation_idx",
+      "tbl_name": "direct_messages",
+      "sql": "CREATE INDEX `direct_messages_conversation_idx` ON `direct_messages` (`conversation_id`)"
+    },
+    {
+      "type": "index",
+      "name": "document_authors_pair_idx",
+      "tbl_name": "document_authors",
+      "sql": "CREATE UNIQUE INDEX `document_authors_pair_idx` ON `document_authors` (`document_id`,`author_id`)"
+    },
+    {
+      "type": "index",
+      "name": "document_categories_category_idx",
+      "tbl_name": "document_categories",
+      "sql": "CREATE INDEX `document_categories_category_idx` ON `document_categories` (`category_id`)"
+    },
+    {
+      "type": "index",
+      "name": "document_categories_pair_idx",
+      "tbl_name": "document_categories",
+      "sql": "CREATE UNIQUE INDEX `document_categories_pair_idx` ON `document_categories` (`document_id`,`category_id`)"
+    },
+    {
+      "type": "index",
+      "name": "document_subjects_author_idx",
+      "tbl_name": "document_subjects",
+      "sql": "CREATE INDEX `document_subjects_author_idx` ON `document_subjects` (`author_id`)"
+    },
+    {
+      "type": "index",
+      "name": "document_subjects_pair_idx",
+      "tbl_name": "document_subjects",
+      "sql": "CREATE UNIQUE INDEX `document_subjects_pair_idx` ON `document_subjects` (`document_id`,`author_id`)"
+    },
+    {
+      "type": "index",
+      "name": "document_tags_pair_idx",
+      "tbl_name": "document_tags",
+      "sql": "CREATE UNIQUE INDEX `document_tags_pair_idx` ON `document_tags` (`document_id`,`tag_id`)"
+    },
+    {
+      "type": "index",
+      "name": "documents_category_idx",
+      "tbl_name": "documents",
+      "sql": "CREATE INDEX `documents_category_idx` ON `documents` (`category_id`)"
+    },
+    {
+      "type": "index",
+      "name": "documents_content_hash_idx",
+      "tbl_name": "documents",
+      "sql": "CREATE INDEX `documents_content_hash_idx` ON `documents` (`content_hash`)"
+    },
+    {
+      "type": "index",
+      "name": "download_events_created_idx",
+      "tbl_name": "download_events",
+      "sql": "CREATE INDEX download_events_created_idx ON download_events(created_at)"
+    },
+    {
+      "type": "index",
+      "name": "download_events_user_idx",
+      "tbl_name": "download_events",
+      "sql": "CREATE INDEX download_events_user_idx ON download_events(user_id)"
+    },
+    {
+      "type": "index",
+      "name": "feedback_status_idx",
+      "tbl_name": "feedback",
+      "sql": "CREATE INDEX `feedback_status_idx` ON `feedback` (`status`)"
+    },
+    {
+      "type": "index",
+      "name": "forum_posts_topic_idx",
+      "tbl_name": "forum_posts",
+      "sql": "CREATE INDEX forum_posts_topic_idx ON forum_posts(topic_id)"
+    },
+    {
+      "type": "index",
+      "name": "forum_topics_created_idx",
+      "tbl_name": "forum_topics",
+      "sql": "CREATE INDEX forum_topics_created_idx ON forum_topics(created_at)"
+    },
+    {
+      "type": "index",
+      "name": "forum_topics_document_idx",
+      "tbl_name": "forum_topics",
+      "sql": "CREATE INDEX forum_topics_document_idx ON forum_topics(document_id)"
+    },
+    {
+      "type": "index",
+      "name": "friendships_addressee_idx",
+      "tbl_name": "friendships",
+      "sql": "CREATE INDEX `friendships_addressee_idx` ON `friendships` (`addressee_id`)"
+    },
+    {
+      "type": "index",
+      "name": "friendships_pair_idx",
+      "tbl_name": "friendships",
+      "sql": "CREATE UNIQUE INDEX `friendships_pair_idx` ON `friendships` (`requester_id`,`addressee_id`)"
+    },
+    {
+      "type": "index",
+      "name": "friendships_requester_idx",
+      "tbl_name": "friendships",
+      "sql": "CREATE INDEX `friendships_requester_idx` ON `friendships` (`requester_id`)"
+    },
+    {
+      "type": "index",
+      "name": "glossaries_owner_idx",
+      "tbl_name": "glossaries",
+      "sql": "CREATE INDEX `glossaries_owner_idx` ON `glossaries` (`owner_id`)"
+    },
+    {
+      "type": "index",
+      "name": "glossaries_visibility_idx",
+      "tbl_name": "glossaries",
+      "sql": "CREATE INDEX `glossaries_visibility_idx` ON `glossaries` (`visibility`)"
+    },
+    {
+      "type": "index",
+      "name": "glossary_entries_glossary_idx",
+      "tbl_name": "glossary_entries",
+      "sql": "CREATE INDEX `glossary_entries_glossary_idx` ON `glossary_entries` (`glossary_id`)"
+    },
+    {
+      "type": "index",
+      "name": "glossary_entries_term_idx",
+      "tbl_name": "glossary_entries",
+      "sql": "CREATE INDEX `glossary_entries_term_idx` ON `glossary_entries` (`normalized_term`)"
+    },
+    {
+      "type": "index",
+      "name": "invites_code_idx",
+      "tbl_name": "invites",
+      "sql": "CREATE UNIQUE INDEX `invites_code_idx` ON `invites` (`code`)"
+    },
+    {
+      "type": "index",
+      "name": "library_items_document_idx",
+      "tbl_name": "library_items",
+      "sql": "CREATE INDEX `library_items_document_idx` ON `library_items` (`document_id`)"
+    },
+    {
+      "type": "index",
+      "name": "library_items_pair_idx",
+      "tbl_name": "library_items",
+      "sql": "CREATE UNIQUE INDEX `library_items_pair_idx` ON `library_items` (`user_id`,`document_id`)"
+    },
+    {
+      "type": "index",
+      "name": "library_items_user_idx",
+      "tbl_name": "library_items",
+      "sql": "CREATE INDEX `library_items_user_idx` ON `library_items` (`user_id`)"
+    },
+    {
+      "type": "index",
+      "name": "payments_provider_idx",
+      "tbl_name": "payments",
+      "sql": "CREATE INDEX payments_provider_idx ON payments(provider_payment_id)"
+    },
+    {
+      "type": "index",
+      "name": "payments_target_idx",
+      "tbl_name": "payments",
+      "sql": "CREATE INDEX payments_target_idx ON payments(kind, target_id, status)"
+    },
+    {
+      "type": "index",
+      "name": "payments_user_idx",
+      "tbl_name": "payments",
+      "sql": "CREATE INDEX payments_user_idx ON payments(user_id)"
+    },
+    {
+      "type": "index",
+      "name": "plans_slug_idx",
+      "tbl_name": "plans",
+      "sql": "CREATE UNIQUE INDEX plans_slug_idx ON plans(slug)"
+    },
+    {
+      "type": "index",
+      "name": "reports_status_idx",
+      "tbl_name": "reports",
+      "sql": "CREATE INDEX `reports_status_idx` ON `reports` (`status`)"
+    },
+    {
+      "type": "index",
+      "name": "reports_target_idx",
+      "tbl_name": "reports",
+      "sql": "CREATE INDEX `reports_target_idx` ON `reports` (`target_type`,`target_id`)"
+    },
+    {
+      "type": "index",
+      "name": "seminar_tickets_seminar_idx",
+      "tbl_name": "seminar_tickets",
+      "sql": "CREATE INDEX seminar_tickets_seminar_idx ON seminar_tickets(seminar_id)"
+    },
+    {
+      "type": "index",
+      "name": "seminar_tickets_unique_idx",
+      "tbl_name": "seminar_tickets",
+      "sql": "CREATE UNIQUE INDEX seminar_tickets_unique_idx ON seminar_tickets(seminar_id, user_id)"
+    },
+    {
+      "type": "index",
+      "name": "seminar_tickets_user_idx",
+      "tbl_name": "seminar_tickets",
+      "sql": "CREATE INDEX seminar_tickets_user_idx ON seminar_tickets(user_id)"
+    },
+    {
+      "type": "index",
+      "name": "seminars_slug_idx",
+      "tbl_name": "seminars",
+      "sql": "CREATE UNIQUE INDEX seminars_slug_idx ON seminars(slug)"
+    },
+    {
+      "type": "index",
+      "name": "subscriptions_status_idx",
+      "tbl_name": "subscriptions",
+      "sql": "CREATE INDEX subscriptions_status_idx ON subscriptions(status)"
+    },
+    {
+      "type": "index",
+      "name": "subscriptions_user_idx",
+      "tbl_name": "subscriptions",
+      "sql": "CREATE INDEX subscriptions_user_idx ON subscriptions(user_id)"
+    },
+    {
+      "type": "index",
+      "name": "tags_slug_idx",
+      "tbl_name": "tags",
+      "sql": "CREATE UNIQUE INDEX `tags_slug_idx` ON `tags` (`slug`)"
+    },
+    {
+      "type": "index",
+      "name": "users_email_idx",
+      "tbl_name": "users",
+      "sql": "CREATE UNIQUE INDEX `users_email_idx` ON `users` (`email`)"
+    },
+    {
+      "type": "index",
+      "name": "work_documents_document_idx",
+      "tbl_name": "work_documents",
+      "sql": "CREATE UNIQUE INDEX work_documents_document_idx ON work_documents(document_id)"
+    },
+    {
+      "type": "index",
+      "name": "work_documents_work_idx",
+      "tbl_name": "work_documents",
+      "sql": "CREATE INDEX work_documents_work_idx ON work_documents(work_id)"
+    },
+    {
+      "type": "index",
+      "name": "works_author_idx",
+      "tbl_name": "works",
+      "sql": "CREATE INDEX works_author_idx ON works(author_id)"
+    },
+    {
+      "type": "index",
+      "name": "works_slug_idx",
+      "tbl_name": "works",
+      "sql": "CREATE UNIQUE INDEX works_slug_idx ON works(slug)"
+    },
+    {
+      "type": "table",
+      "name": "annotations",
+      "tbl_name": "annotations",
+      "sql": "CREATE TABLE \"annotations\" (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`document_id` text NOT NULL,\n\t`author_id` text NOT NULL,\n\t`page` integer NOT NULL,\n\t`x` integer NOT NULL,\n\t`y` integer NOT NULL,\n\t`shape` text DEFAULT 'note' NOT NULL,\n\t`color` text DEFAULT '#c85c35' NOT NULL,\n\t`body` text DEFAULT '' NOT NULL,\n\t`visibility` text DEFAULT 'public' NOT NULL,\n\t`allow_discussion` integer DEFAULT 0 NOT NULL,\n\t`anchor_text` text,\n\t`anchor_rects` text,\n\t`companion_document_id` text,\n\t`companion_page` integer,\n\t`companion_title` text,\n\t`updated_at` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`companion_document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "api_tokens",
+      "tbl_name": "api_tokens",
+      "sql": "CREATE TABLE api_tokens (\n      id TEXT PRIMARY KEY NOT NULL,\n      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n      name TEXT NOT NULL,\n      token_hash TEXT NOT NULL,\n      prefix TEXT NOT NULL,\n      scope TEXT NOT NULL DEFAULT 'opds',\n      last_used_at TEXT,\n      revoked_at TEXT,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "author_relations",
+      "tbl_name": "author_relations",
+      "sql": "CREATE TABLE `author_relations` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`author_a_id` text NOT NULL,\n\t`author_b_id` text NOT NULL,\n\t`label` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`author_a_id`) REFERENCES `authors`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`author_b_id`) REFERENCES `authors`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "authors",
+      "tbl_name": "authors",
+      "sql": "CREATE TABLE `authors` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`name` text NOT NULL,\n\t`slug` text NOT NULL,\n\t`bio` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "campaigns",
+      "tbl_name": "campaigns",
+      "sql": "CREATE TABLE campaigns (\n      id TEXT PRIMARY KEY NOT NULL,\n      slug TEXT NOT NULL,\n      title TEXT NOT NULL,\n      summary TEXT,\n      body TEXT NOT NULL DEFAULT '',\n      goal_kopeks INTEGER NOT NULL,\n      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,\n      status TEXT NOT NULL DEFAULT 'draft',\n      completed_at TEXT,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "categories",
+      "tbl_name": "categories",
+      "sql": "CREATE TABLE `categories` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`parent_id` text,\n\t`slug` text NOT NULL,\n\t`name` text NOT NULL,\n\t`description` text,\n\t`sort_order` integer DEFAULT 0 NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "category_relations",
+      "tbl_name": "category_relations",
+      "sql": "CREATE TABLE `category_relations` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`category_a_id` text NOT NULL,\n\t`category_b_id` text NOT NULL,\n\t`label` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`category_a_id`) REFERENCES `categories`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`category_b_id`) REFERENCES `categories`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "channel_posts",
+      "tbl_name": "channel_posts",
+      "sql": "CREATE TABLE channel_posts (\n      id TEXT PRIMARY KEY NOT NULL,\n      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,\n      author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n      slug TEXT NOT NULL,\n      title TEXT NOT NULL,\n      body TEXT NOT NULL,\n      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,\n      published INTEGER NOT NULL DEFAULT 1,\n      pinned INTEGER NOT NULL DEFAULT 0,\n      updated_at TEXT,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "channels",
+      "tbl_name": "channels",
+      "sql": "CREATE TABLE channels (\n      id TEXT PRIMARY KEY NOT NULL,\n      slug TEXT NOT NULL,\n      title TEXT NOT NULL,\n      description TEXT,\n      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n      kind TEXT NOT NULL DEFAULT 'author',\n      archived INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "comments",
+      "tbl_name": "comments",
+      "sql": "CREATE TABLE \"comments\" (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`document_id` text NOT NULL,\n\t`parent_id` text,\n\t`annotation_id` text,\n\t`author_id` text NOT NULL,\n\t`page` integer,\n\t`body` text NOT NULL,\n\t`updated_at` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`annotation_id`) REFERENCES `annotations`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "conversation_participants",
+      "tbl_name": "conversation_participants",
+      "sql": "CREATE TABLE `conversation_participants` (\n\t`conversation_id` text NOT NULL,\n\t`user_id` text NOT NULL,\n\t`last_read_at` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`conversation_id`) REFERENCES `conversations`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "conversations",
+      "tbl_name": "conversations",
+      "sql": "CREATE TABLE `conversations` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`title` text,\n\t`created_by` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "direct_messages",
+      "tbl_name": "direct_messages",
+      "sql": "CREATE TABLE `direct_messages` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`conversation_id` text NOT NULL,\n\t`author_id` text NOT NULL,\n\t`body` text NOT NULL,\n\t`created_at` text DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')) NOT NULL,\n\tFOREIGN KEY (`conversation_id`) REFERENCES `conversations`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "document_authors",
+      "tbl_name": "document_authors",
+      "sql": "CREATE TABLE `document_authors` (\n\t`document_id` text NOT NULL,\n\t`author_id` text NOT NULL,\n\t`position` integer DEFAULT 0 NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`author_id`) REFERENCES `authors`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "document_categories",
+      "tbl_name": "document_categories",
+      "sql": "CREATE TABLE `document_categories` (\n\t`document_id` text NOT NULL,\n\t`category_id` text NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "document_edits",
+      "tbl_name": "document_edits",
+      "sql": "CREATE TABLE `document_edits` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`document_id` text NOT NULL,\n\t`editor_id` text,\n\t`field` text NOT NULL,\n\t`old_value` text,\n\t`new_value` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`editor_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "document_subjects",
+      "tbl_name": "document_subjects",
+      "sql": "CREATE TABLE `document_subjects` (\n\t`document_id` text NOT NULL,\n\t`author_id` text NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`author_id`) REFERENCES `authors`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "document_tags",
+      "tbl_name": "document_tags",
+      "sql": "CREATE TABLE `document_tags` (\n\t`document_id` text NOT NULL,\n\t`tag_id` text NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`tag_id`) REFERENCES `tags`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "documents",
+      "tbl_name": "documents",
+      "sql": "CREATE TABLE `documents` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`title` text NOT NULL,\n\t`alternate_title` text,\n\t`year` text,\n\t`description` text,\n\t`category_id` text NOT NULL,\n\t`file_url` text,\n\t`file_name` text,\n\t`file_type` text NOT NULL,\n\t`original_format` text,\n\t`pages` integer,\n\t`confidence` text DEFAULT 'confirmed' NOT NULL,\n\t`source_note` text,\n\t`created_by` text,\n\t`updated_at` text DEFAULT (current_timestamp) NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL, `language` text, `secondary_language` text, `content_hash` text,\n\tFOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON UPDATE no action ON DELETE restrict,\n\tFOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "download_events",
+      "tbl_name": "download_events",
+      "sql": "CREATE TABLE download_events (\n      id TEXT PRIMARY KEY NOT NULL,\n      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,\n      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,\n      kind TEXT NOT NULL DEFAULT 'read',\n      ip TEXT,\n      user_agent TEXT,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    , units INTEGER NOT NULL DEFAULT 1)"
+    },
+    {
+      "type": "table",
+      "name": "feedback",
+      "tbl_name": "feedback",
+      "sql": "CREATE TABLE \"feedback\" (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`author_id` text,\n\t`name` text,\n\t`contact` text,\n\t`body` text NOT NULL,\n\t`status` text DEFAULT 'new' NOT NULL,\n\t`admin_reply` text,\n\t`replied_at` text,\n\t`replied_by` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null,\n\tFOREIGN KEY (`replied_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "forum_posts",
+      "tbl_name": "forum_posts",
+      "sql": "CREATE TABLE forum_posts (\n      id TEXT PRIMARY KEY NOT NULL,\n      topic_id TEXT NOT NULL REFERENCES forum_topics(id) ON DELETE CASCADE,\n      parent_id TEXT,\n      author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n      body TEXT NOT NULL,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    , updated_at TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "forum_topics",
+      "tbl_name": "forum_topics",
+      "sql": "CREATE TABLE forum_topics (\n      id TEXT PRIMARY KEY NOT NULL,\n      title TEXT NOT NULL,\n      body TEXT NOT NULL,\n      author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,\n      locked INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "friendships",
+      "tbl_name": "friendships",
+      "sql": "CREATE TABLE `friendships` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`requester_id` text NOT NULL,\n\t`addressee_id` text NOT NULL,\n\t`status` text DEFAULT 'pending' NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`requester_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`addressee_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "glossaries",
+      "tbl_name": "glossaries",
+      "sql": "CREATE TABLE `glossaries` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`owner_id` text NOT NULL,\n\t`title` text NOT NULL,\n\t`description` text,\n\t`language` text,\n\t`visibility` text DEFAULT 'private' NOT NULL,\n\t`updated_at` text DEFAULT (current_timestamp) NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "glossary_entries",
+      "tbl_name": "glossary_entries",
+      "sql": "CREATE TABLE `glossary_entries` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`glossary_id` text NOT NULL,\n\t`term` text NOT NULL,\n\t`normalized_term` text NOT NULL,\n\t`definition` text NOT NULL,\n\t`notes` text,\n\t`aliases` text,\n\t`created_by` text,\n\t`updated_at` text DEFAULT (current_timestamp) NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`glossary_id`) REFERENCES `glossaries`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "invites",
+      "tbl_name": "invites",
+      "sql": "CREATE TABLE `invites` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`code` text NOT NULL,\n\t`email` text,\n\t`note` text,\n\t`created_by` text,\n\t`used_by` text,\n\t`used_at` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL, multi_use INTEGER NOT NULL DEFAULT 0, use_count INTEGER NOT NULL DEFAULT 0, grant_role TEXT NOT NULL DEFAULT 'member',\n\tFOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null,\n\tFOREIGN KEY (`used_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "library_items",
+      "tbl_name": "library_items",
+      "sql": "CREATE TABLE `library_items` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`user_id` text NOT NULL,\n\t`document_id` text NOT NULL,\n\t`status` text DEFAULT 'want' NOT NULL,\n\t`note` text,\n\t`rating` integer,\n\t`review_body` text,\n\t`updated_at` text DEFAULT (current_timestamp) NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL, `progress_page` integer, `progress_total` integer, `progress_kind` text, `progress_at` text,\n\tFOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "payments",
+      "tbl_name": "payments",
+      "sql": "CREATE TABLE payments (\n      id TEXT PRIMARY KEY NOT NULL,\n      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,\n      kind TEXT NOT NULL DEFAULT 'subscription',\n      target_id TEXT,\n      plan_slug TEXT,\n      period TEXT,\n      amount INTEGER NOT NULL,\n      currency TEXT NOT NULL DEFAULT 'RUB',\n      status TEXT NOT NULL DEFAULT 'pending',\n      provider TEXT NOT NULL DEFAULT 'yookassa',\n      provider_payment_id TEXT,\n      idempotence_key TEXT,\n      description TEXT,\n      payload TEXT,\n      paid_at TEXT,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "plans",
+      "tbl_name": "plans",
+      "sql": "CREATE TABLE plans (\n      id TEXT PRIMARY KEY NOT NULL,\n      slug TEXT NOT NULL,\n      name TEXT NOT NULL,\n      tagline TEXT,\n      description TEXT,\n      price_monthly INTEGER NOT NULL DEFAULT 0,\n      price_yearly INTEGER,\n      price_lifetime INTEGER,\n      features TEXT NOT NULL DEFAULT '[]',\n      seat_limit INTEGER,\n      lifetime INTEGER NOT NULL DEFAULT 0,\n      accent TEXT,\n      badge TEXT,\n      active INTEGER NOT NULL DEFAULT 1,\n      sort_order INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "reports",
+      "tbl_name": "reports",
+      "sql": "CREATE TABLE `reports` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`target_type` text NOT NULL,\n\t`target_id` text NOT NULL,\n\t`document_id` text NOT NULL,\n\t`reporter_id` text NOT NULL,\n\t`reason` text DEFAULT '' NOT NULL,\n\t`status` text DEFAULT 'open' NOT NULL,\n\t`resolved_by` text,\n\t`resolved_at` text,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`document_id`) REFERENCES `documents`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`reporter_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,\n\tFOREIGN KEY (`resolved_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE set null\n)"
+    },
+    {
+      "type": "table",
+      "name": "seminar_tickets",
+      "tbl_name": "seminar_tickets",
+      "sql": "CREATE TABLE seminar_tickets (\n      id TEXT PRIMARY KEY NOT NULL,\n      seminar_id TEXT NOT NULL REFERENCES seminars(id) ON DELETE CASCADE,\n      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n      payment_id TEXT REFERENCES payments(id) ON DELETE SET NULL,\n      source TEXT NOT NULL DEFAULT 'yookassa',\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "seminars",
+      "tbl_name": "seminars",
+      "sql": "CREATE TABLE seminars (\n      id TEXT PRIMARY KEY NOT NULL,\n      slug TEXT NOT NULL,\n      title TEXT NOT NULL,\n      summary TEXT,\n      body TEXT NOT NULL DEFAULT '',\n      location TEXT,\n      starts_at TEXT,\n      price_kopeks INTEGER NOT NULL DEFAULT 200000,\n      discount_percent INTEGER NOT NULL DEFAULT 20,\n      seat_limit INTEGER,\n      status TEXT NOT NULL DEFAULT 'draft',\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "sessions",
+      "tbl_name": "sessions",
+      "sql": "CREATE TABLE `sessions` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`user_id` text NOT NULL,\n\t`expires_at` text NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL,\n\tFOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade\n)"
+    },
+    {
+      "type": "table",
+      "name": "site_settings",
+      "tbl_name": "site_settings",
+      "sql": "CREATE TABLE site_settings (\n      key TEXT PRIMARY KEY NOT NULL,\n      value TEXT NOT NULL,\n      updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,\n      updated_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "subscriptions",
+      "tbl_name": "subscriptions",
+      "sql": "CREATE TABLE subscriptions (\n      id TEXT PRIMARY KEY NOT NULL,\n      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n      plan_slug TEXT NOT NULL,\n      status TEXT NOT NULL DEFAULT 'pending',\n      period TEXT NOT NULL DEFAULT 'month',\n      started_at TEXT,\n      expires_at TEXT,\n      canceled_at TEXT,\n      source TEXT NOT NULL DEFAULT 'yookassa',\n      auto_renew INTEGER NOT NULL DEFAULT 0,\n      note TEXT,\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    , payment_method_id TEXT, reminded_at TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "tags",
+      "tbl_name": "tags",
+      "sql": "CREATE TABLE `tags` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`name` text NOT NULL,\n\t`slug` text NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "users",
+      "tbl_name": "users",
+      "sql": "CREATE TABLE `users` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`email` text NOT NULL,\n\t`name` text NOT NULL,\n\t`password_hash` text NOT NULL,\n\t`role` text DEFAULT 'member' NOT NULL,\n\t`created_at` text DEFAULT (current_timestamp) NOT NULL\n, `referred_by` text, `strikes` integer DEFAULT 0 NOT NULL, `status` text DEFAULT 'active' NOT NULL, avatar_key TEXT, avatar_color TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "work_documents",
+      "tbl_name": "work_documents",
+      "sql": "CREATE TABLE work_documents (\n      work_id TEXT NOT NULL REFERENCES works(id) ON DELETE CASCADE,\n      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,\n      role TEXT NOT NULL DEFAULT 'edition'\n    )"
+    },
+    {
+      "type": "table",
+      "name": "works",
+      "tbl_name": "works",
+      "sql": "CREATE TABLE works (\n      id TEXT PRIMARY KEY NOT NULL,\n      slug TEXT NOT NULL,\n      title TEXT NOT NULL,\n      author_id TEXT REFERENCES authors(id) ON DELETE SET NULL,\n      source TEXT NOT NULL DEFAULT 'auto',\n      created_at TEXT NOT NULL DEFAULT (current_timestamp)\n    )"
+    }
+  ],
+  "foreignKeys": [
+    {
+      "child": "document_authors",
+      "parent": "documents",
+      "fkid": 1,
+      "count": 6
+    }
+  ]
+}

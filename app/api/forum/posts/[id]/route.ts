@@ -1,8 +1,10 @@
+import { forumAccess } from "@/lib/forum-access";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db/client";
+import { featureDenied } from "@/lib/features";
 import { forumPosts } from "@/lib/db/schema";
 
 export async function PATCH(
@@ -19,7 +21,9 @@ export async function PATCH(
   if (!post) {
     return NextResponse.json({ error: "Сообщение не найдено." }, { status: 404 });
   }
-  if (post.authorId !== user.id && user.role !== "admin") {
+  const access = await forumAccess(post.topicId, user);
+  if (!access.write || post.deletedAt) return NextResponse.json({ error: "Нет доступа к обсуждению" }, { status: 403 });
+  if (post.authorId !== user.id && !access.moderate) {
     return NextResponse.json({ error: "Нет прав." }, { status: 403 });
   }
 
@@ -35,5 +39,19 @@ export async function PATCH(
     .where(eq(forumPosts.id, id));
   revalidatePath(`/discuss/${post.topicId}`);
   revalidatePath("/discuss");
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const disabled = await featureDenied("comments"); if (disabled) return disabled;
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Требуется вход" }, { status: 401 });
+  const { id } = await context.params;
+  const [post] = await db.select().from(forumPosts).where(eq(forumPosts.id, id)).limit(1);
+  if (!post) return NextResponse.json({ error: "Сообщение не найдено" }, { status: 404 });
+  const access = await forumAccess(post.topicId, user);
+  if (!access.read || (post.authorId !== user.id && !access.moderate)) return NextResponse.json({ error: "Нет прав на удаление" }, { status: 403 });
+  await db.update(forumPosts).set({ deletedAt: new Date().toISOString() }).where(eq(forumPosts.id, id));
+  revalidatePath(`/discuss/${post.topicId}`);
   return NextResponse.json({ ok: true });
 }

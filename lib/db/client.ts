@@ -38,6 +38,14 @@ ensureColumn("annotations", "companion_title", "companion_title TEXT");
 ensureColumn("subscriptions", "payment_method_id", "payment_method_id TEXT");
 ensureColumn("subscriptions", "reminded_at", "reminded_at TEXT");
 ensureColumn("download_events", "units", "units INTEGER NOT NULL DEFAULT 1");
+ensureColumn("plans", "price_weekly", "price_weekly INTEGER");
+ensureColumn("forum_topics", "category", "category TEXT NOT NULL DEFAULT 'general'");
+ensureColumn("forum_topics", "pinned", "pinned INTEGER NOT NULL DEFAULT 0");
+ensureColumn("forum_topics", "seminar_id", "seminar_id TEXT");
+ensureColumn("seminars", "kind", "kind TEXT NOT NULL DEFAULT 'seminar'");
+ensureColumn("seminars", "meet_url", "meet_url TEXT");
+ensureColumn("seminars", "document_id", "document_id TEXT");
+ensureColumn("seminars", "host_user_id", "host_user_id TEXT");
 
 function ensureWorkTables() {
   sqlite.exec(`
@@ -212,7 +220,22 @@ function ensureChannelTables() {
     CREATE INDEX IF NOT EXISTS channel_posts_channel_idx ON channel_posts(channel_id);
     CREATE UNIQUE INDEX IF NOT EXISTS channel_posts_slug_idx ON channel_posts(channel_id, slug);
     CREATE INDEX IF NOT EXISTS channel_posts_created_idx ON channel_posts(created_at);
+    CREATE TABLE IF NOT EXISTS channel_comments (
+      id TEXT PRIMARY KEY NOT NULL,
+      post_id TEXT NOT NULL REFERENCES channel_posts(id) ON DELETE CASCADE,
+      author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS channel_comments_post_idx ON channel_comments(post_id);
+    CREATE TABLE IF NOT EXISTS channel_moderators (
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS channel_moderators_pk ON channel_moderators(channel_id, user_id);
   `);
+  ensureColumn("channel_posts", "comments_open", "comments_open INTEGER NOT NULL DEFAULT 1");
 }
 
 function ensureEventTables() {
@@ -261,12 +284,96 @@ function ensureEventTables() {
   `);
 }
 
+function ensureMusicTables() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS music_tracks (
+      id TEXT PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL,
+      composer TEXT,
+      stored_name TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS music_tracks_status_idx ON music_tracks(status);
+  `);
+}
+
+function ensureCommunityExtraTables() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS trial_claims (
+      email TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      claimed_at TEXT NOT NULL DEFAULT (current_timestamp),
+      payment_id TEXT
+    );
+    CREATE TABLE IF NOT EXISTS activity_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      email TEXT,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      meta TEXT,
+      ip TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS activity_events_created_idx ON activity_events(created_at);
+    CREATE INDEX IF NOT EXISTS activity_events_user_idx ON activity_events(user_id);
+    CREATE INDEX IF NOT EXISTS activity_events_action_idx ON activity_events(action);
+    CREATE TABLE IF NOT EXISTS community_attachments (
+      id TEXT PRIMARY KEY NOT NULL,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      parent_type TEXT,
+      parent_id TEXT,
+      kind TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      disk_name TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS community_attachments_parent_idx ON community_attachments(parent_type, parent_id);
+    CREATE INDEX IF NOT EXISTS community_attachments_owner_idx ON community_attachments(owner_id);
+    CREATE TABLE IF NOT EXISTS forum_watches (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      topic_id TEXT NOT NULL REFERENCES forum_topics(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp),
+      PRIMARY KEY (user_id, topic_id)
+    );
+    CREATE TABLE IF NOT EXISTS channel_follows (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp),
+      PRIMARY KEY (user_id, channel_id)
+    );
+    CREATE TABLE IF NOT EXISTS forum_reactions (
+      post_id TEXT NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp),
+      PRIMARY KEY (post_id, user_id, emoji)
+    );
+    CREATE INDEX IF NOT EXISTS forum_reactions_post_idx ON forum_reactions(post_id);
+    CREATE TABLE IF NOT EXISTS community_marks (
+      attachment_id TEXT PRIMARY KEY NOT NULL REFERENCES community_attachments(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      payload TEXT NOT NULL,
+      updated_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+  `);
+}
+
 try {
   ensureForumTables();
   ensureWorkTables();
   ensureBillingTables();
   ensureChannelTables();
   ensureEventTables();
+  ensureCommunityExtraTables();
+  ensureMusicTables();
 } catch {
   /* users/documents may not exist yet on a blank install */
 }

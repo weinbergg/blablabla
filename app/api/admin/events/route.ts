@@ -1,3 +1,4 @@
+import { featureDenied, featureEnabled } from "@/lib/features";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -17,7 +18,7 @@ export async function GET() {
     return NextResponse.json({ error: "Доступ только для админов" }, { status: 403 });
   }
   const [seminars, campaigns] = await Promise.all([listAllSeminars(), listAllCampaigns()]);
-  return NextResponse.json({ seminars, campaigns });
+  return NextResponse.json({ seminars: await featureEnabled("rooms", user) ? seminars : [], campaigns });
 }
 
 export async function POST(request: Request) {
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
     summary?: string;
     body?: string;
     location?: string;
+    seminarKind?: "seminar" | "rehearsal";
     startsAt?: string;
     priceRubles?: number;
     discountPercent?: number;
@@ -42,12 +44,16 @@ export async function POST(request: Request) {
 
   try {
     if (body?.kind === "seminar") {
+      const disabled = await featureDenied((body.priceRubles ?? 2000) > 0 ? ["rooms", "room_creation", "paid_events"] : ["rooms", "room_creation"], user); if (disabled) return disabled;
       const seminar = await createSeminar({
         title: body.title ?? "",
         summary: body.summary,
         body: body.body,
         location: body.location,
+        kind: body.seminarKind,
         startsAt: body.startsAt,
+        documentId: body.documentId,
+        hostUserId: user.id,
         priceKopeks: rublesToKopeks(body.priceRubles ?? 2000),
         discountPercent: body.discountPercent,
         seatLimit: body.seatLimit,

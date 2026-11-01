@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import katex from "katex";
+import { linkifyPlain } from "@/components/linked-text";
 
 /**
  * Renders plain text with optional KaTeX islands:
@@ -24,8 +25,8 @@ export function MathText({
   while ((match = re.exec(source)) !== null) {
     if (match.index > last) {
       nodes.push(
-        <span key={`t${key++}`} className="whitespace-pre-wrap">
-          {source.slice(last, match.index)}
+        <span key={`t${key++}`} className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {linkifyPlain(source.slice(last, match.index), key)}
         </span>,
       );
     }
@@ -51,8 +52,8 @@ export function MathText({
 
   if (last < source.length || nodes.length === 0) {
     nodes.push(
-      <span key={`t${key++}`} className="whitespace-pre-wrap">
-        {source.slice(last)}
+      <span key={`t${key++}`} className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {linkifyPlain(source.slice(last), key)}
       </span>,
     );
   }

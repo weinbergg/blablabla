@@ -1,9 +1,11 @@
+import { featureEnabled } from "@/lib/features";
 import "server-only";
 
 import { randomUUID } from "crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, like, lte, or, sql } from "drizzle-orm";
+import { ROOM_FORMATS } from "@/lib/room-types";
 import { db } from "./client";
-import { campaigns, documents, payments, seminarTickets, seminars, users } from "./schema";
+import { campaigns, documents, forumTopics, payments, seminarTickets, seminars, users } from "./schema";
 import { slugify } from "@/lib/transliterate";
 import type { Entitlements } from "@/lib/entitlements";
 import { hasFeature } from "@/lib/entitlements";
@@ -34,23 +36,49 @@ export function seminarPriceFor(seminar: { priceKopeks: number; discountPercent:
   return seminar.priceKopeks;
 }
 
-export async function listPublicSeminars() {
+export async function listPublicSeminars(options: { q?: string; kind?: string; when?: string; userId?: string } = {}) {
+  const now = new Date().toISOString();
+  const filters = options.userId
+    ? [sql`(${seminars.hostUserId}=${options.userId} OR EXISTS(SELECT 1 FROM seminar_members m WHERE m.seminar_id=${seminars.id} AND m.user_id=${options.userId} AND m.status IN ('member','invited')) OR EXISTS(SELECT 1 FROM seminar_tickets t WHERE t.seminar_id=${seminars.id} AND t.user_id=${options.userId}))`]
+    : [options.when === "past" ? sql`${seminars.status} IN ('open','closed','done')` : eq(seminars.status, "open"), sql`${seminars.accessMode} IN ('legacy','open','paid')`];
+  if (!await featureEnabled("paid_events")) filters.push(sql`${seminars.accessMode} != 'paid' AND ${seminars.priceKopeks} = 0`);
+  const format = ROOM_FORMATS.find(f => f.id === options.kind);
+  if (format) filters.push(eq(seminars.kind, format.id));
+  if (options.q?.trim()) {
+    const needle = `%${options.q.trim().slice(0, 80)}%`;
+    filters.push(or(like(seminars.title, needle), like(seminars.summary, needle))!);
+  }
+  if (options.when === "upcoming") filters.push(or(gte(seminars.startsAt, now), sql`${seminars.startsAt} IS NULL`)!);
+  if (options.when === "past") filters.push(lte(seminars.startsAt, now));
   const rows = await db
     .select({
       seminar: seminars,
-      seatsTaken: sql<number>`(select count(*) from seminar_tickets where seminar_id = seminars.id)`,
+      seatsTaken: sql<number>`(select count(*) from users u where u.id != coalesce(seminars.host_user_id,'') and not exists(select 1 from seminar_members b where b.seminar_id=seminars.id and b.user_id=u.id and b.status='banned') and (exists(select 1 from seminar_tickets t where t.seminar_id=seminars.id and t.user_id=u.id) or exists(select 1 from seminar_members m where m.seminar_id=seminars.id and m.user_id=u.id and m.status='member')))`,
+      documentTitle: documents.title,
+      hostName: users.name,
+      hostAvatarKey: users.avatarKey,
+      hostAvatarColor: users.avatarColor,
     })
     .from(seminars)
-    .where(eq(seminars.status, "open"))
+    .leftJoin(documents, eq(seminars.documentId, documents.id))
+    .leftJoin(users, eq(seminars.hostUserId, users.id))
+    .where(and(...filters))
     .orderBy(seminars.startsAt, desc(seminars.createdAt));
-  return rows.map((row) => ({ ...row.seminar, seatsTaken: Number(row.seatsTaken) || 0 }));
+  return rows.map((row) => ({
+    ...row.seminar,
+    seatsTaken: Number(row.seatsTaken) || 0,
+    documentTitle: row.documentTitle,
+    hostName: row.hostName,
+    hostAvatarKey: row.hostAvatarKey,
+    hostAvatarColor: row.hostAvatarColor,
+  }));
 }
 
 export async function listAllSeminars() {
   const rows = await db
     .select({
       seminar: seminars,
-      seatsTaken: sql<number>`(select count(*) from seminar_tickets where seminar_id = seminars.id)`,
+      seatsTaken: sql<number>`(select count(*) from users u where u.id != coalesce(seminars.host_user_id,'') and not exists(select 1 from seminar_members b where b.seminar_id=seminars.id and b.user_id=u.id and b.status='banned') and (exists(select 1 from seminar_tickets t where t.seminar_id=seminars.id and t.user_id=u.id) or exists(select 1 from seminar_members m where m.seminar_id=seminars.id and m.user_id=u.id and m.status='member')))`,
     })
     .from(seminars)
     .orderBy(desc(seminars.createdAt));
@@ -61,13 +89,26 @@ export async function getSeminarBySlug(slug: string) {
   const [row] = await db
     .select({
       seminar: seminars,
-      seatsTaken: sql<number>`(select count(*) from seminar_tickets where seminar_id = seminars.id)`,
+      seatsTaken: sql<number>`(select count(*) from users u where u.id != coalesce(seminars.host_user_id,'') and not exists(select 1 from seminar_members b where b.seminar_id=seminars.id and b.user_id=u.id and b.status='banned') and (exists(select 1 from seminar_tickets t where t.seminar_id=seminars.id and t.user_id=u.id) or exists(select 1 from seminar_members m where m.seminar_id=seminars.id and m.user_id=u.id and m.status='member')))`,
+      documentTitle: documents.title,
+      hostName: users.name,
+      hostAvatarKey: users.avatarKey,
+      hostAvatarColor: users.avatarColor,
     })
     .from(seminars)
+    .leftJoin(documents, eq(seminars.documentId, documents.id))
+    .leftJoin(users, eq(seminars.hostUserId, users.id))
     .where(eq(seminars.slug, slug))
     .limit(1);
   if (!row) return null;
-  return { ...row.seminar, seatsTaken: Number(row.seatsTaken) || 0 };
+  return {
+    ...row.seminar,
+    seatsTaken: Number(row.seatsTaken) || 0,
+    documentTitle: row.documentTitle,
+    hostName: row.hostName,
+    hostAvatarKey: row.hostAvatarKey,
+    hostAvatarColor: row.hostAvatarColor,
+  };
 }
 
 export async function getSeminarById(id: string) {
@@ -103,6 +144,9 @@ export async function listTicketsForUser(userId: string) {
       title: seminars.title,
       startsAt: seminars.startsAt,
       status: seminars.status,
+      kind: seminars.kind,
+      meetUrl: seminars.meetUrl,
+      documentId: seminars.documentId,
     })
     .from(seminarTickets)
     .innerJoin(seminars, eq(seminars.id, seminarTickets.seminarId))
@@ -110,20 +154,91 @@ export async function listTicketsForUser(userId: string) {
     .orderBy(desc(seminarTickets.createdAt));
 }
 
+export async function listSeminarParticipants(seminarId: string) {
+  return db
+    .select({
+      userId: users.id,
+      name: users.name,
+      avatarKey: users.avatarKey,
+      avatarColor: users.avatarColor,
+      createdAt: seminarTickets.createdAt,
+    })
+    .from(seminarTickets)
+    .innerJoin(users, eq(users.id, seminarTickets.userId))
+    .where(eq(seminarTickets.seminarId, seminarId))
+    .orderBy(seminarTickets.createdAt);
+}
+
+export async function getTopicForSeminar(seminarId: string) {
+  const [row] = await db
+    .select({
+      id: forumTopics.id,
+      title: forumTopics.title,
+    })
+    .from(forumTopics)
+    .where(eq(forumTopics.seminarId, seminarId))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function ensureSeminarDiscussion(seminar: {
+  id: string;
+  title: string;
+  kind: SeminarRow["kind"];
+  documentId: string | null;
+  hostUserId: string | null;
+}) {
+  const existing = await getTopicForSeminar(seminar.id);
+  if (existing) return existing;
+  if (!seminar.hostUserId) return null;
+  const id = randomUUID();
+  await db.insert(forumTopics).values({
+    id,
+    title: seminar.kind === "rehearsal" ? `К занятию «${seminar.title}»` : `К чтению «${seminar.title}»`,
+    body: "Обсуждение встречи: вопросы и заметки участников.",
+    authorId: seminar.hostUserId,
+    documentId: seminar.documentId,
+    seminarId: seminar.id,
+    category: "seminars",
+  });
+  return {
+    id,
+    title: seminar.kind === "rehearsal" ? `К занятию «${seminar.title}»` : `К чтению «${seminar.title}»`,
+  };
+}
+
+export async function listOpenSeminarsForDocument(documentId: string) {
+  if (!(await featureEnabled("rooms"))) return [];
+  const paid = await featureEnabled("paid_events");
+  return db
+    .select()
+    .from(seminars)
+    .where(and(paid ? undefined : sql`${seminars.accessMode} != 'paid' AND ${seminars.priceKopeks} = 0`, eq(seminars.documentId, documentId), eq(seminars.status, "open"), sql`${seminars.accessMode} IN ('legacy','open','paid')`))
+    .orderBy(seminars.startsAt)
+    .limit(8);
+}
+
 export async function createSeminar(input: {
   title: string;
   summary?: string | null;
   body?: string;
   location?: string | null;
+  kind?: "seminar" | "rehearsal";
+  meetUrl?: string | null;
+  documentId?: string | null;
+  hostUserId?: string | null;
   startsAt?: string | null;
   priceKopeks?: number;
   discountPercent?: number;
   seatLimit?: number | null;
   status?: SeminarRow["status"];
+  slug?: string;
 }) {
   const title = input.title.trim().slice(0, 160);
   if (title.length < 2) throw new Error("Нужно название встречи");
-  const slug = await takeSlug(title, async (value) => Boolean(await getSeminarBySlug(value)));
+  const slug =
+    input.slug?.trim() ||
+    (await takeSlug(title, async (value) => Boolean(await getSeminarBySlug(value))));
   const id = randomUUID();
   await db.insert(seminars).values({
     id,
@@ -132,11 +247,22 @@ export async function createSeminar(input: {
     summary: input.summary?.trim().slice(0, 400) || null,
     body: (input.body ?? "").trim().slice(0, 20_000),
     location: input.location?.trim().slice(0, 200) || null,
+    kind: input.kind === "rehearsal" ? "rehearsal" : "seminar",
+    meetUrl: input.meetUrl?.trim().slice(0, 500) || null,
+    documentId: input.documentId || null,
+    hostUserId: input.hostUserId || null,
     startsAt: input.startsAt || null,
     priceKopeks: Math.max(0, Math.round(input.priceKopeks ?? 200000)),
     discountPercent: Math.min(90, Math.max(0, Math.round(input.discountPercent ?? 20))),
     seatLimit: input.seatLimit && input.seatLimit > 0 ? Math.round(input.seatLimit) : null,
     status: input.status ?? "draft",
+  });
+  await ensureSeminarDiscussion({
+    id,
+    title,
+    kind: input.kind === "rehearsal" ? "rehearsal" : "seminar",
+    documentId: input.documentId || null,
+    hostUserId: input.hostUserId || null,
   });
   return getSeminarById(id);
 }

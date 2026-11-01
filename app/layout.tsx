@@ -1,19 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Source_Sans_3, Source_Serif_4 } from "next/font/google";
 import Script from "next/script";
 import { ChunkLoadRecovery } from "@/components/chunk-load-recovery";
 import { MaintenanceBanner } from "@/components/maintenance-banner";
 import { ScrollReset } from "@/components/scroll-reset";
 import "./globals.css";
+import { FeatureProvider } from "@/components/feature-provider";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const sourceSans = Source_Sans_3({
+  variable: "--font-source-sans",
+  subsets: ["cyrillic", "latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const sourceSerif = Source_Serif_4({
+  variable: "--font-source-serif",
+  subsets: ["cyrillic", "latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -44,7 +47,7 @@ export default function RootLayout({
     <html
       lang="ru"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} min-h-full antialiased`}
+      className={`${sourceSans.variable} ${sourceSerif.variable} min-h-full antialiased`}
     >
       <body className="min-h-full">
         <Script id="theme-init" strategy="beforeInteractive">
@@ -53,7 +56,7 @@ export default function RootLayout({
         <ScrollReset />
         <ChunkLoadRecovery />
         <MaintenanceBanner />
-        {children}
+        <FeatureProvider>{children}</FeatureProvider>
       </body>
     </html>
   );

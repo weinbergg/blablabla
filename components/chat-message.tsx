@@ -3,10 +3,14 @@
 import { useEffect, useState } from "react";
 import { Pencil, Reply, Send, Trash2, TriangleAlert } from "lucide-react";
 import { MathText } from "@/components/math-text";
+import { ReactionBar } from "@/components/reaction-bar";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import { SharedMessageCard } from "@/components/shared-message-card";
 import { RoleBadge, UserAvatar } from "@/components/user-avatar";
+import type { ReactionCount, ReactionKey } from "@/lib/reactions";
 import { parseShareMessage } from "@/lib/share-message";
+import { useFeature } from "./feature-provider";
+import { commentError } from "@/lib/comment-request";
 
 export type ChatAuthor = {
   id: string;
@@ -54,6 +58,13 @@ export function ChatMessage({
   documentTitle,
   pageLabel = "стр.",
   compact = false,
+  layout = "chat",
+  shareUrl,
+  privacy,
+  forwardLabel,
+  reactions,
+  canReact = false,
+  onReact,
   onJumpToPage,
   onReport,
   onReply,
@@ -65,15 +76,25 @@ export function ChatMessage({
   documentTitle?: string | null;
   pageLabel?: string;
   compact?: boolean;
+  layout?: "chat" | "discussion";
+  shareUrl?: string;
+  privacy?: "open" | "closed" | "both";
+  forwardLabel?: string;
+  reactions?: ReactionCount[];
+  canReact?: boolean;
+  onReact?: (key: ReactionKey) => void;
   onJumpToPage?: (page: number) => void;
   onReport?: (id: string) => void;
   onReply?: () => void;
   onEdit?: (body: string) => Promise<void> | void;
   onDelete?: () => Promise<void> | void;
 }) {
+  const channelsEnabled = useFeature("channels");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.body);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [channelNote, setChannelNote] = useState("");
   const [targeted, setTargeted] = useState(false);
   const isOwn = currentUserId === item.author.id;
   const sharedPayload = parseShareMessage(item.body);
@@ -96,17 +117,23 @@ export function ChatMessage({
   }, [anchorId]);
 
   async function save() {
-    if (!onEdit || !draft.trim()) return;
+    if (!onEdit || !draft.trim() || busy) return;
     setBusy(true);
-    await onEdit(draft.trim());
-    setBusy(false);
-    setEditing(false);
+    setError("");
+    try {
+      await onEdit(draft.trim());
+      setEditing(false);
+    } catch (failure) {
+      setError(commentError(failure));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div
       id={anchorId}
-      className={`chat-bubble group ${isOwn ? "chat-bubble-own" : ""} ${compact ? "chat-bubble-compact" : ""} ${
+      className={`${layout === "discussion" ? "flex gap-3 sm:gap-5" : `chat-bubble ${isOwn ? "chat-bubble-own" : ""} ${compact ? "chat-bubble-compact" : ""}`} group ${
         targeted ? "rounded-2xl ring-2 ring-rust/45 ring-offset-2 ring-offset-paper" : ""
       }`}
     >
@@ -162,6 +189,7 @@ export function ChatMessage({
           >
             <textarea
               value={draft}
+              disabled={busy}
               onChange={(event) => setDraft(event.target.value)}
               rows={3}
               className="flex-1 rounded-lg border border-ink/15 bg-paper px-3 py-2 text-sm outline-none focus:border-ink/40"
@@ -175,15 +203,17 @@ export function ChatMessage({
             {sharedPayload ? (
               <SharedMessageCard payload={sharedPayload} />
             ) : (
-              <MathText source={item.body} className="text-sm leading-6" />
+              <MathText source={item.body} className={layout === "discussion" ? "text-base leading-8" : "text-sm leading-6"} />
             )}
           </div>
         )}
+        {error && <p role="alert" className="mt-2 text-xs text-rust">{error}</p>}
         {!compact && !editing && (
-          <div className="mt-2 flex gap-3">
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-3">
             <ShareWithFriends
               compact
-              buttonLabel="Поделиться"
+              privacy={privacy}
+              buttonLabel={forwardLabel ?? "Поделиться"}
               buttonClassName="!min-h-0 !gap-1 !border-0 !px-0 !text-[12px] !font-normal shadow-none"
               payload={
                 sharedPayload ?? {
@@ -191,12 +221,56 @@ export function ChatMessage({
                   title:
                     item.page != null
                       ? `${documentTitle || "Книга"} · ${pageLabel} ${item.page}`
-                      : documentTitle || "Комментарий",
-                  url: buildShareUrl(item.page),
+                      : documentTitle || "Сообщение",
+                  url: shareUrl ?? buildShareUrl(item.page, anchorId),
                   excerpt: item.body,
                 }
               }
             />
+            {currentUserId && channelsEnabled && (
+              <button
+                type="button"
+                className="text-[12px] text-muted hover:text-ink"
+                title={
+                  privacy === "closed"
+                    ? "В канал уйдёт текст, без ссылки на личный разговор"
+                    : "Переслать в свой канал"
+                }
+                onClick={async () => {
+                  const payload = sharedPayload ?? {
+                    title:
+                      item.page != null
+                        ? `${documentTitle || "Книга"} · ${pageLabel} ${item.page}`
+                        : documentTitle || "Сообщение",
+                    url: shareUrl ?? buildShareUrl(item.page),
+                    excerpt: item.body,
+                  };
+                  if (privacy === "closed") {
+                    const ok = window.confirm(
+                      "В канал уйдёт только этот текст. Ссылки на личный разговор не будет.",
+                    );
+                    if (!ok) return;
+                  }
+                  const href = payload.url && !payload.url.includes("/messages") ? payload.url : null;
+                  const documentId = href?.match(/^\/documents\/([^/?#]+)/)?.[1] ?? null;
+                  const response = await fetch("/api/channels/forward", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      title: payload.title,
+                      excerpt: payload.excerpt,
+                      url: href,
+                      documentId,
+                    }),
+                  });
+                  const data = (await response.json().catch(() => ({}))) as { error?: string; slug?: string };
+                  setChannelNote(response.ok ? "В канале" : data.error || "Не вышло");
+                }}
+              >
+                В канал
+              </button>
+            )}
+            {channelNote && <span className="text-[12px] text-muted">{channelNote}</span>}
             {onReply && (
               <button
                 type="button"
@@ -212,6 +286,7 @@ export function ChatMessage({
                 type="button"
                 onClick={() => {
                   setDraft(item.body);
+                  setError("");
                   setEditing(true);
                 }}
                 className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-ink"
@@ -223,7 +298,14 @@ export function ChatMessage({
             {onDelete && (
               <button
                 type="button"
-                onClick={() => void onDelete()}
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try { await onDelete(); }
+                  catch (failure) { setError(commentError(failure)); }
+                  finally { setBusy(false); }
+                }}
                 className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-rust"
               >
                 <Trash2 size={15} />
@@ -232,6 +314,9 @@ export function ChatMessage({
             )}
           </div>
         )}
+        {!compact && (canReact || (reactions && reactions.length > 0)) ? (
+          <ReactionBar counts={reactions ?? []} canReact={canReact} onToggle={onReact} />
+        ) : null}
       </div>
     </div>
   );

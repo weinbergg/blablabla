@@ -1,3 +1,4 @@
+import { featureDenied } from "@/lib/features";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getEntitlements } from "@/lib/db/billing";
@@ -7,6 +8,7 @@ import {
   getCampaignById,
   getSeminarById,
   getTicket,
+  grantSeminarTicket,
   seminarPriceFor,
 } from "@/lib/db/events";
 import { startYooKassaCheckout } from "@/lib/payments/start-checkout";
@@ -30,6 +32,8 @@ export async function POST(request: Request) {
     if (!seminar || seminar.status !== "open") {
       return NextResponse.json({ error: "Запись на эту встречу закрыта" }, { status: 404 });
     }
+    const disabled = await featureDenied(seminar.priceKopeks > 0 ? ["rooms", "paid_events"] : ["rooms"], user); if (disabled) return disabled;
+    if (seminar.roomEnabled) return NextResponse.json({ error: "Оплата программ ведущих пока не активирована. Доступ выдаёт ведущий." }, { status: 403 });
     if (await getTicket(seminar.id, user.id)) {
       return NextResponse.json({ error: "Вы уже записаны" }, { status: 409 });
     }
@@ -40,7 +44,8 @@ export async function POST(request: Request) {
     const entitlements = await getEntitlements(user);
     const amount = seminarPriceFor(seminar, entitlements);
     if (amount <= 0) {
-      return NextResponse.json({ error: "У этой встречи нет цены" }, { status: 400 });
+      await grantSeminarTicket({ seminarId: seminar.id, userId: user.id, source: "manual" });
+      return NextResponse.json({ ok: true, free: true });
     }
     const started = await startYooKassaCheckout({
       request,

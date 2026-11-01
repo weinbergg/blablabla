@@ -2,14 +2,18 @@
 
 import Link from "next/link";
 import { RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { BookMarked, BookOpenText, ExternalLink, Languages, Plus, X } from "lucide-react";
+import { BookMarked, BookOpenText, Copy, ExternalLink, Languages, MapPin, Plus, X } from "lucide-react";
 import { ShareWithFriends } from "@/components/share-with-friends";
 import type { LookupResult } from "@/lib/lookup";
 import type { GlossaryHit } from "@/lib/db/glossaries";
+import { captureTextAnchor } from "@/lib/text-anchor";
+import type { TextAnchor } from "@/lib/publication-content";
+import { QuotePublish } from "./quote-publish";
+import { captureReaderSelection } from "@/lib/reader-selection";
 
 type LookupPayload = LookupResult & { glossaryHits?: GlossaryHit[] };
 type LookupPanelPos = { top: number; left: number };
-const LOOKUP_SELECTION_LIMIT = 480;
+const LOOKUP_SELECTION_LIMIT = 12000;
 
 function normalizeSelectedText(text: string) {
   return text
@@ -36,15 +40,18 @@ function cleanLookupTranslation(text: string | null | undefined) {
 export function SelectionLookup({
   containerRef,
   suppressed = false,
-  doc,
-  language,
+  docs,
+  language, documentId, page = 1, fileUrl, cfiForRange, onAnnotate,
 }: {
   containerRef: RefObject<HTMLElement | null>;
   suppressed?: boolean;
-  doc?: Document | null;
+  docs?: Document[];
   language?: string | null;
+  documentId?: string; page?: number; fileUrl?: string; cfiForRange?: (range: Range) => string | undefined;
+  onAnnotate?: () => void;
 }) {
-  const [state, setState] = useState<{ text: string; top: number; left: number } | null>(null);
+  const [state, setState] = useState<{ text: string; top: number; left: number; anchor?: TextAnchor | null } | null>(null);
+  const cfiRef = useRef(cfiForRange); cfiRef.current = cfiForRange;
   const [lookup, setLookup] = useState<LookupPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -57,9 +64,11 @@ export function SelectionLookup({
   const [panelPos, setPanelPos] = useState<LookupPanelPos | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const selectionTimerRef = useRef<number | null>(null);
+  const activeDocRef = useRef<Document | null>(null);
+  const [copyMessage, setCopyMessage] = useState("");
 
   useEffect(() => {
-    const targetDoc = doc ?? document;
+    const targetDocs = docs?.length ? docs : [document];
     if (suppressed) {
       setState(null);
       setLookup(null);
@@ -71,37 +80,28 @@ export function SelectionLookup({
       setState(null);
     }
 
-    function syncSelection() {
+    function syncSelection(targetDoc: Document) {
       const container = containerRef.current;
-      const targetWindow = targetDoc.defaultView;
-      const selection = targetWindow?.getSelection();
-      if (!container || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-        clearSelection();
+      // Editing a glossary field should keep the selected passage in the panel.
+      if (panelRef.current?.contains(document.activeElement)) return;
+      const selection = container ? captureReaderSelection(container, targetDoc) : null;
+      if (!container || !selection) {
+        if (activeDocRef.current === targetDoc) clearSelection();
         return;
       }
-      const range = selection.getRangeAt(0);
-      const isIframeDoc = doc && doc !== document;
-      if (!isIframeDoc && !container.contains(range.commonAncestorContainer)) {
-        clearSelection();
-        return;
-      }
-      const text = normalizeSelectedText(selection.toString());
+      const text = normalizeSelectedText(selection.text);
       if (!text || text.length > LOOKUP_SELECTION_LIMIT) {
         clearSelection();
         return;
       }
-      const rect = range.getBoundingClientRect();
-      if (!rect.width && !rect.height) {
-        clearSelection();
-        return;
-      }
-      const frameElement = isIframeDoc ? targetWindow?.frameElement : null;
-      const frameOffset = frameElement?.getBoundingClientRect() ?? { top: 0, left: 0 };
+      activeDocRef.current = targetDoc;
+      const rect = selection.rects[0];
       const containerRect = container.getBoundingClientRect();
       const nextState = {
         text,
-        top: frameOffset.top + rect.top - containerRect.top,
-        left: frameOffset.left + rect.left - containerRect.left + rect.width / 2,
+        anchor: documentId ? captureTextAnchor(container, documentId, page, targetDoc, range => cfiRef.current?.(range)) : null,
+        top: rect.top - containerRect.top + container.scrollTop,
+        left: rect.left - containerRect.left + rect.width / 2 + container.scrollLeft,
       };
       setState((current) => {
         if (
@@ -116,19 +116,57 @@ export function SelectionLookup({
       });
     }
 
-    function handle() {
+    let selecting = false;
+    let gestureDoc: Document | null = null;
+    function schedule(targetDoc: Document) {
       if (selectionTimerRef.current) window.clearTimeout(selectionTimerRef.current);
-      selectionTimerRef.current = window.setTimeout(syncSelection, 90);
+      selectionTimerRef.current = window.setTimeout(() => syncSelection(targetDoc), 160);
     }
-
-    targetDoc.addEventListener("selectionchange", handle);
+    function handle(event: Event) {
+      if (!selecting) schedule(event.currentTarget as Document);
+    }
+    function start(event: PointerEvent) {
+      // A menu must not appear under the pointer while native selection is
+      // still being extended (including a pause during a drag).
+      const target = event.target as Element | null;
+      if (target?.closest?.("[data-reader-selection-ui], [data-annotation-ui]")) return;
+      if (event.currentTarget === document && !containerRef.current?.contains(target)) return;
+      if (event.button !== 0) return;
+      selecting = true;
+      gestureDoc = event.currentTarget as Document;
+      if (selectionTimerRef.current) window.clearTimeout(selectionTimerRef.current);
+      setState(null);
+    }
+    function finish() {
+      if (!selecting) return;
+      selecting = false;
+      if (gestureDoc) schedule(gestureDoc);
+    }
+    const releaseDocs = Array.from(new Set([...targetDocs, document]));
+    for (const targetDoc of targetDocs) {
+      targetDoc.addEventListener("selectionchange", handle);
+      targetDoc.addEventListener("pointerdown", start);
+    }
+    for (const targetDoc of releaseDocs) {
+      targetDoc.addEventListener("pointerup", finish);
+      targetDoc.addEventListener("pointercancel", finish);
+    }
+    if (activeDocRef.current && !targetDocs.includes(activeDocRef.current)) clearSelection();
     return () => {
       if (selectionTimerRef.current) window.clearTimeout(selectionTimerRef.current);
-      targetDoc.removeEventListener("selectionchange", handle);
+      for (const targetDoc of targetDocs) {
+        targetDoc.removeEventListener("selectionchange", handle);
+        targetDoc.removeEventListener("pointerdown", start);
+      }
+      for (const targetDoc of releaseDocs) {
+        targetDoc.removeEventListener("pointerup", finish);
+        targetDoc.removeEventListener("pointercancel", finish);
+      }
     };
-  }, [containerRef, suppressed, doc]);
+  }, [containerRef, suppressed, docs, documentId, page]);
 
   useEffect(() => {
+    setCopyMessage("");
     if (!state?.text) {
       setLookup(null);
       setPickOpen(false);
@@ -151,7 +189,13 @@ export function SelectionLookup({
       try {
         const params = new URLSearchParams({ q: state.text });
         if (language) params.set("lang", language);
-        const res = await fetch(`/api/lookup?${params}`);
+        // Слово из внешнего словаря и свои/чужие словари приходят по очереди:
+        // определение не ждёт обход всех словарей.
+        const wordParams = new URLSearchParams(params);
+        wordParams.set("part", "word");
+        const glossParams = new URLSearchParams(params);
+        glossParams.set("part", "glossaries");
+        const res = await fetch(`/api/lookup?${wordParams}`);
         if (!res.ok) throw new Error("lookup failed");
         const data = (await res.json()) as LookupPayload;
         if (!cancelled) {
@@ -161,6 +205,13 @@ export function SelectionLookup({
           // machine translation (especially RU→EN), which was polluting glossaries.
           setEditDefinition(
             data.definitions[0] ?? data.parses[0]?.summary ?? "",
+          );
+        }
+        const glossRes = await fetch(`/api/lookup?${glossParams}`);
+        if (glossRes.ok && !cancelled) {
+          const gloss = (await glossRes.json()) as LookupPayload;
+          setLookup((current) =>
+            current ? { ...current, glossaryHits: gloss.glossaryHits ?? [] } : { ...gloss },
           );
         }
       } catch {
@@ -187,18 +238,18 @@ export function SelectionLookup({
     const height = panel.offsetHeight;
     const gap = 12;
     const left = Math.max(
-      8,
-      Math.min(state.left - width / 2, container.clientWidth - width - 8),
+      container.scrollLeft + 8,
+      Math.min(state.left - width / 2, container.scrollLeft + container.clientWidth - width - 8),
     );
-    const openBelow = state.top < height + 40;
+    const openBelow = state.top - container.scrollTop < height + 40;
     const top = openBelow
-      ? Math.min(state.top + 18, Math.max(8, container.clientHeight - height - 8))
-      : Math.max(8, state.top - height - gap);
+      ? Math.min(state.top + 18, Math.max(container.scrollTop + 8, container.scrollTop + container.clientHeight - height - 8))
+      : Math.max(container.scrollTop + 8, state.top - height - gap);
     setPanelPos({ top, left });
   }, [containerRef, lookup, myGlossaries.length, pickOpen, saveMsg, state]);
 
   function closeLookup() {
-    (doc ?? document).defaultView?.getSelection()?.removeAllRanges();
+    (activeDocRef.current ?? document).defaultView?.getSelection()?.removeAllRanges();
     setState(null);
     setLookup(null);
     setPickOpen(false);
@@ -321,12 +372,16 @@ export function SelectionLookup({
   return (
     <div
       ref={panelRef}
+      data-reader-selection-ui
       className="sticker-panel absolute z-30 w-[min(24rem,calc(100vw-1rem))] max-h-[min(30rem,calc(100vh-1rem))] overflow-y-auto rounded-2xl border border-ink/10 bg-white p-3 shadow-lg"
       style={{
         top: panelPos?.top ?? Math.max(8, state.top - 12),
         left: panelPos?.left ?? Math.max(8, state.left - 160),
+        maxWidth: containerRef.current ? Math.max(0, containerRef.current.clientWidth - 16) : undefined,
       }}
-      onMouseDown={(event) => event.preventDefault()}
+      onPointerDown={(event) => {
+        if (!(event.target as Element).closest("input, textarea, select, [contenteditable=true]")) event.preventDefault();
+      }}
     >
       <div className="mb-2 flex items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -344,6 +399,14 @@ export function SelectionLookup({
         </button>
       </div>
 
+      <div className="mb-3 flex flex-wrap gap-2">
+        <button type="button" className={actionButtonClass} onClick={async () => {
+          try { await navigator.clipboard.writeText(state.text); setCopyMessage("Текст скопирован"); }
+          catch { setCopyMessage("Не удалось скопировать. Используйте меню копирования браузера."); }
+        }}><Copy size={13} />Копировать текст</button>
+        {onAnnotate && <button type="button" className={actionButtonClass} onClick={onAnnotate}><MapPin size={13} />Пометка к фрагменту</button>}
+      </div>
+      {copyMessage && <p role="status" className="mb-2 text-xs text-muted">{copyMessage}</p>}
       {loading && !lookup && <p className="mb-2 text-xs text-muted">разбор…</p>}
 
       {lookup && (
@@ -389,7 +452,8 @@ export function SelectionLookup({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      {state.anchor && fileUrl && <QuotePublish key={state.anchor.exact} anchor={state.anchor} fileUrl={fileUrl} />}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           onClick={openAddPicker}

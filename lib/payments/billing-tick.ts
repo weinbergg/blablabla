@@ -49,7 +49,7 @@ export async function runBillingTick() {
   const summary = { reminded: 0, charged: 0, failed: 0, skipped: 0 };
 
   for (const row of rows) {
-    if (!row.expiresAt || row.period === "lifetime") continue;
+    if (!row.expiresAt || row.period === "lifetime" || row.planSlug === "trial") continue;
     const left = daysUntil(row.expiresAt);
     const remindAfter = row.period === "year" ? 7 : 1;
 
@@ -74,7 +74,12 @@ export async function runBillingTick() {
     }
 
     const plan = await getPlanBySlug(row.planSlug);
-    const amount = row.period === "year" ? plan?.priceYearly : plan?.priceMonthly;
+    const amount =
+      row.period === "year"
+        ? plan?.priceYearly
+        : row.period === "week"
+          ? plan?.priceWeekly
+          : plan?.priceMonthly;
     if (!plan || !amount) {
       summary.skipped += 1;
       continue;

@@ -1,3 +1,4 @@
+import { featureDenied } from "@/lib/features";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getEntitlements } from "@/lib/db/billing";
@@ -8,6 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const featureBlock = await featureDenied(["channels","channel_creation"]); if (featureBlock) return featureBlock;
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Нужно войти" }, { status: 401 });
