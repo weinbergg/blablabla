@@ -98,8 +98,10 @@ function preflight() {
   const proof = json(PROOF);
   check(proof.ready === true && proof.contentPreserved === true && proof.bootstrap?.unchanged === true && proof.applied?.length === 4, 'Successful owner rehearsal report is required');
   check(proof.sourcePath === `${PRIVATE}/blabla-backup-DkuxrS/backup.db`, 'Unexpected rehearsal source');
+  // A Git checkout can use the uploaded artifact without generating a new build/kit.
   // No dependencies from the writable test instance are executed as root.
-  const expected = json(`${TOOL_ROOT}/release-kit.json`).migrationPlan;
+  const planFile = fs.existsSync(`${TOOL_ROOT}/release-kit.json`) ? `${TOOL_ROOT}/release-kit.json` : `${TOOL_ROOT}/deploy/release-plan.json`;
+  const expected = json(planFile).migrationPlan;
   check(JSON.stringify(proof.migrationPlan) === JSON.stringify(expected), 'Rehearsal migration checksums differ from this package');
   const disk = fs.statfsSync(PRIVATE);
   check(disk.bavail * disk.bsize > 2 * 1024 ** 3, 'At least 2 GiB of free disk is required for the staged release');

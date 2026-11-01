@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { isTable } from "drizzle-orm";
@@ -12,6 +13,13 @@ import { migrate, migrations } from "../lib/db/migrations";
 import { legacyBaseline } from "../lib/db/legacy-baseline";
 import { applyReviewedMigration } from "../lib/db/release-transaction";
 import captured from "./fixtures/production-schema-20261029.json";
+import releasePlan from "../deploy/release-plan.json";
+
+test("committed release plan matches the exact migration SQL used by the release runner", () => {
+  assert.deepEqual(releasePlan.migrationPlan, [legacyBaseline, ...migrations.map(m => ({
+    id: m.id, checksum: createHash("sha256").update(m.sql).digest("hex"),
+  }))]);
+});
 
 function populate(db: Database.Database) {
   db.pragma("foreign_keys=OFF");

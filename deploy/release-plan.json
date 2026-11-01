@@ -1,0 +1,22 @@
+{
+  "purpose": "Owner-operated release using the already-uploaded Linux artifact",
+  "artifactSha256": "6c51386d60a4d7cdc989c699189a46b4dbca4966948c05b39c4bcfa27edc532d",
+  "migrationPlan": [
+    {
+      "id": "20261029_00_legacy_baseline",
+      "checksum": "89e4b0942b95508d80a814e9978bcb5c23b6c80c9c78f47adbfc9192ae7effd9"
+    },
+    {
+      "id": "20261020_01_channel_publications",
+      "checksum": "f69ab5e3e506ea88fc6de0ae9fb88ff8dde8c270c973cf424641506c639a14a7"
+    },
+    {
+      "id": "20261020_02_reading_rooms",
+      "checksum": "91e96f9930d880963351f97c5d5c987bf278c2c6eea509d0230e09a32ab3fef8"
+    },
+    {
+      "id": "20261021_03_forum_reading_context",
+      "checksum": "f80e821f34745f51a332a15b5ad36d899fd51636880437456ae3fa3fc586564a"
+    }
+  ]
+}
