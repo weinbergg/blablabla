@@ -24,7 +24,9 @@ function save(state) {
   fs.renameSync(temp, STATE);
 }
 function safeEnvironment(env) {
-  return Object.fromEntries(Object.entries(env).filter(([key, value]) => /^[A-Z_][A-Z0-9_]*$/.test(key) && !/^(PM2_|NODE_APP_INSTANCE$)/.test(key) && typeof value === 'string'));
+  // /proc/<pid>/environ includes Node's original IPC descriptors even after Node
+  // removes them from process.env. A new child must not reuse the old PM2 pipe.
+  return Object.fromEntries(Object.entries(env).filter(([key, value]) => /^[A-Z_][A-Z0-9_]*$/.test(key) && !/^(PM2_|NODE_APP_INSTANCE$|NODE_CHANNEL_FD$|NODE_CHANNEL_SERIALIZATION_MODE$)/.test(key) && typeof value === 'string'));
 }
 function processConfig(app, cwd) {
   const e = app.pm2_env;
@@ -285,6 +287,7 @@ function restoreCode(state) {
   state.phase = 'rolled-back'; save(state);
 }
 async function apply() {
+  check(fs.existsSync(STATE), 'Update is not prepared: --prepare must finish with UPDATE_PREPARED first; production has not been stopped');
   const state = json(STATE);
   check(state.phase === 'prepared', 'Update is not prepared; use --status');
   const app = preflight();

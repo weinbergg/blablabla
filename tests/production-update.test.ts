@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 const require = createRequire(import.meta.url);
 const { processConfig, appendStatic, memoryForBuild } = require("../deploy/production-update.cjs");
 
@@ -18,6 +19,7 @@ test("VPS build refuses missing or inadequate memory and swap before stopping pr
 test("PM2 switch preserves billing/session environment and changes only the approved application", () => {
   const original = { pm2_env: { exec_mode: "fork_mode", exec_interpreter: "/usr/bin/node", args: ["start"], env: {
     NODE_ENV: "production", YOOKASSA_SECRET_KEY: "synthetic-secret", SESSION_SECRET: "synthetic-session", PORT: "3000", PM2_HOME: "/root/.pm2", pm_id: "0",
+    NODE_CHANNEL_FD: "3", NODE_CHANNEL_SERIALIZATION_MODE: "json",
   }, node_args: ["--max-old-space-size=640"], kill_timeout: 8000 } };
   const copy = structuredClone(original), config = processConfig(original, "/private/release");
   assert.deepEqual(original, copy);
@@ -25,8 +27,40 @@ test("PM2 switch preserves billing/session environment and changes only the appr
   assert.equal(config.apps[0].env.YOOKASSA_SECRET_KEY, "synthetic-secret");
   assert.equal(config.apps[0].env.SESSION_SECRET, "synthetic-session");
   assert.equal(config.apps[0].env.PM2_HOME, undefined);
+  assert.equal(config.apps[0].env.NODE_CHANNEL_FD, undefined);
+  assert.equal(config.apps[0].env.NODE_CHANNEL_SERIALIZATION_MODE, undefined);
   assert.deepEqual(config.apps[0].args, ["start", "--hostname", "127.0.0.1", "--port", "3000"]);
   assert.deepEqual(config.apps[0].node_args, original.pm2_env.node_args);
+});
+
+test("environment probe loads Next env without inheriting the running application's IPC channel", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "blabla-release-env-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, ".env.local"), "DATABASE_PATH=data/app.db\nFILE_SERVE_MODE=xaccel\nSESSION_SECRET=dotenv-fallback\n");
+  const config = processConfig({ pm2_env: { exec_mode: "fork_mode", exec_interpreter: "/usr/bin/node", env: {
+    NODE_ENV: "production", NODE_CHANNEL_FD: "3", NODE_CHANNEL_SERIALIZATION_MODE: "json", SESSION_SECRET: "synthetic-current-session",
+  } } }, root);
+  const run = spawnSync(process.execPath, ["-e", `
+    if (process.send || process.channel) process.exit(21);
+    require(${JSON.stringify(require.resolve("@next/env"))}).loadEnvConfig(process.cwd(), false, { info(){}, error(){ process.exit(22); } });
+    if (process.env.SESSION_SECRET !== 'synthetic-current-session') process.exit(23);
+    console.log(JSON.stringify({database:process.env.DATABASE_PATH, files:process.env.FILE_SERVE_MODE}));
+  `], { cwd: root, env: config.apps[0].env, encoding: "utf8", timeout: 10000 });
+  assert.equal(run.status, 0, `probe failed: ${run.signal || run.status}`);
+  assert.deepEqual(JSON.parse(run.stdout), { database: "data/app.db", files: "xaccel" });
+});
+
+test("apply without a completed preparation refuses before any process or database operation", async () => {
+  let reads = 0, commands = 0;
+  const loaded = { exports: {} as { apply: () => Promise<void> } };
+  const fakeRequire = (name: string) => {
+    if (name === "node:fs") return { existsSync: () => false, readFileSync: () => { reads++; } };
+    if (name === "node:child_process") return { spawnSync: () => { commands++; } };
+    return require(name);
+  };
+  vm.runInNewContext(fs.readFileSync("deploy/production-update.cjs", "utf8") + "\nmodule.exports.apply = apply;", { require: fakeRequire, module: loaded, __dirname: path.resolve("deploy"), process, console });
+  await assert.rejects(loaded.exports.apply(), /UPDATE_PREPARED first/);
+  assert.equal(reads, 0); assert.equal(commands, 0);
 });
 
 test("static publication keeps old chunks, uses readable new directories and rejects collisions/symlinks", t => {
@@ -78,6 +112,7 @@ for (const failure of ["backup", "migration", "start", null]) test(`release ${fa
   const calls: string[] = [], writes: string[] = [];
   const fakeRequire = (name: string) => {
     if (name === "node:fs") return {
+      existsSync: () => true,
       readFileSync: (file: string) => file.endsWith("pm2.pid") ? "99" : file === state.oldConfig ? JSON.stringify(processConfig(original, "/var/www/blabla")) : JSON.stringify(state),
       writeFileSync: (file: string, value: string) => { writes.push(file); saved = JSON.parse(value); },
       renameSync: (from: string, to: string) => writes.push(from, to),

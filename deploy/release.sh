@@ -27,6 +27,7 @@ case "${1:-}" in
     # systemd owns the operation: an SSH disconnect does not interrupt the switch.
     # flock releases on process exit, including OOM/SIGKILL; no stale PID locks.
     result=0
+    BLABLA_RELEASE_SINCE="$(date --iso-8601=seconds)"
     systemd-run --unit=blabla-release-operation --collect --wait \
       --property=Type=exec --property=UMask=0077 \
       --property="MemoryMax=$BLABLA_RELEASE_MEMORY" --property="MemorySwapMax=$BLABLA_RELEASE_SWAP" \
@@ -35,7 +36,7 @@ case "${1:-}" in
       /usr/bin/flock --nonblock /srv/blabla-release-qhq2Vhh0/production-update.lock \
       /usr/bin/env -i PATH=/usr/bin:/bin PM2_HOME=/root/.pm2 BLABLA_RELEASE_LOCKED=1 \
       /usr/bin/node deploy/production-update.cjs "$@" || result=$?
-    journalctl -u blabla-release-operation -n 12 --no-pager
+    journalctl -u blabla-release-operation --since "$BLABLA_RELEASE_SINCE" -n 12 --no-pager
     exit "$result"
     ;;
 esac
